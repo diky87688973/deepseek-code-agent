@@ -4,7 +4,7 @@
 
 在各 cli_*.py 与 orch 入口最早调用 ``install_stdio_utf8()``，降低 Windows 管道与中文 JSON 乱码概率。
 
-约定：工具库与 Code Web Agent 的源文件、清单、提示词及 request/payload 等落盘文本一律 UTF-8。若某处对子进程输出尝试 gbk/gb18030 解码，仅为兼容不可控字节，不改变上述约定。
+约定：工具库与 Code Agent 的源文件、清单、提示词及 request/payload 等落盘文本一律 UTF-8。若某处对子进程输出尝试 gbk/gb18030 解码，仅为兼容不可控字节，不改变上述约定。
 """
 
 from __future__ import annotations

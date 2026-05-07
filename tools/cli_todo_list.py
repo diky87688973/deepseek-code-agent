@@ -135,7 +135,7 @@ def _do_close(list_id: str) -> dict:
 
 
 def _do_query(list_id: str) -> dict:
-    """无活跃清单：ok、data null；有则返回当前 items 数组（Code Web Agent 会按会话覆盖此逻辑）。"""
+    """无活跃清单：ok、data null；有则返回当前 items 数组（Code Agent 会按会话覆盖此逻辑）。"""
     lid = str(list_id or "").strip()
     if not _TODO_LISTS:
         return {"ok": True, "data": None, "error": None}

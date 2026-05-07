@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""可选：用户明确要求由模型代为切换 Auto/Plan/Execute 时调用；由 code_web_agent 内联处理并更新会话。"""
+"""可选：用户明确要求由模型代为切换 Auto/Plan/Execute 时调用；由 agent 内联处理并更新会话。"""
 from __future__ import annotations
 
 import argparse

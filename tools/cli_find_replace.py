@@ -37,7 +37,7 @@ import re
 from pathlib import Path
 from cli_help_share import _capture_help, _HelpFulParser
 
-# 与 code_web_agent._CHAT_DIFF_BODY_MAX 对齐：控制 diff 正文体积，避免 JSON 与聊天侧暴涨
+# 与 agent._CHAT_DIFF_BODY_MAX 对齐：控制 diff 正文体积，避免 JSON 与聊天侧暴涨
 _DIFF_MARKDOWN_BODY_MAX = 16000
 
 

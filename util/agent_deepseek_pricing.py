@@ -67,7 +67,7 @@ def _fetch_rows() -> Optional[List[Tuple[float, float]]]:
     try:
         req = urllib.request.Request(
             PRICING_URL,
-            headers={"User-Agent": "code-web-agent-pricing/1.0"},
+            headers={"User-Agent": "deepseek-code-agent-pricing/1.0"},
             method="GET",
         )
         with urllib.request.urlopen(req, timeout=25) as resp:

@@ -13,7 +13,7 @@ TOOL_AGENT_SYSTEM_PROMPT: str = (
     "\n 5.replace_literal 的 payload 必须含 type=replace_literal，且只能使用键名 oldText、newText（禁止虚构键名）。"
     "\n 6.读取整个文件必须使用 payload={type:extract,mode:offsets,start:0,end:-1}，不要先自回归生成 text。"
     "\n 6b.写新文件优先使用 cli_structured_edit + payload={type:append,text:...}（文件不存在时自动创建）；也可用 append_line（自动补换行）或 cli_python_inline。避免使用 insert（需行列参数，空文件仅允许 startLine=1,startColumn=1）或 replace_range（空文件可行但语义不直观）。"
-    "\n 7.确需 payloadFile/requestFile 落盘时：必须放在「工具库」下 temp/ 子目录（与 code_web_agent.py 同级），禁止在工具库根目录或其它源码旁堆放 _p1.json、_pl_*.json 等固定或易冲突名；文件名须唯一（建议日期时间+随机串或 UUID 后缀）；优先 --payloadStdin/--requestStdin 或短 JSON 的 --payload/--requestJson 避免落盘；一次性辅助 JSON 用完后立即通过 cli_file_ops 等工具删除。"
+    "\n 7.确需 payloadFile/requestFile 落盘时：必须放在用户临时目录中下，禁止在工具库根目录或其它源码旁堆放 _p1.json、_pl_*.json 等固定或易冲突名；文件名须唯一（建议日期时间+随机串或 UUID 后缀）；优先 --payloadStdin/--requestStdin 或短 JSON 的 --payload/--requestJson 避免落盘；一次性辅助 JSON 用完后立即通过 cli_file_ops 等工具删除。"
     "\n 8.每次发起 function call 时应尽量填写 step_title：一句中文简述本次调用用途（建议≤40字），将显用于步骤主标题；仅当无法概括时可省略。"
     "\n 9.任务预计超过2步且存在先后依赖时，优先调用 cli_orch_dispatch 进行编排，而不是离散多次调用。"
     "\n 10.回答要直达目标，避免空话。每次模型分析回应时禁止以'好的'、'好'等口头禅或冒号等等待标识开场；直接输出分析结论与下一步行动，说完步骤主题后直接开始工具调用，不要以冒号结尾。"

@@ -1,4 +1,4 @@
-# Code Web Agent v1
+# DeepSeek Code Agent v1
 
 > 基于 WEB 浏览器的 AI 桌面助手，内嵌 20+ 工具，通过对话完成文件编辑、代码诊断、Git 查询、Web 抓取等复杂任务。
 
@@ -15,7 +15,7 @@ pip install -r requirements.txt
 # 3. 启动
 #    Windows：双击 start.bat
 #    Linux：  chmod +x start.sh && ./start.sh
-#    或直接： python code_web_agent.py
+#    或直接： python deepseek_code_agent.py
 ```
 
 启动后浏览器访问 `http://127.0.0.1:8808` 即可开始对话。
@@ -57,7 +57,7 @@ pip install -r requirements.txt
 
 将常用文档放入知识库目录，对话时勾选即可让 AI 参考：
 
-1. 在 `config.json` 中配置 `KNOWLEDGE_BASE_DIR`（如 `D:/AI_DATA_ROOT/knowledge_base`）
+1. 在 `config.json` 中配置 `AGENT_KNOWLEDGE_BASE_DIR`（如 `D:/AI_DATA_ROOT/knowledge_base`）
 2. 往该目录放入 `.md`、`.txt`、`.py`、`.json` 等文本文件
 3. 在界面右侧「📚 知识库」面板勾选本次对话需要的文件
 4. AI 自动将文件内容作为参考上下文
@@ -89,20 +89,21 @@ pip install -r requirements.txt
 ## 目录结构
 
 ```
-code-web-agent/
-├── code_web_agent.py           # 服务端主程序（FastAPI）
+deepseek-code-agent/
+├── deepseek_code_agent.py      # 服务端主程序（FastAPI）
 ├── main_tray.py                # 系统托盘启动器
 ├── config.json                 # 配置文件（API Key / 端口 / 路径）
 ├── requirements.txt            # Python 依赖
 ├── start.bat                   # Windows 一键启动（自动提权 + ACL 防篡改）
 ├── start.sh                    # Linux/macOS 一键启动
-├── PROJECT_GUIDE.md            # 完整项目指南
-├── 里程碑计划.md                 # 版本演进与路线图
-├── 项目安全分析报告.md             # 数据安全分析
+├── README.md                   # 完整项目指南
+├── 里程碑计划.md               # 版本演进与路线图
+├── 项目安全分析报告.md         # 数据安全分析
 │
 ├── res/
-│   ├── css/code-web-agent-ui.css
-│   ├── js/code-web-agent-ui.js
+│   ├── html/agent-ui.html
+│   ├── css/agent-ui.css
+│   ├── js/agent-ui.js
 │   └── img/
 │       ├── app_icon_128x128.png
 │       └── app_icon_16x16.png
@@ -129,23 +130,23 @@ code-web-agent/
 
 ```json
 {
-    "CODE_WEB_AGENT_CHAT_API_BASE_URL": "https://api.deepseek.com",
-    "CODE_WEB_AGENT_CHAT_API_KEY": "sk-你的API密钥",
-    "CODE_WEB_AGENT_SERVER_PORT": 8808,
-    "CODE_WEB_AGENT_WORKSPACE_DIR": "D:/workspace",
-    "CODE_WEB_AGENT_DATA_DIR": "D:/AI_DATA_ROOT",
-    "KNOWLEDGE_BASE_DIR": "D:/AI_DATA_ROOT/knowledge_base"
+    "AGENT_MODEL_API_BASE_URL": "https://api.deepseek.com",
+    "AGENT_MODEL_API_KEY": "sk-你的API密钥",
+    "AGENT_SERVER_PORT": 8808,
+    "AGENT_WORKSPACE_DIR": "D:/workspace",
+    "AGENT_DATA_ROOT_DIR": "D:/AI_DATA_ROOT",
+    "AGENT_KNOWLEDGE_BASE_DIR": "D:/AI_DATA_ROOT/knowledge_base"
 }
 ```
 
 | 配置项 | 说明 | 必填 |
 |--------|------|------|
-| `CODE_WEB_AGENT_CHAT_API_KEY` | API 密钥 | **必填** |
-| `CODE_WEB_AGENT_SERVER_PORT` | 服务端口 | **必填** |
-| `CODE_WEB_AGENT_CHAT_API_BASE_URL` | API 地址，默认 DeepSeek | 可选 |
-| `CODE_WEB_AGENT_WORKSPACE_DIR` | 默认工作目录 | 可选，默认桌面 |
-| `CODE_WEB_AGENT_DATA_DIR` | 数据存储目录 | 可选，默认 `~/AI_DATA_ROOT` |
-| `KNOWLEDGE_BASE_DIR` | 知识库目录 | 可选 |
+| `AGENT_MODEL_API_KEY` | API 密钥 | **必填** |
+| `AGENT_SERVER_PORT` | 服务端口 | **必填** |
+| `AGENT_MODEL_API_BASE_URL` | API 地址，默认 DeepSeek | 可选 |
+| `AGENT_WORKSPACE_DIR` | 默认工作目录 | 可选，默认桌面 |
+| `AGENT_DATA_ROOT_DIR` | 数据存储目录 | 可选，默认 `~/AI_DATA_ROOT` |
+| `AGENT_KNOWLEDGE_BASE_DIR` | 知识库目录 | 可选 |
 
 > 优先级：`config.json` > 环境变量 > 代码默认值
 
@@ -199,7 +200,7 @@ code-web-agent/
 
 | 问题 | 原因 | 解决 |
 |------|------|------|
-| 启动报错 `PORT 未设置` | config.json 缺少端口 | 配置 `CODE_WEB_AGENT_SERVER_PORT` |
+| 启动报错 `PORT 未设置` | config.json 缺少端口 | 配置 `AGENT_SERVER_PORT` |
 | 页面打不开 | 服务未启动或端口被占用 | 检查控制台日志，确认端口未被占用 |
 | API 返回 502 | API Key 无效或网络不通 | 检查 `CHAT_API_KEY` 和网络连接 |
 | Linux 下 `./start.sh` 无法运行 | 文件无执行权限 | 执行 `chmod +x start.sh` |
@@ -208,4 +209,4 @@ code-web-agent/
 
 ---
 
-> 文档版本：v1  |  更新于 2026 年
+> 文档版本：v1  |  更新于：2026 年  |  作者：Fan

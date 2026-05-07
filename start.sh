@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Code Web Agent v1 - Linux/macOS 快速启动脚本
+# DeepSeek Code Agent v1 - Linux/macOS 快速启动脚本
 
 set -e
 
-APP_NAME="Code Web Agent v1"
+APP_NAME="DeepSeek Code Agent v1"
 
 cat <<'EOF'
 
  ╔══════════════════════════════════════╗
- ║      Code Web Agent v1  快速启动      ║
+ ║   DeepSeek Code Agent v1  快速启动   ║
  ╚══════════════════════════════════════╝
 
 EOF
@@ -65,7 +65,7 @@ fi
 
 echo "[信息] 正在启动 $APP_NAME ..."
 echo "[信息] 托盘功能仅 Windows 支持，Linux/macOS 将直接启动 Web 服务"
-echo "[信息] 服务启动后请访问 http://127.0.0.1:8802"
+echo "[信息] 服务启动后请访问 http://127.0.0.1:8801"
 echo "[信息] 按 Ctrl+C 即可停止服务"
 echo ""
 

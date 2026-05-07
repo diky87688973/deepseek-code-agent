@@ -2,7 +2,7 @@
 chcp 65001 >nul
 setlocal enabledelayedexpansion
 
-title Code Web Agent
+title DeepSeek Code Agent
 
 :: ── 自动提权：ACL 安全锁需要管理员权限 ──
 :: 用 whoami 检查管理员组 SID，比 net session 更可靠
@@ -14,11 +14,11 @@ if !errorlevel! neq 0 (
 )
 
 echo.
-echo === Code Web Agent v1 快速启动 ===
+echo === DeepSeek Code Agent v1 快速启动 ===
 echo.
 
 :: ── 从 config.json 读取端口 ──
-for /f "tokens=2 delims=:," %%a in ('findstr /i "CODE_WEB_AGENT_SERVER_PORT" config.json 2^>nul') do (
+for /f "tokens=2 delims=:," %%a in ('findstr /i "AGENT_SERVER_PORT" config.json 2^>nul') do (
     set PORT=%%a
     set PORT=!PORT: =!
 )
@@ -64,7 +64,7 @@ if !errorlevel! neq 0 (
     echo [信息] 依赖安装完成
 )
 
-echo [信息] 正在启动 Code Web Agent, 请稍候...
+echo [信息] 正在启动 DeepSeek Code Agent, 请稍候...
 echo.
 
 python main_tray.py

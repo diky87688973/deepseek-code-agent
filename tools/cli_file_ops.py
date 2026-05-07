@@ -18,7 +18,7 @@ CLI 文件操作工具
 ----
 - 可选 `--root`：若指定，`--source` / `--dest` 解析后须均落在该根目录之下（防止误操作越界）。
 - 可选 `--dryRun`：只返回将执行的操作描述，不写盘。
-- **delete**：默认移入 `BUILTIN_RECYCLE_ROOT`（C:/AI_DATA_ROOT/AI_安全删除回收站，改常量或环境变量 CODE_WEB_AGENT_RECYCLE_ROOT 即可调整）；路径已在回收站下时 **purge** 为物理删除。勿对回收站根目录本身执行 delete。
+- **delete**：默认移入 `BUILTIN_RECYCLE_ROOT`（C:/AI_DATA_ROOT/AI_安全删除回收站，改常量或环境变量 AGENT_RECYCLE_ROOT 即可调整）；路径已在回收站下时 **purge** 为物理删除。勿对回收站根目录本身执行 delete。
 """
 
 from __future__ import annotations
@@ -61,7 +61,14 @@ def _ensure_under_root(root: Path, p: Path) -> None:
 def _parse_paths(args: argparse.Namespace) -> tuple[Path | None, Path, Path | None]:
     root = Path(args.root).resolve() if args.root else None
     src = Path(args.source).expanduser().resolve()
-    dest = Path(args.dest).expanduser().resolve() if args.dest else None
+    dest = None
+    if args.dest:
+        raw = Path(args.dest).expanduser()
+        if raw.is_absolute():
+            dest = raw.resolve()
+        else:
+            # 相对路径：相对于 source 的父目录解析（rename/move/copy 均适用）
+            dest = (src.parent / raw).resolve()
     if root is not None:
         _ensure_under_root(root, src)
         if dest is not None:
@@ -70,8 +77,8 @@ def _parse_paths(args: argparse.Namespace) -> tuple[Path | None, Path, Path | No
 
 
 def _recycle_bin_root() -> Path:
-    """回收站根目录：优先环境变量 CODE_WEB_AGENT_RECYCLE_ROOT，否则硬编码默认值"""
-    env = os.environ.get("CODE_WEB_AGENT_RECYCLE_ROOT", "").strip()
+    """回收站根目录：优先环境变量 AGENT_RECYCLE_ROOT，否则硬编码默认值"""
+    env = os.environ.get("AGENT_RECYCLE_ROOT", "").strip()
     if env:
         return Path(env)
     return Path(BUILTIN_RECYCLE_ROOT)

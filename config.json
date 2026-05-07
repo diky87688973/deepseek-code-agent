@@ -1,11 +1,11 @@
 {
     "_note": "此文件位于项目根目录，与 main_tray.py 同级；也可通过同名环境变量覆盖配置",
     "_priority": "配置优先级: config.json(非空值) > 环境变量 > 代码默认值（环境变量中的空值会被配置文件覆盖）",
-    "CODE_WEB_AGENT_CHAT_API_BASE_URL": "https://api.deepseek.com",
-    "CODE_WEB_AGENT_CHAT_API_KEY": "你的DeepSeek API KEY",
-    "CODE_WEB_AGENT_SERVER_PORT": 8808,
-    "CODE_WEB_AGENT_WORKSPACE_DIR": "D:/FanFiles/workspace",
-    "CODE_WEB_AGENT_DATA_DIR": "D:/AI_DATA_ROOT",
-    "KNOWLEDGE_BASE_DIR": "D:/AI_DATA_ROOT/knowledge_base",
-    "CODE_WEB_AGENT_SESSION_ENCRYPTION" : "auto"
+    "AGENT_MODEL_API_BASE_URL": "https://api.deepseek.com",
+    "AGENT_MODEL_API_KEY": "你的 DeepSeek API KEY",
+    "AGENT_SERVER_PORT": 8801,
+    "AGENT_WORKSPACE_DIR": "D:/FanFiles/workspace",
+    "AGENT_DATA_ROOT_DIR": "D:/AI_DATA_ROOT",
+    "AGENT_KNOWLEDGE_BASE_DIR": "D:/AI_DATA_ROOT/knowledge_base",
+    "AGENT_SESSION_ENCRYPTION" : "auto"
 }

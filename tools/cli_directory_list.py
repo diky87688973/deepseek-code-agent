@@ -146,7 +146,7 @@ def agent_main(
     limit: int = 200,
     no_gitignore: bool = False,
 ) -> dict:
-    """供进程内（如 code_web_agent）直接调用；返回与 CLI ``--jsonOut`` 相同的外层结构（字典）。"""
+    """供进程内（如 agent）直接调用；返回与 CLI ``--jsonOut`` 相同的外层结构（字典）。"""
     try:
         if limit <= 0:
             raise ValueError("limit 必须 > 0")

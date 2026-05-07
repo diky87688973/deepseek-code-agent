@@ -4,11 +4,11 @@
 配置加载器 — 优先级：配置文件 > 环境变量 > 内置默认值
 
 配置项映射：
-  config.json 键名               →  环境变量名           →  代码默认值
-  CODE_WEB_AGENT_CHAT_API_BASE_URL →  CHAT_API_BASE_URL   →  https://api.deepseek.com
-  CODE_WEB_AGENT_CHAT_API_KEY      →  CHAT_API_KEY        →  (空字符串)
-  CODE_WEB_AGENT_SERVER_PORT       →  PORT                →  (必须配置，无默认值)
-  CODE_WEB_AGENT_WORKSPACE_DIR     →  WORKSPACE_DIR       →  用户桌面（跨平台）
+  config.json 键名         →  环境变量名          →  代码默认值
+  AGENT_MODEL_API_BASE_URL →  CHAT_API_BASE_URL   →  https://api.deepseek.com
+  AGENT_MODEL_API_KEY      →  CHAT_API_KEY        →  (空字符串)
+  AGENT_SERVER_PORT        →  PORT                →  (必须配置，无默认值)
+  AGENT_WORKSPACE_DIR      →  WORKSPACE_DIR       →  用户桌面（跨平台）
 
 搜索路径（按优先级）：
   1. 可执行文件同级目录（PyInstaller 打包后）
@@ -34,29 +34,29 @@ def _default_data_root() -> str:
 
 # 配置键 → 环境变量名映射
 CONFIG_TO_ENV_MAP = {
-    "CODE_WEB_AGENT_CHAT_API_BASE_URL": "CHAT_API_BASE_URL",
-    "CODE_WEB_AGENT_CHAT_API_KEY": "CHAT_API_KEY",
-    "CODE_WEB_AGENT_SERVER_PORT": "PORT",
-    "CODE_WEB_AGENT_WORKSPACE_DIR": "WORKSPACE_DIR",
-    "CODE_WEB_AGENT_DATA_DIR": "CODE_WEB_AGENT_DATA_DIR",
+    "AGENT_MODEL_API_BASE_URL": "CHAT_API_BASE_URL",
+    "AGENT_MODEL_API_KEY": "CHAT_API_KEY",
+    "AGENT_SERVER_PORT": "PORT",
+    "AGENT_WORKSPACE_DIR": "WORKSPACE_DIR",
+    "AGENT_DATA_ROOT_DIR": "AGENT_DATA_ROOT_DIR",
     "UNLOCK_CODE_UPDATE": "UNLOCK_CODE_UPDATE",
-    "KNOWLEDGE_BASE_DIR": "KNOWLEDGE_BASE_DIR",
+    "AGENT_KNOWLEDGE_BASE_DIR": "AGENT_KNOWLEDGE_BASE_DIR",
 }
 
 # 仅应用内部读取，不写入环境变量，避免把应用配置扩散到进程环境。
 CONFIG_ONLY_DEFAULTS = {
-    "CODE_WEB_AGENT_SESSION_ENCRYPTION": "auto",
-    "CODE_WEB_AGENT_SESSION_KEY_FILE": "",
+    "AGENT_SESSION_ENCRYPTION": "auto",
+    "AGENT_SESSION_KEY_FILE": "",
 }
 
 # 配置项默认值（当配置文件和环境变量均未设置时使用）
 DEFAULT_VALUES = {
-    "CODE_WEB_AGENT_CHAT_API_BASE_URL": "https://api.deepseek.com",
-    "CODE_WEB_AGENT_CHAT_API_KEY": "",
-    "CODE_WEB_AGENT_WORKSPACE_DIR": _default_workspace(),
-    "CODE_WEB_AGENT_DATA_DIR": _default_data_root(),
+    "AGENT_MODEL_API_BASE_URL": "https://api.deepseek.com",
+    "AGENT_MODEL_API_KEY": "",
+    "AGENT_WORKSPACE_DIR": _default_workspace(),
+    "AGENT_DATA_ROOT_DIR": _default_data_root(),
     "UNLOCK_CODE_UPDATE": False,
-    "KNOWLEDGE_BASE_DIR": "",
+    "AGENT_KNOWLEDGE_BASE_DIR": "",
 }
 
 # 对应环境变量的默认值（代码中的硬编码默认值）
@@ -76,7 +76,7 @@ def _find_config_file() -> Optional[Path]:
         # PyInstaller 打包后：exe 同级目录
         candidates.append(Path(sys.executable).resolve().parent / "config.json")
     else:
-        # 源码运行：main_tray.py 或 code_web_agent.py 同级
+        # 源码运行：main_tray.py 或 deepseek_code_agent.py 同级
         main_script = Path(sys.argv[0]).resolve().parent if sys.argv and sys.argv[0] else None
         if main_script and main_script.is_dir():
             candidates.append(main_script / "config.json")
@@ -144,7 +144,7 @@ def load_config(verbose: bool = True) -> dict:
             if cfg_key in file_cfg:
                 val = file_cfg[cfg_key]
                 # WORKSPACE_DIR 允许空字符串（使用默认桌面）
-                if cfg_key == "CODE_WEB_AGENT_WORKSPACE_DIR":
+                if cfg_key == "AGENT_WORKSPACE_DIR":
                     if val is not None and str(val).strip():
                         result[cfg_key] = str(val).strip()
                 else:
@@ -195,8 +195,8 @@ if __name__ == "__main__":
     # 命令行直接运行：测试配置加载
     cfg = load_config(verbose=True)
     print(f"\n配置摘要：")
-    print(f"  BASE_URL: {cfg.get('CODE_WEB_AGENT_CHAT_API_BASE_URL')}")
-    has_key = bool(cfg.get('CODE_WEB_AGENT_CHAT_API_KEY'))
+    print(f"  BASE_URL: {cfg.get('AGENT_MODEL_API_BASE_URL')}")
+    has_key = bool(cfg.get('AGENT_MODEL_API_KEY'))
     print(f"  API_KEY: {'已设置 ✓' if has_key else '未设置 ✗'}")
-    print(f"  PORT: {cfg.get('CODE_WEB_AGENT_SERVER_PORT')}")
-    print(f"  WORKSPACE_DIR: {cfg.get('CODE_WEB_AGENT_WORKSPACE_DIR')}")
+    print(f"  PORT: {cfg.get('AGENT_SERVER_PORT')}")
+    print(f"  WORKSPACE_DIR: {cfg.get('AGENT_WORKSPACE_DIR')}")

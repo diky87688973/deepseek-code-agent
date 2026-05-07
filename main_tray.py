@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Code Web Agent - 系统托盘启动器
+DeepSeek Code Agent - 系统托盘启动器
 
 功能：
  - 后台启动 FastAPI + uvicorn Web 服务（端口 8801）
@@ -33,7 +33,7 @@ def _lock_single_instance():
         return  # 绑定成功，本实例持有锁
     except OSError:
         # 端口已被占用，说明已有实例
-        _show_message("Code Web Agent 已在运行中\n请在系统托盘中查找图标")
+        _show_message("DeepSeek Code Agent 已在运行中\n请在系统托盘中查找图标")
         sys.exit(0)
 
 def _show_message(text: str):
@@ -62,18 +62,18 @@ os.chdir(str(BASE_DIR))
 sys.path.insert(0, str(BASE_DIR))
 
 # ── DATA_ROOT：可写数据目录，默认 ~/AI_DATA_ROOT（用户目录下）──
-_dr = os.environ.get("CODE_WEB_AGENT_DATA_DIR", "").strip()
+_dr = os.environ.get("AGENT_DATA_ROOT_DIR", "").strip()
 if _dr:
     DATA_ROOT = Path(_dr).resolve()
 else:
     DATA_ROOT = Path.home() / "AI_DATA_ROOT"
 # 向环境变量写入回收站路径（供 cli_file_ops 等工具读取）
-os.environ.setdefault("CODE_WEB_AGENT_RECYCLE_ROOT", str(DATA_ROOT / "AI_安全删除回收站"))
+os.environ.setdefault("AGENT_RECYCLE_ROOT", str(DATA_ROOT / "AI_安全删除回收站"))
 
 HOST = os.environ.get("HOST", "127.0.0.1")
 port_str = os.environ.get("PORT")
 if not port_str:
-    print("FATAL: PORT 未设置！请在 config.json 中配置 CODE_WEB_AGENT_SERVER_PORT", flush=True)
+    print("FATAL: PORT 未设置！请在 config.json 中配置 AGENT_SERVER_PORT", flush=True)
     sys.exit(1)
 PORT = int(port_str)
 SERVER_URL = f"http://{HOST}:{PORT}"
@@ -136,8 +136,8 @@ def _check_remote_version():
     try:
         import urllib.request
         import json
-        url = "https://api.github.com/repos/Fan/CodeWebAgent/releases/latest"
-        req = urllib.request.Request(url, headers={"User-Agent": "CodeWebAgent"})
+        url = "https://api.github.com/repos/Fan/DeepSeekCodeAgent/releases/latest"
+        req = urllib.request.Request(url, headers={"User-Agent": "DeepSeekCodeAgent"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             remote_ver = data.get("tag_name", "") or data.get("name", "")
@@ -164,7 +164,7 @@ def start_server():
     global uvicorn_server
     _log("正在启动 uvicorn 服务器...")
     import uvicorn
-    from code_web_agent import app
+    from deepseek_code_agent import app
     try:
         # log_config=None 禁用 uvicorn 默认日志配置（兼容 --noconsole 无控制台环境）
         config = uvicorn.Config(app, host=HOST, port=PORT, log_config=None, reload=False)
@@ -212,7 +212,7 @@ def create_tray_icon():
         pystray.MenuItem("\u274c \u9000\u51fa\u670d\u52a1", on_exit),
     )
 
-    icon = pystray.Icon("code_web_agent", img, "Code Web Agent v1\n\u540e\u53f0 AI \u670d\u52a1\u8fd0\u884c\u4e2d", menu)
+    icon = pystray.Icon("deepseek_code_agent", img, "DeepSeek Code Agent v1\n\u540e\u53f0 AI \u670d\u52a1\u8fd0\u884c\u4e2d", menu)
     return icon
 
 
@@ -243,7 +243,7 @@ def on_exit(icon, item=None):
 
 def main():
     import time
-    _log(f"启动 Code Web Agent v1")
+    _log(f"启动 DeepSeek Code Agent v1")
     _log(f"服务器地址: {SERVER_URL}")
     _log(f"AGENT_ROOT: {BASE_DIR}")
     _log(f"DATA_ROOT: {DATA_ROOT}")
@@ -251,7 +251,7 @@ def main():
     _log(f"config.json 存在: {(BASE_DIR / 'config.json').exists()}")
     _log(f"PORT env: {os.environ.get('PORT', '未设置')}")
     _log(f"CHAT_API_BASE_URL: {os.environ.get('CHAT_API_BASE_URL', '未设置')}")
-    print(f"[main_tray] 正在启动 Code Web Agent v1...", flush=True)
+    print(f"[main_tray] 正在启动 DeepSeek Code Agent v1...", flush=True)
     print(f"[main_tray] 服务器地址: {SERVER_URL}", flush=True)
 
     # ── 1. 远程版本检测（不阻塞启动）──
