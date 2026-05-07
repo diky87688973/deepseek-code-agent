@@ -18,7 +18,7 @@ pip install -r requirements.txt
 #    或直接： python deepseek_code_agent.py
 ```
 
-启动后浏览器访问 `http://127.0.0.1:8808` 即可开始对话。
+启动后浏览器访问 `http://127.0.0.1:8801` 即可开始对话。
 ![主截图](res/img/界面预览.png)
 ![知识库截图](res/img/知识库.png)
 
@@ -132,7 +132,7 @@ deepseek-code-agent/
 {
     "AGENT_MODEL_API_BASE_URL": "https://api.deepseek.com",
     "AGENT_MODEL_API_KEY": "sk-你的API密钥",
-    "AGENT_SERVER_PORT": 8808,
+    "AGENT_SERVER_PORT": 8801,
     "AGENT_WORKSPACE_DIR": "D:/workspace",
     "AGENT_DATA_ROOT_DIR": "D:/AI_DATA_ROOT",
     "AGENT_KNOWLEDGE_BASE_DIR": "D:/AI_DATA_ROOT/knowledge_base"
