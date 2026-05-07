@@ -41,6 +41,8 @@ CONFIG_TO_ENV_MAP = {
     "AGENT_DATA_ROOT_DIR": "AGENT_DATA_ROOT_DIR",
     "UNLOCK_CODE_UPDATE": "UNLOCK_CODE_UPDATE",
     "AGENT_KNOWLEDGE_BASE_DIR": "AGENT_KNOWLEDGE_BASE_DIR",
+    "AGENT_KB_MAX_FILE_SIZE": "AGENT_KB_MAX_FILE_SIZE",
+    "AGENT_REASONING_EFFORT": "REASONING_EFFORT",
 }
 
 # 仅应用内部读取，不写入环境变量，避免把应用配置扩散到进程环境。
@@ -57,6 +59,8 @@ DEFAULT_VALUES = {
     "AGENT_DATA_ROOT_DIR": _default_data_root(),
     "UNLOCK_CODE_UPDATE": False,
     "AGENT_KNOWLEDGE_BASE_DIR": "",
+    "AGENT_KB_MAX_FILE_SIZE": 200000,
+    "AGENT_REASONING_EFFORT": "high",
 }
 
 # 对应环境变量的默认值（代码中的硬编码默认值）
@@ -64,6 +68,7 @@ ENV_DEFAULTS = {
     "CHAT_API_BASE_URL": "https://api.deepseek.com",
     "CHAT_API_KEY": "",
     "WORKSPACE_DIR": _default_workspace(),
+    "REASONING_EFFORT": "high",
 }
 
 

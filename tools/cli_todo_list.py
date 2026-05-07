@@ -50,14 +50,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--action",
         required=True,
-        choices=["create", "check", "uncheck", "collapse", "close", "query"],
-        help="create / check / uncheck / collapse / close / query（查询当前清单 items，无则 data 为 null）",
+        choices=["create", "check", "uncheck", "collapse", "close", "query", "add_item", "remove_item", "replace_item"],
+        help="create / check / uncheck / collapse / close / query / add_item / remove_item / replace_item",
     )
     p.add_argument(
         "--items",
         type=str,
         default="",
         help='create 时必填：JSON 字符串数组，如 ["步骤1","步骤2"]',
+    )
+        p.add_argument(
+        "--text",
+        type=str,
+        default="",
+        help='add_item/replace_item 时必填：项目文本',
     )
     p.add_argument(
         "--itemIndex",
@@ -172,6 +178,12 @@ def agent_main(
         return _do_collapse(list_id)
     elif action == "close":
         return _do_close(list_id)
+    elif action == "add_item":
+        return {"ok": False, "error": {"type": "NotImplemented", "message": "add_item 请在 Agent 主进程中使用"}}
+    elif action == "remove_item":
+        return {"ok": False, "error": {"type": "NotImplemented", "message": "remove_item 请在 Agent 主进程中使用"}}
+    elif action == "replace_item":
+        return {"ok": False, "error": {"type": "NotImplemented", "message": "replace_item 请在 Agent 主进程中使用"}}
     elif action == "query":
         return _do_query(list_id)
     else:

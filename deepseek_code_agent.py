@@ -50,6 +50,7 @@ from util.agent_openai_compatible_client import chat_completion_request, chat_co
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
+import uvicorn
 
 # PyInstaller 打包后 __file__ 指向 sys._MEIPASS，源码模式正常
 if getattr(sys, 'frozen', False):
@@ -123,9 +124,9 @@ SESSION_ENCRYPTION_MAGIC = "__code_web_agent_session_encrypted__"
 SESSION_APP_ENTROPY = hashlib.sha256((str(AGENT_ROOT) + "|code-web-agent-session-v1").encode("utf-8")).digest()
 
 
-CONTEXT_HISTORY_MAX_MESSAGES = 800 # 历史最多放800次对话内容(含工具记录)
-CONTEXT_EXCERPT_START_INDEX = 59 # 截取做摘要的起始位置
-CONTEXT_RECENT_USER_ROUNDS = 60 # 每次压缩上下文,依旧保留最近60次对话(含工具记录)
+CONTEXT_HISTORY_MAX_MESSAGES = 1000 # 历史最多放1000次对话内容(含工具记录)
+CONTEXT_EXCERPT_START_INDEX = 99 # 截取做摘要的起始位置
+CONTEXT_RECENT_USER_ROUNDS = 100 # 每次压缩上下文,依旧保留最近100次对话(含工具记录)
 SUMMARY_IN_PROGRESS_TTL_SEC = 300.0
 MAX_TOOL_ROUNDS = 100 # 每轮对话允许调用工具次数的上限
 UI_RESTORE_MAX_TABS = 8 # 页面重开时最多恢复最近几个会话标签
@@ -249,6 +250,8 @@ def _record_tool_debug_failure(
 CONVERSATIONS: Dict[str, List[Dict[str, Any]]] = {}
 PENDING_USER_CONFIRM: Dict[str, Dict[str, Any]] = {}
 TODO_LISTS: Dict[str, Dict[str, Any]] = {}
+_TODO_DATA_DIR = DATA_ROOT / "cache" / "todo_lists"
+
 CONVERSATION_MODES: Dict[str, str] = {}
 SUMMARY_IN_PROGRESS: Dict[str, float] = {}
 PENDING_EXCERPT_PATHS: Dict[str, List[str]] = {}
@@ -446,6 +449,39 @@ def _execute_cli_choose_run_type(conversation_id: str, exec_args: Dict[str, Any]
     return {"ok": True, "data": {"runType": rt}}
 
 
+
+def _todo_persist(cid: str) -> None:
+    """将 cid 的 Todo-List 写入磁盘"""
+    if not cid:
+        return
+    try:
+        _TODO_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        lst = TODO_LISTS.get(cid)
+        fp = _TODO_DATA_DIR / f"{cid}.json"
+        if lst is None:
+            if fp.exists():
+                fp.unlink()
+            return
+        fp.write_text(json.dumps(lst, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _todo_load(cid: str) -> None:
+    """从磁盘加载 cid 的 Todo-List 到内存"""
+    if not cid or cid in TODO_LISTS:
+        return
+    try:
+        fp = _TODO_DATA_DIR / f"{cid}.json"
+        if fp.exists():
+            raw = fp.read_text(encoding="utf-8")
+            lst = json.loads(raw)
+            if isinstance(lst, dict) and "listId" in lst and "items" in lst:
+                TODO_LISTS[cid] = lst
+    except Exception:
+        pass
+
+
 def _execute_cli_todo_list(conversation_id: str, exec_args: Dict[str, Any]) -> dict:
     """处理 cli_todo_list 调用，使用 TODO_LISTS 内存状态。"""
     action = str(exec_args.get("action") or "").strip().lower()
@@ -467,6 +503,7 @@ def _execute_cli_todo_list(conversation_id: str, exec_args: Dict[str, Any]) -> d
             items.append({"text": str(it).strip(), "done": False})
         lid = uuid.uuid4().hex[:12]
         TODO_LISTS[cid] = {"listId": lid, "items": items, "collapsed": False}
+        _todo_persist(cid)
         return {"ok": True, "data": {"listId": lid, "items": items, "collapsed": False}, "error": None}
     elif action == "check":
         lst = TODO_LISTS.get(cid)
@@ -476,6 +513,7 @@ def _execute_cli_todo_list(conversation_id: str, exec_args: Dict[str, Any]) -> d
         if idx < 0 or idx >= len(lst["items"]):
             return {"ok": False, "data": None, "error": {"type": "IndexError", "message": f"itemIndex {idx} 越界，共 {len(lst['items'])} 项"}}
         lst["items"][idx]["done"] = True
+        _todo_persist(cid)
         return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"]}, "error": None}
     elif action == "uncheck":
         lst = TODO_LISTS.get(cid)
@@ -485,6 +523,45 @@ def _execute_cli_todo_list(conversation_id: str, exec_args: Dict[str, Any]) -> d
         if idx < 0 or idx >= len(lst["items"]):
             return {"ok": False, "data": None, "error": {"type": "IndexError", "message": f"itemIndex {idx} 越界，共 {len(lst['items'])} 项"}}
         lst["items"][idx]["done"] = False
+        _todo_persist(cid)
+        return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"]}, "error": None}
+    elif action == "add_item":
+        lst = TODO_LISTS.get(cid)
+        if lst is None:
+            return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "当前对话无活跃清单，请先用 create"}}
+        text = str(exec_args.get("text") or "").strip()
+        if not text:
+            return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "add_item 需要 text"}}
+        idx = exec_args.get("itemIndex")
+        item = {"text": text, "done": False}
+        if idx is not None and isinstance(idx, int) and 0 <= idx <= len(lst["items"]):
+            lst["items"].insert(idx, item)
+        else:
+            lst["items"].append(item)
+        _todo_persist(cid)
+        return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"]}, "error": None}
+    elif action == "remove_item":
+        lst = TODO_LISTS.get(cid)
+        if lst is None:
+            return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "当前对话无活跃清单，请先用 create"}}
+        idx = int(exec_args.get("itemIndex", -1))
+        if idx < 0 or idx >= len(lst["items"]):
+            return {"ok": False, "data": None, "error": {"type": "IndexError", "message": f"itemIndex {idx} 越界，共 {len(lst['items'])} 项"}}
+        lst["items"].pop(idx)
+        _todo_persist(cid)
+        return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"]}, "error": None}
+    elif action == "replace_item":
+        lst = TODO_LISTS.get(cid)
+        if lst is None:
+            return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "当前对话无活跃清单，请先用 create"}}
+        idx = int(exec_args.get("itemIndex", -1))
+        text = str(exec_args.get("text") or "").strip()
+        if idx < 0 or idx >= len(lst["items"]):
+            return {"ok": False, "data": None, "error": {"type": "IndexError", "message": f"itemIndex {idx} 越界，共 {len(lst['items'])} 项"}}
+        if not text:
+            return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "replace_item 需要 text"}}
+        lst["items"][idx]["text"] = text
+        _todo_persist(cid)
         return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"]}, "error": None}
     elif action == "collapse":
         lst = TODO_LISTS.get(cid)
@@ -497,8 +574,11 @@ def _execute_cli_todo_list(conversation_id: str, exec_args: Dict[str, Any]) -> d
         lst = TODO_LISTS.get(cid)
         if lst is None:
             return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "当前对话无活跃清单，请先用 create"}}
-        return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"], "close": True}, "error": None}
+        TODO_LISTS.pop(cid, None)
+        _todo_persist(cid)
+        return {"ok": True, "data": {"close": True}, "error": None}
     elif action == "query":
+        _todo_load(cid)
         lst = TODO_LISTS.get(cid)
         if lst is None:
             return {"ok": True, "data": None, "error": None}
@@ -773,12 +853,15 @@ def _generate_conversation_title(cid: str, messages: List[Dict[str, Any]]) -> st
     for item in history:
         role = "用户" if item["role"] == "user" else "助手"
         compact.append(f"{role}: {item['content'][:1000]}")
+    reff = _get_reasoning_effort(cid)
     payload = {
         "model": effective_model(cid),
         "messages": [
             {"role": "system", "content": "你是会话标题生成器。请根据对话内容生成一个简短中文标题，6到16个字，不要标点，不要引号，不要解释。"},
             {"role": "user", "content": "\n\n".join(compact)},
         ],
+        "reasoning_effort": reff,
+        "thinking": {"type": "enabled"},
         "temperature": 0.2,
     }
     data = deepseek_request(payload)
@@ -1520,6 +1603,41 @@ def _pick_preview_args_from_result(result: dict, fallback_args: Optional[Dict[st
 
 
 
+
+_REASONING_EFFORTS: Dict[str, str] = {}
+
+
+
+def _chat_api_key_available() -> bool:
+    """检查 API Key 是否已配置"""
+    key = os.environ.get("CHAT_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or ""
+    return bool(key and key.strip() and key != "你的 DeepSeek API KEY" and key != "sk-你的API密钥")
+
+
+def _get_reasoning_effort(cid: str = "") -> str:
+    """从会话级或全局环境变量获取 reasoning_effort（默认 high），可选 high/max。"""
+    cid_key = str(cid or "").strip()
+    if cid_key and cid_key in _REASONING_EFFORTS:
+        return _REASONING_EFFORTS[cid_key]
+    raw = (os.environ.get("REASONING_EFFORT") or "high").strip().lower()
+    if raw in ("high", "max"):
+        return raw
+    if raw in ("low", "medium"):
+        return "high"
+    if raw in ("xhigh",):
+        return "max"
+    return "high"
+
+
+def _set_reasoning_effort(cid: str, effort: str) -> bool:
+    """设置会话级 reasoning_effort。返回是否设置成功。"""
+    e = str(effort or "").strip().lower()
+    if e not in ("high", "max"):
+        return False
+    _REASONING_EFFORTS[str(cid or "").strip()] = e
+    return True
+
+
 def deepseek_request(payload: dict) -> dict:
     return chat_completion_request(payload)
 
@@ -1644,6 +1762,9 @@ def _resolve_conversation_mode(conversation_id: str, user_text: str, mode_hint: 
     return mode
 
 
+
+# KB max file size (from config, default 200KB)
+_KB_MAX_FILE_SIZE = int(AGENT_CONFIG.get("AGENT_KB_MAX_FILE_SIZE", 200000))
 def _build_kb_prompt(cid: str) -> str:
     """读取当前会话勾选的知识库文件，拼接为提示词片段"""
     if not KB_BASE_DIR or not KB_BASE_DIR.is_dir():
@@ -1659,7 +1780,7 @@ def _build_kb_prompt(cid: str) -> str:
     parts = ["【知识库参考内容】"]
     for rel in sorted(checked):
         fpath = KB_BASE_DIR / rel
-        if not fpath.is_file() or fpath.stat().st_size > 200_000:
+        if not fpath.is_file() or fpath.stat().st_size > _KB_MAX_FILE_SIZE:
             continue
         ext = fpath.suffix.lower()
         try:
@@ -1998,7 +2119,7 @@ def _build_api_messages_for_model(persisted: List[Dict[str, Any]], conversation_
     return _sanitize_tool_pairing_for_api(built)
 
 
-def _summarize_messages_slice_with_llm(slice_msgs: List[Dict[str, Any]]) -> str:
+def _summarize_messages_slice_with_llm(slice_msgs: List[Dict[str, Any]], cid: str = "") -> str:
     sys_h = (
         "你是对话整理助手。将下列聊天记录压缩为简明中文摘要，保留关键决定、未完成项、重要路径与工具结论；"
         "不要编造。输出纯文本。"
@@ -2018,12 +2139,15 @@ def _summarize_messages_slice_with_llm(slice_msgs: List[Dict[str, Any]]) -> str:
             compact.append({"role": "tool", "content": str(m.get("content") or "")[:6000]})
         elif r == "system":
             compact.append({"role": "system", "content": str(m.get("content") or "")[:4000]})
+    reff = _get_reasoning_effort(cid)
     payload = {
         "model": default_model_from_env(),
         "messages": [
             {"role": "system", "content": sys_h},
             {"role": "user", "content": json.dumps(compact, ensure_ascii=False)},
         ],
+        "reasoning_effort": reff,
+        "thinking": {"type": "enabled"},
         "temperature": 0.2,
     }
     data = deepseek_request(payload)
@@ -2056,7 +2180,7 @@ def _maybe_schedule_summarization(cid: str, messages: List[Dict[str, Any]]) -> N
 
     def _run() -> None:
         try:
-            text = _summarize_messages_slice_with_llm(slice_copy)
+            text = _summarize_messages_slice_with_llm(slice_copy, cid)
             ts = int(time.time() * 1000)
             EXCERPTS_DIR.mkdir(parents=True, exist_ok=True)
             path = EXCERPTS_DIR / f"{cid}_{ts}.md"
@@ -2108,7 +2232,7 @@ def run_agent_turn(
                 user_text_for_preview = str(_m.get("content") or "")
                 break
     em = effective_model(conversation_id)
-    yield {"type": "conversation", "conversation_id": conversation_id, "message_count": len(messages), "mode": mode, "model": em}
+    yield {"type": "conversation", "conversation_id": conversation_id, "message_count": len(messages), "mode": mode, "model": em, "reasoning_effort": _get_reasoning_effort(conversation_id)}
     turn_tool_records: List[Dict[str, Any]] = []
 
     api_messages = _build_api_messages_for_model(messages, conversation_id)
@@ -2117,13 +2241,16 @@ def run_agent_turn(
             yield _finish_conversation_stopped(conversation_id, rollback_messages)
             return
         yield {"type": "llm_round", "round": _round + 1}
+        reff = _get_reasoning_effort(conversation_id)
         body: Dict[str, Any] = {
             "model": em,
             "messages": api_messages,
+            "reasoning_effort": reff,
+            "thinking": {"type": "enabled"},
             "temperature": 0.2,
             "tools": otools_sorted,
         }
-        yield {"type": "llm_request", "round": _round + 1, "params": {"model": em, "temperature": 0.2, "messagesCount": len(api_messages), "toolsCount": len(otools_sorted), "hasTools": True}}
+        yield {"type": "llm_request", "round": _round + 1, "params": {"model": em, "thinking": True, "reasoning_effort": reff, "temperature": 0.2, "messagesCount": len(api_messages), "toolsCount": len(otools_sorted), "hasTools": True}}
         last_choice_message: Optional[Dict[str, Any]] = None
         try:
             usage: Dict[str, Any] = {}
@@ -2328,23 +2455,35 @@ def run_agent_turn(
                             "tool_call_id": str(tc.get("id") or ""),
                             "exec_args": dict(exec_args),
                         }
-                    if script == "cli_todo_list.py" and isinstance(result, dict) and result.get("ok") and isinstance(result.get("data"), dict):
-                        _td = result["data"]
-                        if isinstance(_td.get("items"), list):
+                    if script == "cli_todo_list.py" and isinstance(result, dict) and result.get("ok"):
+                        _td = result.get("data")
+                        if _td is None:
+                            # 无活跃清单 → 发送关闭信号
                             _te_tool_end["todo_list"] = True
-                            _te_tool_end["todo_list_data"] = _td
-                            TODO_LISTS[conversation_id] = _td
-                            # 发送独立的 todo_list SSE 事件供前端专属区域渲染
-                            sse_data = {
-                                "type": "todo_list",
-                                "listId": str(_td.get("listId") or ""),
-                                "items": _td["items"],
-                                "allDone": all(it.get("done") for it in _td["items"]),
-                            }
-                            sse_data["collapsed"] = bool(_td.get("collapsed"))
-                            if _td.get("close"):
-                                sse_data["close"] = True
+                            _te_tool_end["todo_list_data"] = {"close": True}
+                            sse_data = {"type": "todo_list", "conversation_id": conversation_id, "close": True}
                             yield sse_data
+                        elif isinstance(_td, dict):
+                            if _td.get("close") is True:
+                                _te_tool_end["todo_list"] = True
+                                _te_tool_end["todo_list_data"] = _td
+                                sse_data = {"type": "todo_list", "conversation_id": conversation_id, "close": True}
+                                yield sse_data
+                            elif isinstance(_td.get("items"), list):
+                                _te_tool_end["todo_list"] = True
+                                _te_tool_end["todo_list_data"] = _td
+                                TODO_LISTS[conversation_id] = _td
+                                # 发送独立的 todo_list SSE 事件供前端专属区域渲染
+                                sse_data = {
+                                    "type": "todo_list",
+                                    "listId": str(_td.get("listId") or ""),
+                                    "items": _td["items"],
+                                    "allDone": all(it.get("done") for it in _td["items"]),
+                                }
+                                sse_data["collapsed"] = bool(_td.get("collapsed"))
+                                if _td.get("close"):
+                                    sse_data["close"] = True
+                                yield sse_data
                     yield _te_tool_end
                     
                     if script == "cli_choose_run_type.py" and isinstance(result, dict) and result.get("ok"):
@@ -2425,12 +2564,15 @@ def run_agent_turn(
             return
         yield {"type": "llm_round", "round": MAX_TOOL_ROUNDS + 1}
         api_messages = _build_api_messages_for_model(messages, conversation_id)
+        reff = _get_reasoning_effort(conversation_id)
         wrap_body: Dict[str, Any] = {
             "model": em,
             "messages": api_messages,
+            "reasoning_effort": reff,
+            "thinking": {"type": "enabled"},
             "temperature": 0.2,
         }
-        yield {"type": "llm_request", "round": MAX_TOOL_ROUNDS + 1, "params": {"model": em, "temperature": 0.2, "messagesCount": len(api_messages), "toolsCount": 0, "hasTools": False}}
+        yield {"type": "llm_request", "round": MAX_TOOL_ROUNDS + 1, "params": {"model": em, "thinking": True, "reasoning_effort": reff, "temperature": 0.2, "messagesCount": len(api_messages), "toolsCount": 0, "hasTools": False}}
         last_choice_message_wrap: Optional[Dict[str, Any]] = None
         try:
             usage: Dict[str, Any] = {}
@@ -2842,6 +2984,28 @@ def chat_ui_state_put(body: ChatUiStateIn):
 # ── 知识库 API ──
 
 
+@app.get("/api/reasoning-effort")
+async def reasoning_effort_get(request: Request):
+    """查询当前会话或全局的 reasoning_effort 值"""
+    cid = str(request.query_params.get("conversation_id") or "").strip()
+    return {"ok": True, "reasoning_effort": _get_reasoning_effort(cid), "global_default": _get_reasoning_effort()}
+
+
+@app.put("/api/reasoning-effort")
+async def reasoning_effort_set(request: Request):
+    """设置会话级 reasoning_effort"""
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": False, "error": "invalid JSON"}
+    cid = str(body.get("cid") or body.get("conversation_id") or "").strip()
+    effort = str(body.get("effort") or "").strip().lower()
+    if not cid:
+        return {"ok": False, "error": "conversation_id required"}
+    ok = _set_reasoning_effort(cid, effort)
+    return {"ok": ok, "reasoning_effort": _get_reasoning_effort(cid)}
+
+
 @app.get("/api/kb/files")
 def kb_files():
     """列出知识库目录下所有可读文件（目录不存在时自动创建）"""
@@ -2975,6 +3139,10 @@ def chat_stream(inp: ChatIn, request: Request):
                 yield f"data: {json.dumps(_busy_ev, ensure_ascii=False)}\n\n"
                 return
             yield f"data: {json.dumps({'type': 'run_started', 'conversation_id': cid, 'run_id': _run_id}, ensure_ascii=False)}\n\n"
+            if not _chat_api_key_available():
+                _err_ev = {"type": "error", "conversation_id": cid, "where": "config", "detail": "请先在 config.json 中配置 AGENT_MODEL_API_KEY"}
+                yield f"data: {json.dumps(_err_ev, ensure_ascii=False)}\n\n"
+                return
             _ensure_conversation_loaded(cid)
             _apply_conversation_request_options(cid, mode, mod)
             for ev in run_agent_turn(cid, text, client_ip=client_ip, mode_hint=mode, run_id=_run_id):
@@ -3088,7 +3256,6 @@ def health():
 
 
 def main():
-    import uvicorn
     # 加载配置（读取 config.json，设置环境变量 PORT）
     from util.config_loader import load_config
     load_config(verbose=True)
@@ -3096,6 +3263,12 @@ def main():
     if not port_str:
         print("FATAL: PORT 未设置！请在 config.json 中配置 AGENT_SERVER_PORT", flush=True)
         sys.exit(1)
+    
+    # ── API Key 检查 ──
+    if not _chat_api_key_available():
+        print("⚠️  WARNING: AGENT_MODEL_API_KEY 未配置或为空！请在 config.json 中设置 AGENT_MODEL_API_KEY", file=sys.stderr, flush=True)
+        print("⚠️  或通过环境变量 CHAT_API_KEY 设置", file=sys.stderr, flush=True)
+
     uvicorn.run(app, host="127.0.0.1", port=int(port_str))
 
 

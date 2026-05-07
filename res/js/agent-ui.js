@@ -282,9 +282,19 @@ function positionSlashPop(){if(!ta||!slashPop)return;var rect=ta.getBoundingClie
 function normalizeMode(v){const t=String(v||"auto").toLowerCase();return (t==="plan"||t==="execute"||t==="auto")?t:"auto";}
 function applyMode(v){hideSlashPop();selectedMode=normalizeMode(v);const label=(selectedMode==="auto"?"Auto":(selectedMode==="plan"?"Plan":"Execute"));if(modePlus){modePlus.textContent=label+" +";modePlus.classList.remove("plan","execute");if(selectedMode==="plan")modePlus.classList.add("plan");if(selectedMode==="execute")modePlus.classList.add("execute");}if(modeChip){modeChip.classList.add("hidden");}if(modeChipText){modeChipText.textContent="";}}
 function closeModeMenu(){modeMenu.classList.add("hidden");}
+let reasoningEffort="high";let reasoningBtn=document.getElementById("reasoningBtn");let reasoningMenu=document.getElementById("reasoningMenu");let reasoningLabel=document.getElementById("reasoningLabel");
+function applyReasoningEffort(effort){if(effort!=="high"&&effort!=="max")return;reasoningEffort=effort;if(reasoningLabel){reasoningLabel.textContent=effort==="high"?"High":"Max";reasoningLabel.style.color=effort==="max"?"#e8c98a":"inherit";reasoningBtn.style.borderColor=effort==="max"?"#8b6a2d":"";}if(reasoningMenu){var cs=reasoningMenu.querySelectorAll(".reasoning-choice");cs.forEach(function(c){c.classList.remove("reasoning-current");if(c.dataset.effort===effort)c.classList.add("reasoning-current");});}
+var cid=activeConversationId;if(cid){fetch("/api/reasoning-effort",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({conversation_id:cid,effort:effort})}).catch(function(){});}}
+function closeReasoningMenu(){if(reasoningMenu)reasoningMenu.classList.add("hidden");}
+function initReasoningPicker(){if(!reasoningBtn||!reasoningMenu)return;
+reasoningBtn.onclick=function(e){e.stopPropagation();closeModeMenu();closeModelSubmenu();reasoningMenu.classList.toggle("hidden");};
+reasoningMenu.onclick=function(e){var t=e.target;if(!t||typeof t.closest!=="function")return;var btn=t.closest("[data-effort]");if(!btn||!btn.dataset)return;if(btn.dataset.effort){applyReasoningEffort(btn.dataset.effort);closeReasoningMenu();}};
+document.addEventListener("click",function(e){if(reasoningMenu&&!reasoningMenu.classList.contains("hidden")&&!reasoningBtn.contains(e.target)&&!reasoningMenu.contains(e.target))closeReasoningMenu();});
+fetch("/api/reasoning-effort?conversation_id="+encodeURIComponent(activeConversationId||"")).then(function(r){return r.json();}).then(function(d){if(d&&d.reasoning_effort)applyReasoningEffort(d.reasoning_effort);}).catch(function(){});}
+
 function initModePicker(){
 if(!modePlus||!modeMenu||!modeChip||!modeChipClear)return;
-modePlus.onclick=function(e){e.stopPropagation();closeModelSubmenu();modeMenu.classList.toggle("hidden");};
+modePlus.onclick=function(e){e.stopPropagation();closeReasoningMenu();closeModelSubmenu();modeMenu.classList.toggle("hidden");};
 modeMenu.onclick=function(e){
 var t=e.target;if(!t||typeof t.closest!=="function")return;
 var btn=t.closest("[data-mode],[data-action],[data-model]");
@@ -1337,7 +1347,7 @@ scrollMsgsToBottom();}else{console.log("onToolEnd: stdout empty, preview="+JSON.
 if(ev.user_confirm_required)openUserConfirmModalFromToolEnd(ev);toolOpen.delete(tid);}
 function resetTurnState(){closeUserConfirmCardHost();clearLlmAnim();hideChatLoading();lastLlm=null;llmStreamBuffer={round:null,reqHtml:"",resHtml:"",consumed:false};pendingToolTags=[];lastAnalysisTail="";toolOpen.clear();anyToolThisTurn=false;pendingStepEls=[];streamAssistantEl=null;streamAssistantText="";pendingDeltaSeparator=false;seenDispatchTitle="";}function resetSteps(){resetTurnState();stepSeq=0;}
 function autoResizeTa(){if(!ta)return;ta.style.overflowY="hidden";ta.style.height="auto";var maxH=320;var sh=ta.scrollHeight;if(sh<=maxH){ta.style.height=Math.max(sh,50)+"px";ta.style.overflowY="hidden";}else{ta.style.height=maxH+"px";ta.style.overflowY="auto";}}
-initModePicker();initKbAndSlashUi();loadUsageAccumulator();initTodoListElements();renderChatTabs();updateTaskControls();void restoreConversationLayoutFromServer();
+initModePicker();initReasoningPicker();initKbAndSlashUi();loadUsageAccumulator();initTodoListElements();renderChatTabs();updateTaskControls();void restoreConversationLayoutFromServer();
 document.getElementById("tabSteps")?.addEventListener("click",function(){selectSidePane("steps");});
 ta.addEventListener('input',autoResizeTa);
 queueMicrotask(function(){autoResizeTa();});

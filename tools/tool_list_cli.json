@@ -1259,7 +1259,7 @@
     {
       "name": "cli_todo_list.py",
       "path": "tools/cli_todo_list.py",
-      "purpose": "创建/勾选/取消勾选/折叠/关闭/查询执行清单（Todo List）。action=create 创建（items 为 JSON 字符串数组）；check/uncheck 更新项（需 listId + itemIndex）；collapse 折叠/展开（需 listId）；close 关闭（需 listId）；**action=query 仅查询：当前会话无清单时 ok 且 data 为 null，有清单时 data 为 items 数组 [{text,done},…]。禁止用 close 试探是否有清单。**",
+      "purpose": "创建/勾选/取消勾选/折叠/关闭/查询/添加/删除/替换执行清单项（Todo List）。action=create 创建（items 为 JSON 字符串数组）；check/uncheck 更新项（需 listId + itemIndex）；add_item 添加项（需 text + 可选 itemIndex）；remove_item 删除项（需 itemIndex）；replace_item 替换项（需 itemIndex + text）；collapse 折叠/展开（需 listId）；close 关闭（需 listId）；query 仅查询",
       "stdout_output": "统一 JSON；query 时 data 为 null 或 items 数组，其余 action 多为 {listId, items, ...}",
       "args": [
         {
@@ -1272,15 +1272,24 @@
             "uncheck",
             "collapse",
             "close",
-            "query"
+            "query",
+            "add_item",
+            "remove_item",
+            "replace_item"
           ],
-          "description": "create / check / uncheck / collapse / close / **query（查询是否有清单；无则 data null，有则 data 为 items 数组，勿用 close 探测）**"
+          "description": "create / check / uncheck / collapse / close / query / add_item / remove_item / replace_item"
         },
         {
           "flag": "--items",
           "type": "string",
           "required": false,
           "description": "create 时必填：JSON 字符串数组，如 [\"步骤1\",\"步骤2\"]"
+        },
+        {
+          "flag": "--text",
+          "type": "string",
+          "required": false,
+          "description": "add_item/replace_item 时必填：项目文本"
         },
         {
           "flag": "--itemIndex",
