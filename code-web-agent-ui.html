@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Code Web Agent v1</title>
+<style>
+{{CSS}}
+</style>
+</head>
+<body>
+<header><b>Code Web Agent v1</b>·<span class="muted" id="hdrModel">模型加载中…</span><span class="muted" id="cid"></span></header>
+<main>
+<section class="chat">
+<div class="p-title chat-title-row"><button id="chatMoreBtn" class="chat-more-btn" title="会话列表">⋮</button><div id="chatSessionMenu" class="chat-session-menu hidden"></div><div id="chatTabs" class="chat-tabs" role="tablist"></div><button id="nwTop" class="mode-plus">新会话 +</button></div>
+<div id="chatConversationMount" class="chat-conversation-mount"></div>
+<div class="row">
+<div class="composer">
+<textarea id="t" placeholder="开始输入你的任务"></textarea>
+<div class="composer-foot">
+<div class="left-tools">
+<button id="modePlus" class="mode-plus" title="选择模式">Auto +</button>
+<button id="kbBtn" class="mode-plus" title="知识库">📚 知识库</button>
+<div id="modeMenu" class="mode-menu hidden">
+<button class="mode-item" data-mode="auto">⚡ 默认模式 - Auto</button>
+<button class="mode-item" data-mode="plan">📋 方案设计 - Plan 模式</button>
+<button class="mode-item" data-mode="execute">▶️ 执行计划 - Execute 模式</button>
+<div class="mode-item-with-sub" id="modelSubWrap">
+<button type="button" class="mode-item mode-sub-trigger" id="modelSubBtn" data-action="model-menu">🧠 选择模型 ▸</button>
+<div id="modelSubmenu" class="mode-submenu hidden">
+<button type="button" class="mode-item model-choice" data-model="deepseek-v4-pro">deepseek-v4-pro</button>
+<button type="button" class="mode-item model-choice" data-model="deepseek-v4-flash">deepseek-v4-flash</button>
+</div>
+</div>
+</div>
+<span id="modeChip" class="mode-chip hidden"><span id="modeChipText">Plan</span><button id="modeChipClear" class="x" title="恢复默认">×</button></span>
+</div>
+<div class="right-actions">
+<span class="send-hint">Enter 发送 / Shift+Enter 换行</span>
+<button id="stopTask" class="mode-plus stop-task hidden" title="停止当前会话任务">停止</button>
+<button id="go" class="mode-plus" title="发送消息">发送</button>
+</div>
+</div>
+<div id="slashPop" class="slash-pop hidden" aria-hidden="true">
+<button type="button" class="slash-item" data-slash="auto"><span class="sl">/Auto</span><span class="sh"></span></button>
+<button type="button" class="slash-item" data-slash="plan"><span class="sl">/Plan</span><span class="sh"></span></button>
+<button type="button" class="slash-item" data-slash="execute"><span class="sl">/Execute</span><span class="sh"></span></button>
+</div>
+<div id="atPop" class="at-pop" style="visibility:hidden;top:-99999px" aria-hidden="true">
+<div class="at-pop-head">
+<button type="button" id="atUpBtn" class="at-up-btn" title="上级目录">&#8593; 向上</button>
+<span id="atCurPath" class="at-cur-path"></span>
+</div>
+<div id="atList" class="at-list"></div>
+</div>
+
+</div>
+</div>
+</section>
+<aside class="side">
+<div class="side-tabbar" id="sideTabbar">
+<button type="button" class="side-tab active pinned" data-pane="steps" id="tabSteps" title="不可关闭">步骤</button>
+</div>
+<div class="side-pane-wrap" id="sidePaneWrap">
+<div id="paneSteps" class="side-pane active" data-pane="steps">
+<div class="p-title">步骤 · 工具与执行明细（点击标题展开）</div>
+<div class="steps" id="steps"></div>
+</div>
+<div id="paneKb" class="side-pane" data-pane="kb">
+<div class="p-title">知识库</div>
+<div class="kb-body" id="kbBody">本 Tab 用于扩展：关联当前工作区规则与工具库说明时可在此汇总索引。</div>
+</div>
+</div>
+<div id="usage-bottom" class="usage-bottom"></div>
+</aside>
+</main>
+<script>
+{{JS}}
+</script>
+</body></html>

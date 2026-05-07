@@ -1,0 +1,1343 @@
+{
+  "version": "4.1",
+  "title": "Text toolkit CLI catalog",
+  "agent_hints": {
+    "function_call_extras": {
+      "usePreview": "OpenAI 函数 schema 顶层的 usePreview、step_title 由 code_web_agent 在组装 exec 参数时剥离，不进入各 cli_*.py 的 argv。cli_structured_edit 在 extract 的 payload 内可选字段 usePreview（布尔）表示是否对 data.text 走 cli_preview_render，属于脚本内部参数，与前述顶层字段不同。",
+      "step_title": "步骤主标题，仅宿主/UI 使用，不传给子进程。"
+    },
+    "machine_readable_catalog": "唯一 JSON 清单为本文件 tool_list_cli.json。",
+    "stdio_utf8": "各 cli_*.py 与 orch 入口在最早阶段调用 cli_stdio_utf8.install_stdio_utf8()，标准流尽量为 UTF-8；由 code_web_agent 等起的子进程另设 PYTHONUTF8=1 与 PYTHONIOENCODING=utf-8。",
+    "encoding_convention": "工具库与 Code Web Agent：源文件、本清单、提示词、request/payload/outFile 等文本落盘一律 UTF-8（推荐无 BOM）。各 cli 若对子进程 stdout 等尝试 gbk/gb18030 解码，仅用于兼容不可控输出，与本项目磁盘默认编码无关。",
+    "openapi_tool_name_rule": "catalog 中 name 去掉 .py 即为 function 名（如 cli_structured_edit）。",
+    "cli_command_exec_policy": "【最低优先级】cli_command_exec 在 API tools 列表中排在末尾；仅当专用 cli_* 与 cli_python_inline 均无法合理覆盖且用户已当次授权执行命令时才用；默认传 safeMode=true。",
+    "windows_powershell": {
+      "prefer_stdin_payload": "长 JSON 用 --payloadStdin / --requestStdin，整段 JSON 从 stdin 读入。",
+      "avoid_here_string_utf8": "含中文的大段替换文本不要放进 PowerShell here-string（@'...'@）再喂给 Python，易出现乱码；优先使用 UTF-8 的 requestFile、payloadFile（正文直接写中文），或在为 UTF-8 的 .py 源文件中写字符串与 Path；仅当终端无法可靠传递 UTF-8 时，再用 \\uXXXX 等 Unicode 转义。"
+    },
+    "recipes": {
+      "read_full_file": "cli_structured_edit + payload {type:extract, mode:offsets, start:0, end:-1} + --file",
+      "diff_markdown_fence": "需 Markdown diff 着色：用 cli_text_diff --jsonOut 的 data.diffMarkdown（内含 ```diff 围栏）；勿再外层套一层代码块。",
+      "replace_block_by_markers": "cli_structured_edit --file <path> --jsonOut --requestStdin; payload {type:replace_markers,startMarker,endMarker,text,searchFrom?}; same as index+replace_range in one step.",
+      "todo_list_query": "查询当前会话是否有执行清单：cli_todo_list action=query（无参数）。data 为 null 表示无清单；为数组 [{text,done},…] 表示有。禁止用 action=close 试探。"
+    },
+    "structured_edit": {
+      "replace_markers": "大块替换优先 type=replace_markers：startMarker/endMarker 定半开区间，text 为新内容；可选 searchFrom 跳过文件头重复片段。",
+      "replace_markers_anchor_exact": "startMarker/endMarker 须与文件内容逐字一致（含全角标点，如中文逗号 U+FF0C「，」≠半角「,」；读盘为 universal newlines/LF）。若报错 startMarker not found，勿猜：用 extract 或 cli_regex_locate 核对实际片段。",
+      "avoid_ps_json": "PowerShell 下勿单行 --requestJson；用 Python json.dumps 打印到 stdout 再管道进 --requestStdin。",
+      "unicode_path_in_script": "胶水脚本内访问含中文路径：源文件保存为 UTF-8，可直接写中文路径字面量或使用 Path 分段；必要时再用 \\uXXXX；也可把最终路径放入 CLI 的 --file。"
+    }
+  },
+  "tools": [
+    {
+      "name": "cli_choose_run_type.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_choose_run_type.py",
+      "purpose": "仅当用户对模型说出明确要求、同意由你代为切换会话运行模式时调用；runType=auto|plan|execute。默认请先口头提示用户自行点击界面 Auto/Plan/Execute 切换，不要调用本工具。",
+      "stdout_output": "统一 JSON",
+      "args": [
+        {
+          "flag": "--runType",
+          "type": "enum",
+          "required": true,
+          "values": [
+            "auto",
+            "plan",
+            "execute"
+          ],
+          "description": "目标运行模式"
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false,
+          "description": "输出 JSON"
+        }
+      ]
+    },
+    {
+      "name": "cli_find_replace.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\tools\\cli_find_replace.py",
+      "purpose": "主责: 跨文件搜索替换（字面字符串/正则）。约束: 默认 --preview 只报告不改写，需显式 --execute 才写盘。",
+      "stdout_output": "ok + 结构化 JSON 或 {ok,data,error}；成功时 data 含 diffMarkdown（fenced unified diff，体积有上限）供对话区展示",
+      "args": [
+        {
+          "flag": "--target",
+          "type": "string",
+          "required": true,
+          "description": "目标文件或目录"
+        },
+        {
+          "flag": "--pattern",
+          "type": "string",
+          "required": true,
+          "description": "搜索模式（字面字符串）"
+        },
+        {
+          "flag": "--replacement",
+          "type": "string",
+          "required": true,
+          "description": "替换文本"
+        },
+        {
+          "flag": "--glob",
+          "type": "string",
+          "required": false,
+          "description": "文件过滤，如 *.py（默认 *）"
+        },
+        {
+          "flag": "--recursive",
+          "type": "boolean",
+          "required": false,
+          "description": "递归子目录"
+        },
+        {
+          "flag": "--preview",
+          "type": "boolean",
+          "required": false,
+          "description": "仅预览（默认），不写盘"
+        },
+        {
+          "flag": "--execute",
+          "type": "boolean",
+          "required": false,
+          "description": "实际执行替换"
+        },
+        {
+          "flag": "--backup",
+          "type": "boolean",
+          "required": false,
+          "description": "替换前备份原文件为 .bak"
+        },
+        {
+          "flag": "--encoding",
+          "type": "string",
+          "required": false,
+          "description": "编码，默认 utf-8，可选 auto"
+        },
+        {
+          "flag": "--ignoreCase",
+          "type": "boolean",
+          "required": false,
+          "description": "忽略大小写"
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false,
+          "description": "JSON 输出"
+        }
+      ]
+    },
+    {
+      "name": "cli_user_confirm.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_user_confirm.py",
+      "purpose": "用户分岔确认：当用户需求或术语存在多种理解，或存在多种实现路径需用户拍板时，由模型调用本工具给出标题与选项。成功时仅返回 data.confirm。首次调用若未带用户结论（无 confirm），在非 TTY 环境下返回 ok:false、E_USER_CONFIRM_REQUIRED，data 含 title/confirms 供宿主展示确认 UI；用户选定后请再次调用并传入 confirm，或同一 payload 内带 confirm。推荐使用 --payload 传入 JSON。",
+      "stdout_output": "统一 JSON",
+      "args": [
+        {
+          "flag": "--payload",
+          "type": "json-object-string",
+          "required": false,
+          "description": "JSON 对象字符串：title、confirms（字符串数组）、可选 confirm；可选 multi:true 多选；可选 customOptionIndex（整数，0 起步）指定与该项同行的单行自定义输入"
+        },
+        {
+          "flag": "--title",
+          "type": "string",
+          "required": false,
+          "description": "与 --confirms 搭配；用 --payload 时可省略"
+        },
+        {
+          "flag": "--confirms",
+          "type": "string",
+          "required": false,
+          "description": "JSON 数组字符串，与 --title 搭配"
+        },
+        {
+          "flag": "--confirm",
+          "type": "string",
+          "required": false,
+          "description": "用户确认文本（宿主回填后再次调用）"
+        },
+        {
+          "flag": "--interactive",
+          "type": "boolean",
+          "required": false,
+          "description": "TTY 下菜单 + stdin 一行（本机调试）"
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false,
+          "description": "输出统一 JSON"
+        }
+      ],
+      "error_schema": {
+        "fields": [
+          "code",
+          "type",
+          "message",
+          "hint",
+          "retryable"
+        ]
+      }
+    },
+    {
+      "name": "cli_command_exec.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_command_exec.py",
+      "purpose": "【最后手段/最低优先级】本地 shell 执行命令并返回结构化 stdout/stderr/exitCode。文件读写/目录/文本处理/检索/Git 文本等一律优先专用 cli_*；能用 cli_python_inline（不经 shell）则不用本工具。仅当用户已明确说出「我允许你执行命令」或等效授权且确有专用工具无法覆盖的合理需求（如受控的单次测试/构建命令）时才用；默认 safeMode=true；授权仅当次有效。",
+      "stdout_output": "命令执行结果 JSON",
+      "args": [
+        {
+          "flag": "--command",
+          "type": "string",
+          "required": true,
+          "description": "由 shell 解释的命令字符串"
+        },
+        {
+          "flag": "--cwd",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--timeoutSec",
+          "type": "integer",
+          "required": false,
+          "default": 300
+        },
+        {
+          "flag": "--shell",
+          "type": "enum",
+          "required": false,
+          "values": [
+            "auto",
+            "cmd",
+            "powershell"
+          ],
+          "description": "显式 shell，默认 auto"
+        },
+        {
+          "flag": "--safeMode",
+          "type": "boolean",
+          "required": false,
+          "description": "默认 true（CLI BooleanOptionalAction 缺省开启）；拒绝高危 shell 元字符。确需管道/重定向等时须用户已授权并显式传 safeMode:false（宿主会传 --no-safeMode）。"
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--outFile",
+          "type": "string",
+          "required": false,
+          "description": "同时将 JSON 结果写入该路径"
+        },
+        {
+          "flag": "--runType",
+          "type": "enum",
+          "required": false,
+          "values": [
+            "auto",
+            "plan",
+            "execute"
+          ],
+          "description": "当前运行模式；plan 时写操作被拒绝"
+        }
+      ],
+      "error_schema": {
+        "fields": [
+          "code",
+          "type",
+          "message",
+          "exitCode",
+          "hint",
+          "retryable"
+        ]
+      }
+    },
+    {
+      "name": "cli_structured_edit.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_structured_edit.py",
+      "purpose": "主责: 文本读写与结构化抽取/删除。写新文件用 append 或 append_line（文件不存在时自动创建）。约束: 完整读取用 extract offsets(start=0,end=-1)；大块替换优先 replace_markers（锚点定界）再 replace_range；字面替换用 replace_literal。usePreview（function 层与 extract payload 内）区别见 agent_hints.function_call_extras。",
+      "stdout_output": "ok / 片段文本 / 统一 JSON",
+      "content_source": {
+        "exactly_one_for_read_ops": true,
+        "options": [
+          {
+            "flag": "--file",
+            "description": "读入或写盘目标路径"
+          },
+          {
+            "flag": "--text",
+            "description": "直接传入待处理文本（仅 extract/delete_segments）"
+          },
+          {
+            "flag": "--textStdin",
+            "description": "从 stdin 读入待处理文本（仅 extract/delete_segments）"
+          }
+        ],
+        "note": "append/insert/replace_* 仅使用 --file（或 request.file）作为写盘目标"
+      },
+      "args": [
+        {
+          "flag": "--requestJson",
+          "type": "json-object-string",
+          "required": false
+        },
+        {
+          "flag": "--requestFile",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--requestStdin",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--file",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--text",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--textStdin",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--url",
+          "type": "string",
+          "required": false,
+          "description": "读入类：从 URL 拉取文本"
+        },
+        {
+          "flag": "--payload",
+          "type": "json-object-string",
+          "required": false
+        },
+        {
+          "flag": "--payloadFile",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--payloadStdin",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--encoding",
+          "type": "string",
+          "required": false,
+          "default": "utf-8",
+          "description": "支持 auto"
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--runType",
+          "type": "enum",
+          "required": false,
+          "values": [
+            "auto",
+            "plan",
+            "execute"
+          ],
+          "description": "当前运行模式；plan 时写操作被拒绝"
+        }
+      ],
+      "request_schema": {
+        "file": "string，可选",
+        "text": "string，可选",
+        "textStdin": "boolean，可选",
+        "url": "string，可选，http(s) 文本源",
+        "encoding": "string，可选",
+        "payload": "object 或 JSON 字符串，必填"
+      },
+      "payload_types": [
+        "append",
+        "append_line",
+        "insert",
+        "replace_range",
+        "replace_literal",
+        "replace_markers",
+        "extract",
+        "delete_segments"
+      ],
+      "payload_schema": {
+        "append": {
+          "required": [
+            "type",
+            "text"
+          ],
+          "type": "append"
+        },
+        "append_line": {
+          "required": [
+            "type",
+            "text"
+          ],
+          "type": "append_line"
+        },
+        "insert": {
+          "required": [
+            "type",
+            "text",
+            "startLine",
+            "startColumn"
+          ],
+          "type": "insert",
+          "indexing": "行列 1-based"
+        },
+        "replace_range": {
+          "required": [
+            "type",
+            "text",
+            "start",
+            "end"
+          ],
+          "type": "replace_range",
+          "range": "[start, end)",
+          "index_base": "0-based"
+        },
+        "replace_literal": {
+          "required": [
+            "type",
+            "oldText",
+            "newText"
+          ],
+          "optional": [
+            "count"
+          ],
+          "type": "replace_literal"
+        },
+        "extract": {
+          "required": [
+            "type",
+            "mode"
+          ],
+          "type": "extract",
+          "modes": {
+            "lines": {
+              "range": "[startLine, endLine] 闭区间",
+              "index_base": "行号 1-based",
+              "fields": [
+                "startLine",
+                "endLine"
+              ]
+            },
+            "lines_columns": {
+              "range": "[startLine,startColumn] 到 [endLine,endColumn)，结束列开",
+              "index_base": "行列 1-based",
+              "fields": [
+                "startLine",
+                "startColumn",
+                "endLine",
+                "endColumn"
+              ],
+              "negative_end": "endColumn 可为 -1/-2 倒推"
+            },
+            "offsets": {
+              "range": "[start, end)",
+              "index_base": "0-based",
+              "fields": [
+                "start",
+                "end"
+              ],
+              "negative_end": "end 可为 -1/-2 倒推"
+            }
+          },
+          "optional": [
+            "outFile",
+            "encoding",
+            "usePreview"
+          ]
+        },
+        "delete_segments": {
+          "required": [
+            "type"
+          ],
+          "type": "delete_segments",
+          "optional": [
+            "masks",
+            "dropPhrases",
+            "outFile",
+            "encoding"
+          ],
+          "masks_item": {
+            "start": "int >=0",
+            "end": "int >=0",
+            "range": "[start,end) 半开，无负索引"
+          },
+          "constraint": "masks 与 dropPhrases 至少一项非空"
+        },
+        "replace_markers": {
+          "required": [
+            "type",
+            "startMarker",
+            "endMarker",
+            "text"
+          ],
+          "optional": [
+            "searchFrom"
+          ],
+          "type": "replace_markers",
+          "range": "[index(startMarker), index(endMarker)) half-open; endMarker first match after startMarker",
+          "index_base": "0-based char offsets"
+        }
+      },
+      "examples": [
+        "python \"D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_structured_edit.py\" --file \"D:\\a.txt\" --payload \"{\\\"type\\\":\\\"extract\\\",\\\"mode\\\":\\\"lines\\\",\\\"startLine\\\":10,\\\"endLine\\\":20}\"",
+        "python \"D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_structured_edit.py\" --file \"D:\\a.txt\" --payload \"{\\\"type\\\":\\\"delete_segments\\\",\\\"masks\\\":[{\\\"start\\\":0,\\\"end\\\":10}],\\\"dropPhrases\\\":[\\\"噪声词\\\"],\\\"outFile\\\":\\\"D:\\\\a_clean.txt\\\"}\"",
+        "python \"D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_structured_edit.py\" --file \"D:\\demo\\out.txt\" --payload \"{\\\"type\\\":\\\"replace_literal\\\",\\\"oldText\\\":\\\"foo\\\",\\\"newText\\\":\\\"bar\\\",\\\"count\\\":-1}\"",
+        "replace_markers 示例（管道 request）: python -c \"import json,sys;print(json.dumps({\\\"file\\\":\\\"D:\\\\\\\\a.txt\\\",\\\"encoding\\\":\\\"utf-8\\\",\\\"payload\\\":{\\\"type\\\":\\\"replace_markers\\\",\\\"startMarker\\\":\\\"//BEGIN\\\",\\\"endMarker\\\":\\\"//END\\\",\\\"text\\\":\\\"NEW\\\"}}))\" | python \\\"D:\\\\FanFiles\\\\PycharmProjects\\\\AI\\\\工具库\\\\文本工具\\\\cli_structured_edit.py\\\" --jsonOut --requestStdin"
+      ]
+    },
+    {
+      "name": "cli_directory_list.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_directory_list.py",
+      "purpose": "主责: 列目录与文件清单。约束: 仅用于路径发现，不返回文件正文。",
+      "stdout_output": "路径列表或 JSON",
+      "args": [
+        {
+          "flag": "--root",
+          "type": "string",
+          "required": true
+        },
+        {
+          "flag": "--recursive",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--glob",
+          "type": "string",
+          "required": false,
+          "default": "*"
+        },
+        {
+          "flag": "--type",
+          "type": "enum",
+          "required": false,
+          "values": [
+            "all",
+            "file",
+            "dir"
+          ],
+          "default": "all"
+        },
+        {
+          "flag": "--limit",
+          "type": "integer",
+          "required": false,
+          "default": 200
+        },
+        {
+          "flag": "--noGitignore",
+          "type": "boolean",
+          "required": false,
+          "description": "关闭 .gitignore 过滤（默认在仓库内开启）"
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        }
+      ],
+      "jsonOut_data_extra": [
+        "respectGitignoreRequested",
+        "gitRepoRoot",
+        "gitignoreApplied",
+        "gitignoreNote"
+      ]
+    },
+    {
+      "name": "cli_git_workspace.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_git_workspace.py",
+      "purpose": "主责: Git 工作区只读信息。约束: 仅查询，不执行写入型 git 操作。",
+      "stdout_output": "文本 或 {ok,data,error} JSON",
+      "modes": [
+        "worktree",
+        "log",
+        "blame",
+        "show"
+      ],
+      "args": [
+        {
+          "flag": "--root",
+          "type": "string",
+          "required": true,
+          "description": "含 .git 的仓库根目录"
+        },
+        {
+          "flag": "--mode",
+          "type": "enum",
+          "required": false,
+          "values": [
+            "worktree",
+            "log",
+            "blame",
+            "show"
+          ],
+          "default": "worktree"
+        },
+        {
+          "flag": "--maxDiffChars",
+          "type": "integer",
+          "required": false,
+          "default": 200000,
+          "description": "worktree diff / show 补丁截断"
+        },
+        {
+          "flag": "--logMax",
+          "type": "integer",
+          "required": false,
+          "default": 20
+        },
+        {
+          "flag": "--blamePath",
+          "type": "string",
+          "required": false,
+          "description": "blame：相对 root 的文件路径"
+        },
+        {
+          "flag": "--startLine",
+          "type": "integer",
+          "required": false,
+          "description": "仅 blame：1-based 起始行（含），须与 --endLine 成对"
+        },
+        {
+          "flag": "--endLine",
+          "type": "integer",
+          "required": false,
+          "description": "仅 blame：1-based 结束行（含）"
+        },
+        {
+          "flag": "--showRef",
+          "type": "string",
+          "required": false,
+          "default": "HEAD"
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        }
+      ],
+      "constraints": [
+        "依赖本机 git 可执行文件"
+      ]
+    },
+    {
+      "name": "cli_unified_diagnose.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_unified_diagnose.py",
+      "purpose": "主责: Python 语法/静态诊断。约束: 优先诊断，不替代测试执行。",
+      "stdout_output": "人类可读摘要 或 {ok,data,error} JSON",
+      "diagnostic_item_schema": {
+        "file": "string 绝对路径",
+        "source": "syntax | ruff",
+        "rule": "string",
+        "severity": "error | warning",
+        "line": "int | null",
+        "column": "int | null",
+        "endLine": "int | null",
+        "endColumn": "int | null",
+        "message": "string"
+      },
+      "args": [
+        {
+          "flag": "--root",
+          "type": "string",
+          "required": true,
+          "description": "项目根目录，在此目录执行 ruff check ."
+        },
+        {
+          "flag": "--glob",
+          "type": "string",
+          "required": false,
+          "default": "**/*.py",
+          "description": "用于枚举做语法解析的 py 文件"
+        },
+        {
+          "flag": "--limit",
+          "type": "integer",
+          "required": false,
+          "default": 500
+        },
+        {
+          "flag": "--encoding",
+          "type": "string",
+          "required": false,
+          "default": "utf-8",
+          "description": "读文件编码，可选 auto"
+        },
+        {
+          "flag": "--timeoutSec",
+          "type": "integer",
+          "required": false,
+          "default": 120,
+          "description": "ruff 子进程超时"
+        },
+        {
+          "flag": "--noRuff",
+          "type": "boolean",
+          "required": false,
+          "description": "不调用 ruff"
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        }
+      ],
+      "constraints": [
+        "ruff 需在本机 PATH；不可用时仅语法扫描，notes 说明原因",
+        "顶层 ok：无 severity=error 的项时为 true（仅有 warning 时仍为 true）"
+      ]
+    },
+    {
+      "name": "cli_regex_locate.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_regex_locate.py",
+      "purpose": "主责: 正则定位命中区间。约束: 用于定位，不直接改写文件。",
+      "stdout_output": "匹配列表（文本或 JSON）",
+      "args": [
+        {
+          "flag": "--target",
+          "type": "string",
+          "required": true
+        },
+        {
+          "flag": "--pattern",
+          "type": "string",
+          "required": true
+        },
+        {
+          "flag": "--ignoreCase",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--multiline",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--recursive",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--glob",
+          "type": "string",
+          "required": false,
+          "default": "*"
+        },
+        {
+          "flag": "--encoding",
+          "type": "string",
+          "required": false,
+          "default": "utf-8",
+          "description": "支持 auto"
+        },
+        {
+          "flag": "--limit",
+          "type": "integer",
+          "required": false,
+          "default": 200
+        },
+        {
+          "flag": "--rangesOut",
+          "type": "string",
+          "required": false,
+          "description": "将匹配区间导出为 JSON 数组 [{start,end}]（供 delete_segments.masks）"
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "cli_text_diff.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_text_diff.py",
+      "purpose": "主责: 生成文本差异。约束: 仅对比，不落盘修改。",
+      "stdout_output": "diff 与摘要（文本或 JSON）；jsonOut 含 data.diffMarkdown（已包装的 fenced diff，可粘贴 Markdown）。",
+      "args": [
+        {
+          "flag": "--leftFile",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--leftText",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--rightFile",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--rightText",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--encoding",
+          "type": "string",
+          "required": false,
+          "default": "utf-8",
+          "description": "支持 auto"
+        },
+        {
+          "flag": "--context",
+          "type": "integer",
+          "required": false,
+          "default": 3
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "cli_patch_apply.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_patch_apply.py",
+      "purpose": "主责: 应用 unified diff 到文件。约束: 仅处理受支持 patch 形态。",
+      "stdout_output": "变更文件列表（文本或 JSON）",
+      "args": [
+        {
+          "flag": "--root",
+          "type": "string",
+          "required": true
+        },
+        {
+          "flag": "--patchText",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--patchFile",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--patchStdin",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--dryRun",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--runType",
+          "type": "enum",
+          "required": false,
+          "values": [
+            "auto",
+            "plan",
+            "execute"
+          ],
+          "description": "当前运行模式；plan 时写操作被拒绝"
+        }
+      ],
+      "constraints": [
+        "patch 输入三选一：patchText/patchFile/patchStdin",
+        "仅支持 update 已存在文件",
+        "不支持 rename/add/delete"
+      ]
+    },
+    {
+      "name": "cli_preview_render.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_preview_render.py",
+      "purpose": "主责: 统一预览输出(file/text/stdin/url)。约束: 默认全量预览；仅在显式给 maxChars>0 时截断。",
+      "stdout_output": "{ok,data,error} JSON",
+      "args": [
+        {
+          "flag": "--file",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--text",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--textStdin",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--url",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--encoding",
+          "type": "string",
+          "required": false,
+          "default": "utf-8"
+        },
+        {
+          "flag": "--label",
+          "type": "string",
+          "required": false,
+          "default": "预览"
+        },
+        {
+          "flag": "--maxChars",
+          "type": "integer",
+          "required": false,
+          "default": 0,
+          "description": "最大返回字符数；<=0 表示全量预览（默认）"
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "cli_env_probe.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_env_probe.py",
+      "purpose": "主责: 探测本机命令环境能力。约束: 仅报告能力，不执行业务操作。",
+      "stdout_output": "{ok,data,error} JSON",
+      "args": [
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "cli_orch_dispatch.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_orch_dispatch.py",
+      "purpose": "主责: 调度 orch_agent 执行多步编排。约束: 适用于2步以上且步骤有依赖关系的任务，优先于离散多次 cli 调用。",
+      "stdout_output": "{ok,data,error} JSON",
+      "args": [
+        {
+          "flag": "--specFile",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--preset",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--paramsJson",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--paramsFile",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--noVerbose",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--noPreview",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "cli_test_report.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_test_report.py",
+      "purpose": "主责: 运行 pytest 并汇总结果。约束: 仅在明确需要测试时调用。",
+      "stdout_output": "摘要文本 或 {ok,data,error} JSON",
+      "args": [
+        {
+          "flag": "--root",
+          "type": "string",
+          "required": true
+        },
+        {
+          "flag": "--pytestArgs",
+          "type": "string",
+          "required": false,
+          "default": "",
+          "description": "附加参数，shell 分词"
+        },
+        {
+          "flag": "--timeoutSec",
+          "type": "integer",
+          "required": false,
+          "default": 600
+        },
+        {
+          "flag": "--keepJunit",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        }
+      ],
+      "constraints": [
+        "依赖本机 pytest；顶层 ok 要求退出码 0 且无 failure/error 用例"
+      ]
+    },
+    {
+      "name": "cli_file_ops.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_file_ops.py",
+      "purpose": "主责: 文件路径级操作(delete/rename/copy/move)。约束: 严格按 source/dest 执行，不扩展语义。",
+      "stdout_output": "ok + 一行 JSON 或 {ok,data,error}",
+      "args": [
+        {
+          "flag": "--action",
+          "type": "enum",
+          "required": true,
+          "values": [
+            "delete",
+            "rename",
+            "copy",
+            "move"
+          ]
+        },
+        {
+          "flag": "--source",
+          "type": "string",
+          "required": true
+        },
+        {
+          "flag": "--dest",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--root",
+          "type": "string",
+          "required": false,
+          "description": "若指定，source/dest 须在其目录树下"
+        },
+        {
+          "flag": "--recursive",
+          "type": "boolean",
+          "required": false,
+          "description": "delete 目录时必须"
+        },
+        {
+          "flag": "--dryRun",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--runType",
+          "type": "enum",
+          "required": false,
+          "values": [
+            "auto",
+            "plan",
+            "execute"
+          ],
+          "description": "当前运行模式；plan 时写操作被拒绝"
+        }
+      ]
+    },
+    {
+      "name": "cli_web_fetch.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_web_fetch.py",
+      "purpose": "主责: 抓取网页文本内容。约束: 仅在明确需要联网抓取/核对时调用。",
+      "stdout_output": "{ok,data,error} JSON",
+      "args": [
+        {
+          "flag": "--url",
+          "type": "string",
+          "required": true
+        },
+        {
+          "flag": "--timeoutSec",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "flag": "--maxChars",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "flag": "--userAgent",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--outFile",
+          "type": "string",
+          "required": false,
+          "description": "将抓取结果写入此文件（传此参数时 stdout 只输出状态）"
+        },
+        {
+          "flag": "--minChars",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "flag": "--requireKeywords",
+          "type": "string",
+          "required": false
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        }
+      ],
+      "error_schema": {
+        "fields": [
+          "code",
+          "type",
+          "message",
+          "hint",
+          "retryable"
+        ]
+      }
+    },
+    {
+      "name": "cli_ip_geolocate.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_ip_geolocate.py",
+      "purpose": "主责: 基于 IP 解析地区信息。约束: 本地/保留地址视为未传 IP。",
+      "stdout_output": "{ok,data,error} JSON",
+      "args": [
+        {
+          "flag": "--ip",
+          "type": "string",
+          "required": false,
+          "description": "可选。指定 IP；省略时自动查询当前公网出口 IP"
+        },
+        {
+          "flag": "--timeoutSec",
+          "type": "integer",
+          "required": false,
+          "description": "HTTP 超时秒数，默认 12"
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "cli_open_meteo_weather.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_open_meteo_weather.py",
+      "purpose": "主责: 查询天气数据。约束: 优先显式地理位置，失败时明确报错，不用默认地名。",
+      "stdout_output": "{ok,data,error} JSON",
+      "args": [
+        {
+          "flag": "--location",
+          "type": "string",
+          "required": false,
+          "description": "可选。城市或地区名（与经纬度二选一）；若省略则按 IP 自动定位地区，若定位失败将直接返回错误。"
+        },
+        {
+          "flag": "--latitude",
+          "type": "string",
+          "required": false,
+          "description": "与 --longitude 成对"
+        },
+        {
+          "flag": "--longitude",
+          "type": "string",
+          "required": false,
+          "description": "与 --latitude 成对"
+        },
+        {
+          "flag": "--ip",
+          "type": "string",
+          "required": false,
+          "description": "可选。用于 IP 定位（适合服务端透传客户端公网 IP）；localhost/127.0.0.1/0.0.0.0 将视为未传并由 API 自动识别出口 IP。"
+        },
+        {
+          "flag": "--forecastDays",
+          "type": "integer",
+          "required": false,
+          "description": "预报天数 1-7，默认 2"
+        },
+        {
+          "flag": "--timeoutSec",
+          "type": "integer",
+          "required": false,
+          "description": "HTTP 超时秒数，默认 15"
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "cli_python_inline.py",
+      "path": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\cli_python_inline.py",
+      "purpose": "胶水脚本工具：在当前 Python 解释器内执行一段 Python 源码（等价于 python -c），不经 shell。用于需要在多个文件间做读-处理-写编排的场景，数据在进程中传递，不产生中间文件。避免其他 cli_* 工具多次调用时的参数长度限制和序列化开销。输出文件参数：--outFile 将所有输出写入文件。",
+      "stdout_output": "{ok,data:{stdout,stderr,exitCode},error} JSON",
+      "args": [
+        {
+          "flag": "--code",
+          "type": "string",
+          "required": true,
+          "description": "传给 python -c 的源码字符串。可执行文件读写、正则解析、多个文件间的数据搬移。注意：code 中不要包含大段字面量数据（>5000字符），如必须，先从文件读取"
+        },
+        {
+          "flag": "--cwd",
+          "type": "string",
+          "required": false,
+          "description": "子进程工作目录，默认当前"
+        },
+        {
+          "flag": "--timeoutSec",
+          "type": "integer",
+          "required": false,
+          "description": "超时秒数，默认 300"
+        },
+        {
+          "flag": "--outFile",
+          "type": "string",
+          "required": false,
+          "description": "将结果写入此文件（传此参数时 stdout 只输出状态）"
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "flag": "--runType",
+          "type": "enum",
+          "required": false,
+          "values": [
+            "auto",
+            "plan",
+            "execute"
+          ],
+          "description": "当前运行模式；plan 时写操作被拒绝"
+        }
+      ]
+    },
+    {
+      "name": "cli_todo_list.py",
+      "path": "G:\\workspace_new_fanjs\\apps\\ai-parent\\ai-agent\\code-web-agent\\tools\\cli_todo_list.py",
+      "purpose": "创建/勾选/取消勾选/折叠/关闭/查询执行清单（Todo List）。action=create 创建（items 为 JSON 字符串数组）；check/uncheck 更新项（需 listId + itemIndex）；collapse 折叠/展开（需 listId）；close 关闭（需 listId）；**action=query 仅查询：当前会话无清单时 ok 且 data 为 null，有清单时 data 为 items 数组 [{text,done},…]。禁止用 close 试探是否有清单。**",
+      "stdout_output": "统一 JSON；query 时 data 为 null 或 items 数组，其余 action 多为 {listId, items, ...}",
+      "args": [
+        {
+          "flag": "--action",
+          "type": "enum",
+          "required": true,
+          "values": [
+            "create",
+            "check",
+            "uncheck",
+            "collapse",
+            "close",
+            "query"
+          ],
+          "description": "create / check / uncheck / collapse / close / **query（查询是否有清单；无则 data null，有则 data 为 items 数组，勿用 close 探测）**"
+        },
+        {
+          "flag": "--items",
+          "type": "string",
+          "required": false,
+          "description": "create 时必填：JSON 字符串数组，如 [\"步骤1\",\"步骤2\"]"
+        },
+        {
+          "flag": "--itemIndex",
+          "type": "integer",
+          "required": false,
+          "description": "check/uncheck 时必填：项目索引（0-based）"
+        },
+        {
+          "flag": "--listId",
+          "type": "string",
+          "required": false,
+          "description": "清单 ID（create 自动生成；check/uncheck/collapse/close 必填；**query 查询时由宿主绑定会话，无需传**）"
+        },
+        {
+          "flag": "--jsonOut",
+          "type": "boolean",
+          "required": false
+        }
+      ]
+    }
+  ],
+  "orchestration": {
+    "dir": "D:\\FanFiles\\PycharmProjects\\AI\\工具库\\文本工具\\orch",
+    "note": "内部编排脚本统一使用 inner_ 前缀；仅由 cli_orch_dispatch 间接调用，不作为 function tool 直接暴露。inner_orch_agent 负责 JSON spec/preset 调度，inner_orch_line_dual_anchor_purify 负责行清洗链路，inner_orch_common 为内部复用模块。",
+    "scripts": [
+      {
+        "file": "inner_orch_agent.py",
+        "cli": "--spec-file path.json | --preset line_dual_anchor --params-file path.json",
+        "role": "内部调度入口：按 spec/preset 串行执行步骤，可在结构化写入前输出 diff 预览。"
+      },
+      {
+        "file": "inner_orch_common.py",
+        "role": "内部公共模块：封装子进程调用与通用辅助能力，不单独对外暴露。"
+      },
+      {
+        "file": "inner_orch_line_dual_anchor_purify.py",
+        "chains": [
+          "extract line",
+          "可选 dropPhrases",
+          "双锚截取",
+          "可选尾截断"
+        ],
+        "cli": "--request-file path.json 或 --source-file + --line + --out-file",
+        "request_schema_note": "JSON 字段 snake_case: source_file,line,out_file,encoding,json_out,drop_phrases,left_pattern,right_pattern,tail_cut_pattern,ignore_case,multiline,allow_no_left,allow_no_right,left_use_end_of_match,right_bound_is_match_end",
+        "role": "内部预设执行脚本：行抽取 + 可选短语删除 + 双锚截取 + 可选尾截断。"
+      }
+    ],
+    "high_freq_chains": [
+      {
+        "id": "orch_agent_pipeline",
+        "use": "cli_orch_dispatch -> inner_orch_agent",
+        "when": "需要多步有序编排，且希望统一展示中间过程与写前预览时。"
+      },
+      {
+        "id": "line_purify_dual_anchor",
+        "use": "cli_orch_dispatch(preset=line_dual_anchor) -> inner_orch_line_dual_anchor_purify",
+        "when": "需要按行抽取后执行双锚清洗链路时。"
+      }
+    ]
+  }
+}
