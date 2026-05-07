@@ -2469,8 +2469,8 @@ def run_agent_turn(
 # Embedded UI (VS Code-like dark theme, chat + steps). Served from / without external static files.
 # ---- UI HTML loaded from external file ----
 UI_HTML_FILE = AGENT_ROOT / "code-web-agent-ui.html"
-UI_CSS_FILE = AGENT_ROOT / "code-web-agent-ui.css"
-UI_JS_FILE = AGENT_ROOT / "code-web-agent-ui.js"
+UI_CSS_FILE = AGENT_ROOT / "res" / "css" / "code-web-agent-ui.css"
+UI_JS_FILE = AGENT_ROOT / "res" / "js" / "code-web-agent-ui.js"
 
 _INLINE_CSS = UI_CSS_FILE.read_text(encoding="utf-8")
 _INLINE_JS = UI_JS_FILE.read_text(encoding="utf-8")

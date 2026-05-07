@@ -192,8 +192,8 @@ def create_tray_icon():
     from PIL import Image
 
     # 加载托盘图标：优先用大图（自动缩放），回退到小图，再无则画简易图标
-    icon_128 = BASE_DIR / "app_icon_128x128.png"
-    icon_16 = BASE_DIR / "app_icon_16x16.png"
+    icon_128 = BASE_DIR / "res" / "img" / "app_icon_128x128.png"
+    icon_16 = BASE_DIR / "res" / "img" / "app_icon_16x16.png"
     if icon_128.exists():
         img = Image.open(icon_128)
     elif icon_16.exists():
