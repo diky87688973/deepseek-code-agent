@@ -30,21 +30,21 @@
   },
   "tools": [
     {
-      "name": "cli_choose_run_type.py",
-      "path": "tools/cli_choose_run_type.py",
-      "purpose": "仅当用户对模型说出明确要求、同意由你代为切换会话运行模式时调用；runType=auto|plan|execute。默认请先口头提示用户自行点击界面 Auto/Plan/Execute 切换，不要调用本工具。",
+      "name": "cli_run_type.py",
+      "path": "tools/cli_run_type.py",
+      "purpose": "运行模式管理：不传 --runType 则查询当前模式（Auto/Plan/Execute）；传 --runType 则请求切换模式（需用户明确授权后调用）。当对当前执行模式存疑或出现冲突时，优先调用本工具（不传参）确认后再决策。",
       "stdout_output": "统一 JSON",
       "args": [
         {
           "flag": "--runType",
           "type": "enum",
-          "required": true,
+          "required": false,
           "values": [
             "auto",
             "plan",
             "execute"
           ],
-          "description": "目标运行模式"
+          "description": "目标运行模式。不传则查询当前模式"
         },
         {
           "flag": "--jsonOut",

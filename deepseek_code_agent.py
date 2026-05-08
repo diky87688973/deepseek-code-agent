@@ -436,17 +436,19 @@ def _unknown_tool_result(api_name: Any, script_by_api: Dict[str, str]) -> dict:
     return {"ok": False, "data": None, "error": {"type": "UnknownTool", "message": msg}}
 
 
-def _execute_cli_choose_run_type(conversation_id: str, exec_args: Dict[str, Any]) -> dict:
+def _execute_cli_run_type(conversation_id: str, exec_args: Dict[str, Any]) -> dict:
     rt = str(exec_args.get("runType") or exec_args.get("run_type") or "").strip().lower()
-    if rt not in {"auto", "plan", "execute"}:
-        base = "runType must be auto|plan|execute"
-        return {"ok": False, "data": None, "error": {"type": "InvalidArg", "message": _enrich_tool_error_message("cli_choose_run_type.py", base)}}
     cid = str(conversation_id or "")
+    # 不传 runType 则为查询模式
+    if not rt or rt not in {"auto", "plan", "execute"}:
+        mode = CONVERSATION_MODES.get(cid, "auto")
+        return {"ok": True, "data": {"runType": mode, "action": "query"}}
+    # 切换模式
     if rt == "auto":
         CONVERSATION_MODES.pop(cid, None)
     else:
         CONVERSATION_MODES[cid] = rt
-    return {"ok": True, "data": {"runType": rt}}
+    return {"ok": True, "data": {"runType": rt, "action": "switch"}}
 
 
 
@@ -2390,8 +2392,8 @@ def run_agent_turn(
                         "tool_call_id": tc.get("id"),
                         "step_title": step_title,
                     }
-                    if script == "cli_choose_run_type.py":
-                        result = _execute_cli_choose_run_type(conversation_id, exec_args)
+                    if script == "cli_run_type.py":
+                        result = _execute_cli_run_type(conversation_id, exec_args)
                     elif script == "cli_todo_list.py":
                         result = _execute_cli_todo_list(conversation_id, exec_args)
                     else:
@@ -2486,7 +2488,7 @@ def run_agent_turn(
                                 yield sse_data
                     yield _te_tool_end
                     
-                    if script == "cli_choose_run_type.py" and isinstance(result, dict) and result.get("ok"):
+                    if script == "cli_run_type.py" and isinstance(result, dict) and result.get("ok"):
                         _dc = result.get("data") or {}
                         _rtm = _dc.get("runType")
                         if _rtm in ("auto", "plan", "execute"):
