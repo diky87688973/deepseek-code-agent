@@ -100,6 +100,7 @@ else if(ev.type==="llm_response")onLlmResponse(ev);
 else if(ev.type==="llm_done"){flushPendingToolTags();if(lastLlm){finishLlmTitle(true);lastLlm.tag.className="tag ok";lastLlm.tag.textContent="Done";}}
 else if(ev.type==="usage"){const u=ev.usage||{};const inTok=Number(u.prompt_tokens??0)||0;const outTok=Number(u.completion_tokens??0)||0;const hitTok=Number(u.prompt_cache_hit_tokens??0)||0;const missTok=Number(u.prompt_cache_miss_tokens??0)||0;sessionTokenUsed+=Math.max(0,inTok+outTok);totalPromptTokens+=inTok;totalCompletionTokens+=outTok;totalCacheHitTokens+=hitTok;totalCacheMissTokens+=missTok;void ensureModelPricing();_updateUsageBottom();void persistUsageAccumulator();}
 else if(ev.type==="tool_start")onToolStart(ev);
+else if(ev.type==="tool_progress")onToolProgress(ev);
 else if(ev.type==="tool_end"){onToolEnd(ev);if(ev.todo_list&&ev.todo_list_data){var _td=ev.todo_list_data;renderTodoListFromEvent({items:_td.items||[],allDone:Array.isArray(_td.items)&&_td.items.every(function(it){return !!it.done;}),collapsed:!!_td.collapsed,close:!!_td.close},packetCid);}}
 else if(ev.type==="tool_preview_update"){var tid2=String(ev.tool_call_id||"");if(steps&&tid2){var q=tid2.replace(/\\/g,"\\\\").replace(/"/g,'\\"');var card=steps.querySelector('.step.card[data-tool-call-id="'+q+'"]');if(card){var pb2=card.querySelector("pre.tool-res");if(pb2){try{var _pj2=JSON.parse(ev.preview||"{}");pb2.textContent=JSON.stringify(_pj2,null,2);}catch(e2){pb2.textContent=String(ev.preview||"");}var lb2=pb2.previousElementSibling;if(lb2&&lb2.classList&&lb2.classList.contains("lbl"))lb2.style.display="block";pb2.style.display="block";}var tag2=card.querySelector(".ch .tag");if(tag2){try{var _pj3=JSON.parse(ev.preview||"{}");if(_pj3&&_pj3.ok){tag2.textContent="Done";tag2.className="tag ok";}else{tag2.textContent="Fail";tag2.className="tag bad";}}catch(e3){}}}}}
 else if(ev.type==="assistant_delta"){if(anyToolThisTurn){flushPendingSteps();}appendAssistantDelta(ev.delta||"");}
@@ -695,7 +696,7 @@ return true;
 }
 return false;
 }
-function appendStep(el){steps.appendChild(el);scrollBottomIfNeeded(steps);}function flushPendingSteps(){while(pendingStepEls.length){appendStep(pendingStepEls.shift());}}function discardPendingSteps(){clearLlmAnim();pendingStepEls=[];lastLlm=null;}
+function appendStep(el){steps.appendChild(el);scrollToBottom(steps);}function flushPendingSteps(){while(pendingStepEls.length){appendStep(pendingStepEls.shift());}}function discardPendingSteps(){clearLlmAnim();pendingStepEls=[];lastLlm=null;}
 function addDispatchTitle(title){
 const t=String(title||"").trim();
 if(!t)return;
@@ -735,40 +736,47 @@ async function persistUsageAccumulator(){try{await fetch("/api/usage-accumulator
 function toolIco(script,args){
 const s=(script||"").toLowerCase();
 const a=(!args||typeof args!=="object")?{}:args;
+if(s.indexOf("read_file")>=0)return "📖";
+if(s.indexOf("write_file")>=0)return "📝";
+if(s.indexOf("replace_in_file")>=0)return "✏️";
+if(s.indexOf("read_write")>=0)return "🔀";
 if(s.indexOf("web_fetch")>=0)return "🌐";
+if(s.indexOf("file_search")>=0)return "🔎";
 if(s.indexOf("ip_geolocate")>=0)return "📍";
 if(s.indexOf("open_meteo")>=0)return "🌤️";
-if(s.indexOf("structured_edit")>=0){
-var pl=parseToolPayload(a);
-if(pl&&pl.type==="extract")return "🔎";
-return "📝";}
-if(s.indexOf("directory")>=0)return "📂";
+if(s.indexOf("image_ocr")>=0)return "🖼";
+if(s.indexOf("glob_files")>=0)return "📂";
 if(s.indexOf("regex")>=0)return "🔍";
 if(s.indexOf("file_ops")>=0)return "📋";
-if(s.indexOf("patch")>=0)return "🔧";
+if(s.indexOf("apply_patch")>=0)return "🔧";
 if(s.indexOf("git")>=0)return "🌿";
 if(s.indexOf("diff")>=0)return "📑";
 if(s.indexOf("diagnos")>=0)return "🛠️";
-if(s.indexOf("orch_dispatch")>=0||s.indexOf("orch_agent")>=0)return "🧩";
 if(s.indexOf("user_confirm")>=0)return "\u26A0\uFE0F";
 if(s.indexOf("unknown")>=0)return "\u26A0\uFE0F";
 return "\u2699\uFE0F";}
 function toolZh(script){const s=(script||"").toLowerCase();
+if(s.indexOf("read_file")>=0)return "正在读取文件";
+if(s.indexOf("write_file")>=0)return "正在写入文件";
+if(s.indexOf("replace_in_file")>=0)return "正在替换文件内容";
+if(s.indexOf("grep_files")>=0)return "正在搜索文件内容";
+if(s.indexOf("find_in_file")>=0)return "正在定位文件内文本";
+if(s.indexOf("read_write")>=0)return "正在管道读写";
+if(s.indexOf("apply_patch")>=0)return "正在应用补丁";
 if(s.indexOf("web_fetch")>=0)return "正在抓取网页内容";
+if(s.indexOf("file_search")>=0)return "正在搜索文件内容";
 if(s.indexOf("ip_geolocate")>=0)return "正在定位公网地区";
 if(s.indexOf("open_meteo")>=0)return "正在查询天气";
-if(s.indexOf("structured_edit")>=0)return "正在结构化读写文件";
-if(s.indexOf("directory")>=0)return "正在浏览目录";
+if(s.indexOf("image_ocr")>=0)return "正在识别图片文字";
+if(s.indexOf("glob_files")>=0)return "正在列出路径";
 if(s.indexOf("regex")>=0)return "正在正则检索与定位";
 if(s.indexOf("file_ops")>=0)return "正在执行文件复制/移动/删除";
-if(s.indexOf("patch")>=0)return "正在应用补丁";
 if(s.indexOf("git")>=0)return "正在查看 Git 工作区";
 if(s.indexOf("diff")>=0)return "正在对比文本";
 if(s.indexOf("diagnos")>=0)return "正在统一诊断";
-if(s.indexOf("orch_dispatch")>=0||s.indexOf("orch_agent")>=0)return "正在执行编排流水线";
 const bn=baseNameOnly(String(script||""));return bn?("正在执行工具 · "+bn):"正在执行本地工具";}
 function pickFileHint(args){if(!args||typeof args!=="object")return "";
-const keys=["file","requestFile","payloadFile","path","oldPath","newPath"];
+const keys=["file","requestFile","payloadFile","path","oldPath","newPath","sourcePath","destPath","source","patchFile"];
 for(let k of keys){let v=args[k];if(v===undefined&&args["--"+k]!==undefined)v=args["--"+k];
 if(typeof v==="string"&&v){const parts=v.replace(/\\/g,"/").split("/");return parts[parts.length-1]||v;}}
 return "";}
@@ -790,6 +798,13 @@ function baseNameOnly(p){
 if(!p||typeof p!=="string")return "";
 const parts=p.replace(/\\/g,"/").split("/");
 return parts[parts.length-1]||p;}
+/** 步骤标题用：优先末两段路径，避免过长 */
+function pathLeaf(p){
+const s=String(p||"").trim().replace(/\\/g,"/");
+if(!s)return "";
+const parts=s.split("/").filter(Boolean);
+if(parts.length<=2)return parts.join("/")||s;
+return parts.slice(-2).join("/");}
 function inferLangFromPath(path){
 const n=baseNameOnly(String(path||"")).toLowerCase();
 const m=n.match(/\.([a-z0-9_+-]+)$/i);
@@ -804,34 +819,124 @@ return escapeHtml(t);
 }
 function buildToolTitleParts(script,args){
 const s=(script+"").toLowerCase();
-if(s.indexOf("structured_edit")>=0){
-const fname=pickFileHint(args)||"";
-const pl=parseToolPayload(args);
-if(pl&&pl.type==="extract"){
-const mode=pl.mode||"";
-if(mode==="lines"&&typeof pl.startLine==="number"&&typeof pl.endLine==="number")
-return {main:"正在读取文件 L"+pl.startLine+"-"+pl.endLine,fname:fname};
-if(mode==="lines_columns"&&typeof pl.startLine==="number"&&typeof pl.endLine==="number")
-return {main:"正在读取文件 L"+pl.startLine+":"+(pl.startColumn!=null?pl.startColumn:1)+"-"+pl.endLine+":"+(pl.endColumn!=null?pl.endColumn:1),fname:fname};
-if(mode==="offsets"&&typeof pl.start==="number"&&typeof pl.end==="number")
-return {main:"正在读取文件（offset "+pl.start+"–"+pl.end+"）",fname:fname};
-if(mode==="lines"||mode==="lines_columns"||mode==="offsets")return {main:"正在读取文件片段",fname:fname};
-return {main:"正在提取内容",fname:fname};}
-if(pl&&pl.type==="replace_literal"){var _st=calcDiffStats(pl.oldText,pl.newText);return {main:"正在替换文本片段"+diffLabelPlain(_st),fname:fname};}
-if(pl&&pl.type==="replace_range")return {main:"正在替换指定区间",fname:fname};
-if(pl&&(pl.type==="append"||pl.type==="append_line"))return {main:"正在追加写入",fname:fname};
-if(pl&&pl.type==="insert")return {main:"正在插入内容",fname:fname};
-if(pl&&pl.type==="delete_segments")return {main:"正在按掩码删除片段",fname:fname};
-if(pl&&pl.type)return {main:"正在修改文件",fname:fname};}
-if(s.indexOf("directory_list")>=0){
-const root=String(argGet(args,"root")||"");
-const glob=String(argGet(args,"glob")||"*");
-const leaf=baseNameOnly(root)||(root.length>28?root.slice(0,28)+"…":root);
+if(s.indexOf("read_file")>=0){
+const path=String(argGet(args,"path")||"").trim();
+const leaf=pathLeaf(path)||"（未指定 path）";
+const ls=argGet(args,"lineStart"), le=argGet(args,"lineEnd");
+const sc=argGet(args,"startColumn"), ec=argGet(args,"endColumn");
+const chs=argGet(args,"charStart"), che=argGet(args,"charEnd");
+let rng="";
+if(ls!=null&&le!=null){
+if(sc!=null&&ec!=null)rng=" L"+ls+":"+sc+"–"+le+":"+ec;
+else rng=" L"+ls+"–"+le;
+}else if(chs!=null||che!=null){
+rng=" §"+(chs!=null?chs:0)+"–"+(che!=null?che:"EOF");
+}
+return {main:"正在读取文件",fname:leaf+rng};}
+if(s.indexOf("write_file")>=0){
+const path=String(argGet(args,"path")||"").trim();
+const leaf=pathLeaf(path)||"（未指定 path）";
+const dr=argGet(args,"dryRun");
+const dry=dr!==false&&dr!==0;
+const co=!!argGet(args,"createOnly");
+const tag=dry?"（dryRun 预览）":"（写入）";
+const cx=co?" · createOnly":"";
+return {main:dry?"正在预览写入":"正在写入文件",fname:leaf+tag+cx};}
+if(s.indexOf("replace_in_file")>=0){
+const path=String(argGet(args,"path")||"").trim();
+const leaf=pathLeaf(path)||"（未指定 path）";
+const rs=argGet(args,"region_start"), re=argGet(args,"region_end");
+const ls=argGet(args,"line_start"), le=argGet(args,"line_end");
+const sc=argGet(args,"start_column"), ec=argGet(args,"end_column");
+const dr=argGet(args,"dryRun");
+const dry=dr!==false&&dr!==0;
+const rules=argGet(args,"rules");
+let mode="字面替换",extra="";
+if(rs!=null&&re!=null){mode="区间";extra=" §"+rs+"–"+re;}
+else if(ls!=null&&le!=null&&sc!=null&&ec!=null){mode="矩形";extra=" L"+ls+":"+sc+"–"+le+":"+ec;}
+else if(Array.isArray(rules)&&rules.length)mode="规则×"+rules.length;
+return {main:dry?"正在预览替换":"正在替换文件",fname:leaf+" · "+mode+extra+(dry?" · dryRun":"")};}
+if(s.indexOf("grep_files")>=0){
+const root=String(argGet(args,"path")||"").trim();
+const leaf=pathLeaf(root)||root.slice(0,36)+(root.length>36?"…":"");
+const pat=String(argGet(args,"pattern")||"").slice(0,40);
+const re=!!argGet(args,"regex");
+return {main:"正在搜索"+(re?"（正则）":"（字面）"),fname:leaf+(pat?" · /"+pat+"/":"")};}
+if(s.indexOf("find_in_file")>=0){
+const path=String(argGet(args,"path")||"").trim();
+const leaf=pathLeaf(path)||"（未指定 path）";
+const occ=argGet(args,"occurrence");
+const re=!!argGet(args,"regex");
+const o=occ!=null&&occ!==0?" · 第"+(Number(occ)+1)+"处":"";
+return {main:"正在定位"+(re?"（正则）":"（字面）"),fname:leaf+o};}
+if(s.indexOf("read_write")>=0){
+const src=pathLeaf(String(argGet(args,"sourcePath")||""));
+const dst=pathLeaf(String(argGet(args,"destPath")||""));
+const ls=argGet(args,"lineStart"), le=argGet(args,"lineEnd");
+const chs=argGet(args,"charStart"), che=argGet(args,"charEnd");
+let rng="";
+if(ls!=null&&le!=null)rng=" L"+ls+"–"+le;
+else if(chs!=null||che!=null)rng=" §"+(chs!=null?chs:0)+"–"+(che!=null?che:"");
+const dr=argGet(args,"dryRun");
+const dry=dr!==false&&dr!==0;
+return {main:dry?"正在预览读写管道":"正在读写管道",fname:(src||"?")+(dst?" → "+dst:"")+rng+(dry?" · dryRun":"")};}
+if(s.indexOf("delete_file")>=0){
+const leaf=pathLeaf(String(argGet(args,"path")||""))||"（未指定 path）";
+const dr=argGet(args,"dryRun");
+const dry=dr!==false&&dr!==0;
+return {main:dry?"正在预览删除":"正在删除文件",fname:leaf+(dry?" · dryRun":"")};}
+if(s.indexOf("apply_patch")>=0){
+const root=pathLeaf(String(argGet(args,"path")||""))||".";
+const dr=argGet(args,"dryRun");
+const dry=dr!==false&&dr!==0;
+const pf=baseNameOnly(String(argGet(args,"patchFile")||""));
+const pt=String(argGet(args,"patchText")||"");
+const hint=pf|| (pt?"内联补丁":"补丁");
+return {main:dry?"正在预览应用补丁":"正在应用补丁",fname:root+" · "+hint+(dry?" · dryRun":"")};}
+if(s.indexOf("run_command")>=0){
+const cwd=pathLeaf(String(argGet(args,"cwd")||""));
+const cmd=String(argGet(args,"command")||"").replace(/\s+/g," ").trim().slice(0,72);
+return {main:"正在执行命令",fname:(cwd?cwd+" · ":"")+(cmd||"（空命令）")};}
+if(s.indexOf("python_inline")>=0){
+const cwd=pathLeaf(String(argGet(args,"cwd")||""));
+const c0=String(argGet(args,"code")||"");
+const c=c0.replace(/\s+/g," ").trim().slice(0,48);
+return {main:"正在执行内联 Python",fname:(cwd?cwd+" · ":"")+(c+(c.length>=48?"…":"")||"（无 code）")};}
+if(s.indexOf("archive")>=0){
+const act=String(argGet(args,"action")||"").toLowerCase();
+const src=pathLeaf(String(argGet(args,"source")||""))||"（未指定 source）";
+const dst=pathLeaf(String(argGet(args,"dest")||""));
+return {main:"正在"+(act==="list"?"列出":act==="extract"?"解压":"打包")+"压缩包",fname:src+(dst?" · → "+dst:"")};}
+if(s.indexOf("data_table")>=0){
+const act=String(argGet(args,"action")||"");
+const src=pathLeaf(String(argGet(args,"source")||""))||"表格";
+const sh=String(argGet(args,"sheet")||"").slice(0,16);
+return {main:"正在处理表格 · "+(act||"?"),fname:src+(sh?" · "+sh:"")};}
+if(s.indexOf("todo_list")>=0){
+const act=String(argGet(args,"action")||"");
+return {main:"正在更新待办",fname:act||"query"};}
+if(s.indexOf("user_confirm")>=0){
+const t=String(argGet(args,"title")||"").slice(0,40);
+return {main:"正在等待用户确认",fname:t||"（无标题）"};}
+if(s.indexOf("run_type")>=0){
+const rt=String(argGet(args,"runType")||argGet(args,"run_type")||"").trim().toLowerCase();
+return {main:rt?"正在切换运行模式":"正在查询运行模式",fname:rt||"auto/plan/execute"};}
+if(s.indexOf("glob_files")>=0){
+const root=String(argGet(args,"path")||"");
+const glob=String(argGet(args,"glob_pattern")||"*");
+const leaf=pathLeaf(root)||(root.length>28?root.slice(0,28)+"…":root);
 const rec=argGet(args,"recursive");
-return {main:"正在列出目录 · "+leaf+(glob&&glob!=="*"?" · "+glob:"")+(rec?" · 递归":""),fname:""};}
+const et=String(argGet(args,"entryType")||argGet(args,"entry_type")||"").toLowerCase();
+const scope=(et==="dir"?"仅目录":et==="all"?"全部":"")+(et==="file"||!et?"文件":"");
+return {main:"正在列出路径"+(scope?"（"+scope+"）":""),fname:leaf+(glob&&glob!=="*"&&glob!=="**/*"?" · "+glob:"")+(rec===false?"":" · 递归")};}
 if(s.indexOf("web_fetch")>=0){
 const url=String(argGet(args,"url")||"");
 try{const u=new URL(url);const path=u.pathname==="/"?"":u.pathname;return {main:"正在抓取 "+u.hostname+(path?path.length>36?path.slice(0,36)+"…":path:""),fname:""};}catch(e){return {main:url?"正在抓取 "+url.slice(0,56):"正在抓取网页",fname:""};}}
+if(s.indexOf("file_search")>=0){
+const pat=String(argGet(args,"pattern")||"").slice(0,40);
+const root=String(argGet(args,"path")||"").trim();
+const leaf=pathLeaf(root)||(root.length>28?root.slice(0,28)+"…":root);
+return {main:"正在全文搜索"+(argGet(args,"regex")?"（正则）":"（字面）"),fname:leaf+(pat?" · /"+pat+"/":"")};}
 if(s.indexOf("ip_geolocate")>=0){
 const ip=String(argGet(args,"ip")||"").trim();
 return {main:"正在定位公网地区"+(ip?" · "+ip:""),fname:""};}
@@ -843,8 +948,9 @@ if(la&&lo)return {main:"正在查询天气 · "+la+","+lo,fname:""};
 return {main:"正在查询天气"+(loc?" · "+loc:""),fname:""};}
 if(s.indexOf("regex_locate")>=0){
 const pat=String(argGet(args,"pattern")||"").slice(0,48);
-const tgt=baseNameOnly(String(argGet(args,"target")||""));
-return {main:"正在正则检索"+(pat?"（"+pat+"）":"")+(tgt?" · "+tgt:""),fname:""};}
+const tgt=pathLeaf(String(argGet(args,"path")||""));
+const glob=String(argGet(args,"glob_pattern")||"");
+return {main:"正在正则检索",fname:(tgt||"?")+(pat?" · /"+pat+"/":"")+(glob&&glob!=="*"?" · "+glob:"")};}
 if(s.indexOf("file_ops")>=0){
 const act=String(argGet(args,"action")||"").toLowerCase();
 const src=baseNameOnly(String(argGet(args,"source")||""));
@@ -854,18 +960,26 @@ if(act==="copy")return {main:"正在复制 · "+src+(dst?" → "+dst:""),fname:"
 if(act==="move")return {main:"正在移动 · "+src+(dst?" → "+dst:""),fname:""};
 if(act==="rename")return {main:"正在重命名 · "+src+(dst?" → "+dst:""),fname:""};
 return {main:(src?"正在文件操作 · "+src:"正在文件操作"),fname:""};}
-if(s.indexOf("patch_apply")>=0){
-const pf=baseNameOnly(String(argGet(args,"patchFile")||""));
-if(pf)return {main:"正在应用补丁 · "+pf,fname:""};
-const pts=String(argGet(args,"patchText")||"");
-return {main:pts?"正在应用补丁（内联 diff）":"正在应用补丁",fname:""};}
 if(s.indexOf("text_diff")>=0){
 const lf=baseNameOnly(String(argGet(args,"leftFile")||""));
 const rf=baseNameOnly(String(argGet(args,"rightFile")||""));
 if(lf||rf)return {main:"正在对比 · "+(lf||"?")+" ↔ "+(rf||"?"),fname:""};
 return {main:"正在对比文本",fname:""};}
-if(s.indexOf("git_workspace")>=0)return {main:"正在查看 Git 工作区",fname:""};
-if(s.indexOf("diagnos")>=0)return {main:"正在统一诊断",fname:""};
+if(s.indexOf("git_workspace")>=0){
+const root=pathLeaf(String(argGet(args,"path")||""))||".";
+const mode=String(argGet(args,"mode")||"worktree");
+return {main:"正在查看 Git",fname:root+" · "+mode};}
+if(s.indexOf("image_ocr")>=0){
+const src=pathLeaf(String(argGet(args,"source")||""))||"（未指定 source）";
+const eng=String(argGet(args,"engine")||"auto").toLowerCase();
+const reg=String(argGet(args,"region")||"").trim();
+const extra=(eng&&eng!=="auto")?" · "+eng:"";
+const rg=reg?" · 区域 "+reg:"";
+return {main:"正在识别图片文字",fname:src+extra+rg};}
+if(s.indexOf("env_probe")>=0)return {main:"正在探测运行环境",fname:""};
+if(s.indexOf("diagnos")>=0){
+const root=pathLeaf(String(argGet(args,"path")||""))||".";
+return {main:"正在统一诊断",fname:root};}
 const unk='(unknown)';
 if(s===unk)return {main:"无法识别的工具（见下方参数）",fname:""};
 return {main:toolZh(script),fname:""};}
@@ -942,46 +1056,16 @@ function isNearBottom(el,threshold=60){
   if(!el) return true;
   return el.scrollHeight-el.scrollTop-el.clientHeight<threshold;
 }
-// 兼容旧调用
-function scrollBottomIfNeeded(el){scrollToBottom(el);}
 function scrollMsgsToBottom(){scrollToBottom(msgs);}
 function calcDiffStats(oldT,newT){var A=String(oldT??'').split('\n'),B=String(newT??'').split('\n');var a=0,d=0,i=0,j=0;while(i<A.length||j<B.length){if(i<A.length&&j<B.length&&A[i]===B[j]){i++;j++;}else if(j<B.length&&(i>=A.length||A[i]!==B[j])){a++;j++;}else if(i<A.length){d++;i++;}else{a++;j++;}}return {add:a,del:d};}
 function diffLabel(s){return(s.del>0?' <span style="color:#f48771">-'+s.del+'</span>':'')+(s.add>0?' <span style="color:#89d185">+'+s.add+'</span>':'');}
 function diffLabelPlain(s){return(s.del>0?' -'+s.del:'')+(s.add>0?' +'+s.add:'');}
-function renderOrchCardsToChat(cards){
-if(!Array.isArray(cards)||!cards.length)return;
-const e=document.createElement('div');
-e.className='b a';
-const wrap=document.createElement('div');wrap.className='orch-cards';
-for(const c of cards){
-const card=document.createElement('div');card.className='orch-card';
-const head=document.createElement('div');head.className='oc-head';
-const kind=document.createElement('span');kind.className='oc-kind';kind.textContent=c.kind||'change';
-const file=document.createElement('span');file.className='oc-file';file.textContent=c.file||'';
-head.appendChild(kind);head.appendChild(file);
-card.appendChild(head);
-const panels=document.createElement('div');panels.className='oc-panels';
-const ps=Array.isArray(c.previews)?c.previews:[];
-for(const p of ps){
-const panel=document.createElement('div');panel.className='oc-panel';
-const t=document.createElement('div');t.className='oc-title';t.textContent=(p&&p.title)||'预览';
-const pre=document.createElement('pre');pre.className='oc-pre';
-let lang='';
-if(c&&c.file)lang=inferLangFromPath(c.file);
-pre.innerHTML=renderPreviewText((p&&p.text)||'',lang);
-panel.appendChild(t);panel.appendChild(pre);panels.appendChild(panel);
-}
-card.appendChild(panels);wrap.appendChild(card);
-}
-e.appendChild(wrap);if(streamAssistantEl){streamAssistantEl.after(e);streamAssistantEl=null;streamAssistantText="";}else{msgs.appendChild(e);}
-scrollMsgsToBottom();
-}
 
 function fillToolPreview(o,ev){
 const sc=(ev.script||"").toLowerCase();
 if(!o.previewSlot)return;
-if(sc.indexOf("command_exec")>=0){
-console.log("fillToolPreview: command_exec entered, o=",o," ev.preview=",ev.preview);
+if(sc.indexOf("run_command")>=0){
+console.log("fillToolPreview: run_command entered, o=",o," ev.preview=",ev.preview);
 o.previewSlot.innerHTML="";
 o.previewSlot.style.display="none";
 try{
@@ -1009,55 +1093,6 @@ console.error("fillToolPreview: error",e);
 var errCard='<div class="chat-diff-card"><div class="chat-diff-cap">❌ 渲染异常</div><div class="diff-unified"><pre style="margin:0;padding:4px 8px;font-size:11px">'+escapeHtml(e.message)+'</pre></div></div>';
 var errDiv=document.createElement("div");errDiv.className="b a";errDiv.innerHTML=errCard;
 }
-return;}
-if(sc.indexOf("orch_dispatch")>=0){
-o.previewSlot.innerHTML="";
-o.previewSlot.style.display="none";
-try{
-const j=JSON.parse(ev.preview||"{}");
-const cards=(j&&j.data&&Array.isArray(j.data.cards))?j.data.cards:[];
-if(cards.length){
-o.previewSlot.style.display='block';
-const cap=document.createElement('p');cap.className='lbl';cap.textContent='编排变更卡片';
-o.previewSlot.appendChild(cap);
-for(const c of cards){
-const box=document.createElement('div');box.className='orch-card';
-const head=document.createElement('div');head.className='oc-head';
-const kind=document.createElement('span');kind.className='oc-kind';kind.textContent=c.kind||'change';
-const file=document.createElement('span');file.className='oc-file';file.textContent=c.file||'';
-head.appendChild(kind);head.appendChild(file);box.appendChild(head);
-const ps=document.createElement('div');ps.className='oc-panels';
-for(const p of (Array.isArray(c.previews)?c.previews:[])){
-const panel=document.createElement('div');panel.className='oc-panel';
-const t=document.createElement('div');t.className='oc-title';t.textContent=(p&&p.title)||'预览';
-const pre=document.createElement('pre');pre.className='oc-pre';
-let lang='';if(c&&c.file)lang=inferLangFromPath(c.file);
-pre.innerHTML=renderPreviewText((p&&p.text)||'',lang);
-panel.appendChild(t);panel.appendChild(pre);ps.appendChild(panel);
-}
-box.appendChild(ps);o.previewSlot.appendChild(box);
-}
-renderOrchCardsToChat(cards);
-}
-}catch(e){}
-return;}
-if(sc.indexOf("preview_render")>=0){
-o.previewSlot.innerHTML="";
-o.previewSlot.style.display="none";
-try{
-const j=JSON.parse(ev.preview||"{}");
-const data=(j&&j.data&&typeof j.data==="object")?j.data:{};
-const txt=typeof data.previewText==="string"?data.previewText:"";
-if(txt){
-o.previewSlot.style.display="block";
-const cap=document.createElement("p");cap.textContent="预览内容";
-let lang="";
-if(typeof data.source==="string"&&data.source.indexOf("file:")===0){lang=inferLangFromPath(data.source.slice(5));}
-else {lang=inferLangFromPath(argGet(o.args||{},"file")||"");}
-const pr=document.createElement("pre");pr.className="sub";pr.innerHTML=renderPreviewText(txt,lang);
-o.previewSlot.appendChild(cap);o.previewSlot.appendChild(pr);
-}
-}catch(e){}
 return;}
 if(sc.indexOf("regex_locate")>=0){
 o.previewSlot.innerHTML="";
@@ -1092,82 +1127,40 @@ renderUnifiedDiffRows(_box,arr);
 o.previewSlot.appendChild(_cap);o.previewSlot.appendChild(_box);}
 }catch(_e){}
 return;}
-if(sc.indexOf("structured_edit")<0)return;
-const payload=parseToolPayload(o.args);
-if(!payload)return;
-const ty=payload.type;
+if(sc.indexOf("replace_in_file")>=0){
 o.previewSlot.innerHTML="";
 o.previewSlot.style.display="none";
-if(ty==="replace_literal"&&"oldText"in payload&&"newText"in payload){
-o.previewSlot.style.display="block";
-const cap=document.createElement("p");var _st=calcDiffStats(payload.oldText,payload.newText);
-var _fn=baseNameOnly(argGet(o.args||{},"file")||pickFileHint(o.args||{})||"");
-cap.innerHTML=escapeHtml(_fn||"文件")+" · diff"+diffLabel(_st);
-const box=document.createElement("div");box.className="diff-unified";
-renderDiffRows(box,payload.oldText,payload.newText);
-o.previewSlot.appendChild(cap);o.previewSlot.appendChild(box);
-return;}
-if((ty==="replace_range"||ty==="replace_markers")&&payload.text!=null){
-o.previewSlot.style.display="block";
-var ob="",oa="";
 try{
-const pj=JSON.parse(ev.preview||"{}");
-const dd=pj&&pj.data&&typeof pj.data==="object"?pj.data:{};
-if(typeof dd.previewFullBefore==="string")ob=dd.previewFullBefore;
-if(typeof dd.previewFullAfter==="string")oa=dd.previewFullAfter;
-}catch(e1){}
-if(ob||oa){
-const cap=document.createElement("p");
-var st=calcDiffStats(ob,oa);
-var _fn2=baseNameOnly(argGet(o.args||{},"file")||pickFileHint(o.args||{})||"");
-cap.innerHTML=escapeHtml(_fn2||"文件")+" · 区间替换 · diff"+diffLabel(st);
-const box=document.createElement("div");box.className="diff-unified";
-renderDiffRows(box,ob,oa);
-o.previewSlot.appendChild(cap);o.previewSlot.appendChild(box);}
-else{
-const cap=document.createElement("p");cap.textContent="区间替换 · 写入片段";
-const pr=document.createElement("pre");pr.className="sub";pr.innerHTML=highlightCode(String(payload.text),'');
-o.previewSlot.appendChild(cap);o.previewSlot.appendChild(pr);
-}
-return;}
-if((ty==="append"||ty==="append_line"||ty==="insert")&&payload.text!=null){
+const j=JSON.parse(ev.preview||"{}");
+const dt=(j&&j.data&&typeof j.data.diffText==="string")?j.data.diffText:"";
+if(dt&&dt.trim()){
 o.previewSlot.style.display="block";
-const cap=document.createElement("p");cap.textContent="待写入内容预览";
-const tx=String(payload.text);
-const pr=document.createElement("pre");pr.className="sub";pr.innerHTML=tx.length>12000?highlightCode(tx.slice(0,12000),'')+"\n…":highlightCode(tx,'');
-o.previewSlot.appendChild(cap);o.previewSlot.appendChild(pr);
+const cap=document.createElement("p");cap.textContent="替换 diff 预览";
+const box=document.createElement("div");box.className="diff-unified";
+renderUnifiedDiffRows(box,dt.split(/\r?\n/));
+o.previewSlot.appendChild(cap);o.previewSlot.appendChild(box);
+}
+}catch(_e2){}
 return;}
-if(ty==="extract"){
-let txt="";
-try{const j=JSON.parse(ev.preview||"{}");if(j&&j.data&&typeof j.data.text==="string")txt=j.data.text;}catch(e){}
-if(txt){o.previewSlot.style.display="block";
-const cap=document.createElement("p");cap.textContent="提取内容预览";
-const pr=document.createElement("pre");pr.className="sub";
-const fp=argGet(o.args||{},"file")||pickFileHint(o.args||{});
-const lang=inferLangFromPath(fp);
-pr.innerHTML=renderPreviewText(txt,lang);
-o.previewSlot.appendChild(cap);o.previewSlot.appendChild(pr);}}}
+}
 function analysisFollowupPhrase(script,args){
 const s=(script+"").toLowerCase();
 if(s.indexOf("web_fetch")>=0)return "抓取内容";
+if(s.indexOf("file_search")>=0)return "搜索结果";
+if(s.indexOf("grep_files")>=0)return "检索结果";
+if(s.indexOf("image_ocr")>=0)return "识别结果";
 if(s.indexOf("ip_geolocate")>=0)return "地理定位";
 if(s.indexOf("open_meteo")>=0)return "天气数据";
-if(s.indexOf("structured_edit")>=0){
-const pl=parseToolPayload(args);
-if(!pl||!pl.type)return "文件操作结果";
-if(pl.type==="extract")return "读取内容";
-if(pl.type==="delete_segments")return "清理结果";
-if(pl.type==="replace_literal"||pl.type==="replace_range"||pl.type==="append"||pl.type==="append_line"||pl.type==="insert")return "编辑内容";
-return "文件操作结果";}
-if(s.indexOf("directory_list")>=0)return "目录结果";
+if(s.indexOf("replace_in_file")>=0)return "替换预览";
+if(s.indexOf("glob_files")>=0)return "目录结果";
 if(s.indexOf("regex_locate")>=0)return "检索结果";
 if(s.indexOf("file_ops")>=0)return "文件操作结果";
-if(s.indexOf("patch_apply")>=0)return "补丁结果";
+if(s.indexOf("apply_patch")>=0)return "补丁结果";
 if(s.indexOf("text_diff")>=0)return "对比结果";
 if(s.indexOf("git_workspace")>=0)return "工作区状态";
 if(s.indexOf("diagnos")>=0)return "诊断结果";
-if(s.indexOf("test_report")>=0)return "测试结果";
-if(s.indexOf("command_exec")>=0)return "命令输出";
+if(s.indexOf("run_command")>=0)return "命令输出";
+if(s.indexOf("python_inline")>=0)return "内联代码输出";
 return "工具输出";}
 function clearLlmAnim(){
 if(lastLlm&&lastLlm.dotsTimer){clearInterval(lastLlm.dotsTimer);lastLlm.dotsTimer=null;}}
@@ -1301,7 +1294,10 @@ if(!merged){flushPendingSteps();}
 const tid=String(ev.tool_call_id!=null?ev.tool_call_id:Math.random());
 const tp=buildToolTitleParts(ev.script,ev.args||{});
 const _stt=String(ev.step_title||"").trim();
-if(_stt){tp.main=_stt;}
+if(_stt){
+const _det=String(tp.fname||"").trim();
+tp.main=_stt;
+tp.fname=_det;}
 const c=document.createElement("div");c.className="step card";c.setAttribute("data-tool-call-id", tid);
 const h=document.createElement("div");h.className="ch ch-toggle";h.setAttribute("role","button");
 const left=document.createElement("div");left.className="tit tit-row";
@@ -1312,6 +1308,8 @@ const txM=document.createElement("span");txM.textContent=tp.main;tx.appendChild(
 if(tp.fname){const txDot=document.createElement("span");txDot.textContent=" · ";tx.appendChild(txDot);const txF=document.createElement("span");txF.className="step-fname";txF.textContent=tp.fname;tx.appendChild(txF);}
 let spinWrap=null;
 if((ev.script||"").toLowerCase().indexOf("web_fetch")>=0){spinWrap=document.createElement("span");spinWrap.className="step-inline-spin";spinWrap.innerHTML="<span class=\"step-spinner\" title=\"加载中\"></span>";tx.appendChild(spinWrap);}
+var _spinScr=(ev.script||"").toLowerCase();
+if(_spinScr.indexOf("file_search")>=0||_spinScr.indexOf("grep_files")>=0||_spinScr.indexOf("regex_locate")>=0){spinWrap=document.createElement("span");spinWrap.className="step-inline-spin";spinWrap.innerHTML="<span class=\"step-spinner\" title=\"加载中\"></span>";tx.appendChild(spinWrap);}
 left.appendChild(ic);left.appendChild(num);left.appendChild(tx);
 const tag=document.createElement("span");tag.className="tag tag-run";tag.textContent="运行中";
 h.appendChild(left);h.appendChild(tag);
@@ -1329,85 +1327,131 @@ body.appendChild(inner);
 c.appendChild(h);c.appendChild(body);
 h.onclick=function(){c.classList.toggle("open");};
 appendStep(c);if(mergeKeepOpen)c.classList.add("open");toolOpen.set(tid,{tag:tag,resLb:lb,resPb:pb,previewSlot:pv,args:ev.args||{},script:ev.script||"",spinWrap:spinWrap,stepTitle:_stt});}
-function onToolEnd(ev){const tid=String(ev.tool_call_id!=null?ev.tool_call_id:"");
-const o=tid&&toolOpen.get(tid);if(!o)return;
-if(o.spinWrap&&o.spinWrap.parentNode){o.spinWrap.parentNode.removeChild(o.spinWrap);}
-lastAnalysisTail=analysisFollowupPhrase(o.script,o.args||{});
-const ok=!!ev.ok;o.tag.innerHTML="";
-o.tag.textContent="进行中";
-o.tag.className="tag tag-run";
-pendingToolTags.push({tag:o.tag,ok:!!ok||!!ev.user_confirm_required});
-if(ev.user_confirm_required){o.tag.textContent="待确认";o.tag.className="tag tag-run";}
-o.resLb.style.display="block";o.resPb.style.display="block";if(ev.user_confirm_required){try{var _pj=JSON.parse(ev.preview||"{}");var _em=_pj&&_pj.error&&_pj.error.message?String(_pj.error.message):"";var _em2=_em.indexOf("\n\n--help:")>=0?_em.split("\n\n--help:")[0].trim():_em;var slim={ok:_pj.ok,data:_pj.data,error:_pj.error?{code:_pj.error.code,type:_pj.error.type,message:_em2,hint:_pj.error.hint,retryable:_pj.error.retryable}:null};o.resPb.textContent=JSON.stringify(slim,null,2);}catch(e){o.resPb.textContent=ev.preview||"";}}else{try{var _pj=JSON.parse(ev.preview||"{}");o.resPb.textContent=JSON.stringify(_pj,null,2);}catch(e){o.resPb.textContent=ev.preview||"";}}
-fillToolPreview(o,ev);
-// 命令执行结果直接推送到聊天区
-// command_exec 的预览：从 ev.preview 中提取 stdout 并显示到聊天区
-try{console.log("onToolEnd: 已到达append代码");var _pp=typeof ev.preview==="string"?JSON.parse(ev.preview):ev.preview;console.log("onToolEnd: preview parsed",_pp);var _so=_pp&&_pp.data&&_pp.data.stdout;console.log("onToolEnd: stdout="+(_so?_so.slice(0,50):"empty"));if(_so&&typeof _so==="string"&&_so.trim()){var _ch=document.createElement("div");_ch.className="b a";_ch.innerHTML='<pre style="margin:8px 0;padding:8px;background:#0d0d0d;border:1px solid #2a2a2a;border-radius:4px;max-height:200px;overflow:auto;font-size:12px;line-height:1.4"><code>'+escapeHtml(_so)+'</code></pre>';var _cmdRaw=(o.args&&(o.args.command||o.args.code))||"";var _cardDiv=document.createElement("div");_cardDiv.className="b a";var _cardTitle=(o.stepTitle&&o.stepTitle.trim())?escapeHtml(o.stepTitle.trim()):"执行命令脚本";_cardDiv.innerHTML='<div class="chat-diff-card"><div class="chat-diff-cap">'+_cardTitle+'</div><div class="diff-unified" style="overflow:inherit"><pre style="margin:0;padding:4px 8px;font-size:11px;line-height:1.4;background:#0d0d0d;max-height:200px"><code>'+escapeHtml(_cmdRaw)+'</code></pre></div><div class="diff-unified" style="overflow:inherit;border-top:1px solid #2a2a2a"><pre style="margin:0;padding:4px 8px;font-size:11px;line-height:1.4;max-height:200px"><code>'+escapeHtml(_so)+'</code></pre></div></div>';if(streamAssistantEl){streamAssistantEl.after(_cardDiv);streamAssistantEl=null;streamAssistantText="";}else{msgs.appendChild(_cardDiv);}
-scrollMsgsToBottom();}else{console.log("onToolEnd: stdout empty, preview="+JSON.stringify(_pp));}}catch(e3){console.log("onToolEnd: catch",e3);}
-if(ev.user_confirm_required)openUserConfirmModalFromToolEnd(ev);toolOpen.delete(tid);}
-function resetTurnState(){closeUserConfirmCardHost();clearLlmAnim();hideChatLoading();lastLlm=null;llmStreamBuffer={round:null,reqHtml:"",resHtml:"",consumed:false};pendingToolTags=[];lastAnalysisTail="";toolOpen.clear();anyToolThisTurn=false;pendingStepEls=[];streamAssistantEl=null;streamAssistantText="";pendingDeltaSeparator=false;seenDispatchTitle="";}function resetSteps(){resetTurnState();stepSeq=0;}
-function autoResizeTa(){if(!ta)return;ta.style.overflowY="hidden";ta.style.height="auto";var maxH=320;var sh=ta.scrollHeight;if(sh<=maxH){ta.style.height=Math.max(sh,50)+"px";ta.style.overflowY="hidden";}else{ta.style.height=maxH+"px";ta.style.overflowY="auto";}}
-initModePicker();initReasoningPicker();initKbAndSlashUi();loadUsageAccumulator();initTodoListElements();renderChatTabs();updateTaskControls();void restoreConversationLayoutFromServer();
-document.getElementById("tabSteps")?.addEventListener("click",function(){selectSidePane("steps");});
-ta.addEventListener('input',autoResizeTa);
-queueMicrotask(function(){autoResizeTa();});
-ta.addEventListener("keydown",function(e){if(e.isComposing)return;var sh=slashPop&&!slashPop.classList.contains("hidden");var atp2=getAtPop();var ah=atp2&&atp2.style.visibility!=="hidden";var k=e.key,kl=k.toLowerCase(),ci=(slashPop&&slashPop.children)?slashPop.children:[];if(ah){if(k==="Escape"){e.preventDefault();hideAtPop();return;}if(k==="ArrowDown"||k==="ArrowUp"){e.preventDefault();var ai=getAtList().querySelectorAll(".at-item");var vi=[];for(var i2=0;i2<ai.length;i2++){if(ai[i2].style.display!=="none")vi.push(i2);}if(!vi.length)return;var idx=vi.indexOf(atSelectedIndex);if(idx<0)idx=(k==="ArrowDown"?0:vi.length-1);else if(k==="ArrowDown"){if(idx<vi.length-1)idx++;}else{if(idx>0)idx--;}atSelectedIndex=vi[idx];updateAtSelection();var row=ai[atSelectedIndex];if(row&&row.scrollIntoView)try{row.scrollIntoView({block:"nearest"});}catch(_){}return;}if(k==="ArrowRight"){e.preventDefault();var aiR=getAtList().querySelectorAll(".at-item");var pR=atSelectedIndex;if(pR<0||pR>=aiR.length)pR=0;if(aiR.length&&aiR[pR]&&aiR[pR].dataset.type==="dir")loadAtDir(aiR[pR].dataset.path);return;}if(k==="ArrowLeft"){e.preventDefault();var curL=getAtCurPath().textContent.trim();var parentStored=getAtCurPath().dataset.parent||"";if(!parentStored)return;var pU=parentStored||curL.substring(0,curL.lastIndexOf("/"));if(!pU||pU.length<3){if(pU&&pU.length===2&&pU.charAt(1)===":"){pU=pU+"/";}else{pU=curL;}}if(pU!==curL)atRestoreSelectPath=curL;loadAtDir(pU);return;}if(k==="Enter"||e.code==="Enter"||e.code==="NumpadEnter"){e.preventDefault();var ai2=getAtList().querySelectorAll(".at-item");var pick=atSelectedIndex;if(pick<0||pick>=ai2.length)pick=0;if(ai2.length&&ai2[pick]){var sel=ai2[pick];if(sel.dataset.type==="dir")loadAtDir(sel.dataset.path);else selectAtFile(sel.dataset.path);}return;}if(atMentionActiveAtCursor()){return;}hideSlashPop();hideAtPop();return;}if(!sh&&!ah){if(!e.shiftKey&&(e.key==="Enter"||e.code==="Enter"||e.code==="NumpadEnter")){e.preventDefault();if(goBtn)goBtn.click();else sendMessage();}return;}if(sh&&k==="Escape"){e.preventDefault();hideSlashPop();return;}if(sh&&(k==="ArrowDown"||k==="ArrowUp")){e.preventDefault();var vi3=[];for(var i3=0;i3<ci.length;i3++){if(ci[i3].style.display!=="none")vi3.push(i3);}if(!vi3.length)return;var idx3=vi3.indexOf(slashSelectedIndex);if(idx3<0)idx3=(k==="ArrowDown"?-1:0);else if(k==="ArrowDown"){if(idx3<vi3.length-1)idx3++;}else{if(idx3>0)idx3--;}var cur3=ci[slashSelectedIndex];if(cur3)cur3.classList.remove("selected");slashSelectedIndex=vi3[idx3];var nxt3=ci[slashSelectedIndex];if(nxt3)nxt3.classList.add("selected");updateSlashPopHints();return;}if(sh&&(k==="Enter"||e.code==="Enter"||e.code==="NumpadEnter")){e.preventDefault();var sel4=ci[slashSelectedIndex];if(sel4&&sel4.dataset&&sel4.dataset.slash){applyMode(sel4.dataset.slash);ta.value="";}else hideSlashPop();return;}if(kl==="a"||kl==="p"||kl==="e"){e.preventDefault();hideSlashPop();ta.value="";if(kl==="a")applyMode("auto");else if(kl==="p")applyMode("plan");else applyMode("execute");return;}hideSlashPop();});
-ta.addEventListener("blur",function(){if(slashPop&&!slashPop.classList.contains("hidden"))hideSlashPop();});
-ta.addEventListener("mouseup",function(){if(slashPop&&!slashPop.classList.contains("hidden"))hideSlashPop();});
-const _nwTop=document.getElementById("nwTop");
-if(_nwTop)_nwTop.onclick=function(){createConversationTab();};
-if(chatMoreBtn)chatMoreBtn.onclick=function(e){e.stopPropagation();void toggleSessionMenu();};
-document.addEventListener("click",function(e){if(chatSessionMenu&&chatMoreBtn&&!chatSessionMenu.classList.contains("hidden")&&!chatSessionMenu.contains(e.target)&&e.target!==chatMoreBtn)chatSessionMenu.classList.add("hidden");});
-async function sendMessage(){
-if(isConversationBusy()){alert("当前会话仍在执行中，请等待模型响应、工具执行或确认流程完成后再发送。");return;}
-const msg=ta.value.trim();if(!msg)return;const sendCid=getActiveConversationId();add("u",msg);ta.value="";ta.style.height='50px';autoResizeTa();resetSteps();showChatLoading();
-const b=goBtn;if(b)b.disabled=true;var sendTab=findConversationTab(sendCid),controller=new AbortController();if(sendTab){sendTab.abortController=controller;sendTab.stopRequested=false;}updateTaskControls();
-try{
-const body={message:msg,mode:selectedMode,model:selectedModel,conversation_id:sendCid};
-const r=await fetch("/api/chat/stream",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),signal:controller.signal});
-if(!r.ok){withConversationContext(sendCid,function(){hideChatLoading();add("a","HTTP "+r.status);});return;}
-await drainChatSseFromResponse(r,sendCid);
-void refreshConversationTitle(sendCid);
-}catch(err){if(!(err&&err.name==="AbortError")){withConversationContext(sendCid,function(){hideChatLoading();add("a","请求失败: "+(err&&err.message?err.message:String(err)));});}}
-finally{if(sendTab){sendTab.abortController=null;sendTab.activeRunId="";}withConversationContext(sendCid,function(){hideChatLoading();});updateTaskControls();renderChatTabs();}
-}
-if(goBtn)goBtn.onclick=sendMessage;
-if(stopTaskBtn)stopTaskBtn.onclick=stopCurrentTask;
-window.addEventListener("beforeunload",function(){try{saveActiveConversationView();storeConversationLayoutLocal();}catch(e){}});
 
-
-/* ---- 测试：连续插入20个步骤卡片，验证滚动跟随 ---- */
-window.testScrollFollow=function(n){
-  if(!steps){console.warn("steps 容器未找到");return}
-  n=n||25;
-  console.log("===== 滚动跟随测试开始: 插入"+n+"个步骤卡片 =====");
-  console.log("初始 _userScrolledAway = "+(steps&&steps._ascrollTM?Date.now()-steps._ascrollTM+"ms ago":"no")+
-    ", scrollTop="+steps.scrollTop+
-    ", scrollHeight="+steps.scrollHeight+
-    ", clientHeight="+steps.clientHeight);
-  var seq=steps.querySelectorAll(".step.card").length+1;
-  for(var i=0;i<n;i++){
-    (function(idx){
-      setTimeout(function(){
-        var c=document.createElement("div");c.className="step card open";
-        var h=document.createElement("div");h.className="ch";
-        var t=document.createElement("span");t.className="tit";
-        t.textContent="测试步骤 "+(seq+idx)+"：验证滚动跟随 #"+(idx+1);
-        h.appendChild(t);
-        var body=document.createElement("div");body.className="card-body";
-        var inner=document.createElement("div");inner.className="card-body-inner";
-        var pre=document.createElement("pre");
-        var _long="";for(var _j=0;_j<40;_j++){_long+="  这是填充行 #"+_j+" 用来撑高卡片，让滚动条出现。步骤 "+(seq+idx)+"\n"}pre.textContent=_long;
-        inner.appendChild(pre);body.appendChild(inner);c.appendChild(h);c.appendChild(body);
-        appendStep(c);
-        console.log("  插入 #"+(idx+1)+" → _userScrolledAway="+(steps&&steps._ascrollTM?Date.now()-steps._ascrollTM+"ms ago":"no")+
-          ", scrollTop="+steps.scrollTop+
-          ", 距底="+(steps.scrollHeight-steps.scrollTop-steps.clientHeight));
-        if(idx===n-1){
-          console.log("===== 测试结束 =====");
-          console.log("提示：手动向上滚动超过50px后再刷新页面重测，应不再自动跟随。");
+function onToolProgress(ev){
+  const tid=String(ev.tool_call_id!=null?ev.tool_call_id:"");
+  const o=tid&&toolOpen.get(tid);
+  if(!o)return;
+  const sc=ev.scanned;
+  const te=ev.totalEstimated;
+  if(sc!=null){
+    if(o.tag&&o.tag.parentNode){
+      o.tag.textContent="\u8fdb\u884c\u4e2d";
+    }
+    const card=document.querySelector('.step[data-tool-call-id="'+tid+'"]');
+    if(card){
+      const titleWrap=card.querySelector('.step-title-wrap');
+      if(titleWrap){
+        let progSpan=titleWrap.querySelector('.progress-badge');
+        if(!progSpan){
+          progSpan=document.createElement("span");
+          progSpan.className="progress-badge";
+          progSpan.style.cssText="margin-left:8px;font-size:12px;color:#888;vertical-align:middle";
+          var _spin=o.spinWrap;
+          if(_spin&&_spin.parentNode===titleWrap)titleWrap.insertBefore(progSpan,_spin);
+          else titleWrap.appendChild(progSpan);
         }
-      },(idx+1)*300);
-    })(i);
+        var _badgeTxt="\u5df2\u68c0\u67e5 "+sc+" \u4e2a\u6587\u4ef6";
+        if(te!=null&&Number(te)>0)_badgeTxt+=" / ~"+te;
+        progSpan.textContent=_badgeTxt;
+        if(!o.spinWrap){
+          var _sp=document.createElement("span");
+          _sp.className="step-inline-spin";
+          _sp.style.cssText="margin-left:4px;vertical-align:middle";
+          _sp.innerHTML="<span class=\"step-spinner\"></span>";
+          titleWrap.appendChild(_sp);
+          o.spinWrap=_sp;
+        }
+        if(!o.fileSpan){
+          var _fs=document.createElement("span");
+          _fs.className="step-current-file";
+          _fs.style.cssText="margin-left:4px;font-size:12px;color:#666;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle";
+          titleWrap.appendChild(_fs);
+          o.fileSpan=_fs;
+        }
+        o.fileSpan.textContent=ev.currentFile||"";
+      }
+    }
   }
-};
+}
+
+function resetTurnState(){
+anyToolThisTurn=false;
+seenDispatchTitle="";
+pendingStepEls=[];
+endedAwaitingUserConfirm=false;
+}
+
+function onToolEnd(ev){
+var tid=String(ev.tool_call_id!=null?ev.tool_call_id:"");
+var o=tid?toolOpen.get(tid):null;
+var ok=!!ev.ok;
+var script=String(ev.script||"");
+var previewStr=typeof ev.preview==="string"?ev.preview:"";
+if(o){
+try{lastAnalysisTail=analysisFollowupPhrase(script,o.args||{});}catch(e1){lastAnalysisTail="";}
+fillToolPreview(o,ev);
+if(o.spinWrap&&o.spinWrap.parentNode){try{o.spinWrap.parentNode.removeChild(o.spinWrap);}catch(e2){}}if(o.fileSpan&&o.fileSpan.parentNode){try{o.fileSpan.parentNode.removeChild(o.fileSpan);}catch(e2){}}
+o.spinWrap=null;o.fileSpan=null;
+if(o.tag){
+o.tag.className="tag "+(ok?"ok":"bad");
+o.tag.textContent=ok?"Done":"Fail";
+}
+if(o.resLb&&o.resPb){
+o.resLb.style.display="block";
+o.resPb.style.display="block";
+try{var _pj=JSON.parse(previewStr||"{}");o.resPb.textContent=JSON.stringify(_pj,null,2);}catch(e3){o.resPb.textContent=previewStr||"";}
+}
+toolOpen.delete(tid);
+}
+if(ev.user_confirm_required)openUserConfirmModalFromToolEnd(ev);
+}
+
+async function sendChatMessage(){
+if(!ta)return;
+var text=String(ta.value||"").trim();
+if(!text)return;
+if(isConversationBusy())return;
+resetTurnState();
+ta.value="";
+add("u",text);
+showChatLoading();
+var sendCid=getActiveConversationId();
+var tab=findConversationTab(sendCid);
+var controller=new AbortController();
+if(tab){tab.abortController=controller;tab.stopRequested=false;tab.activeRunId="";}
+updateTaskControls();
+try{
+var r=await fetch("/api/chat/stream",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:text,conversation_id:sendCid,mode:selectedMode,model:selectedModel}),signal:controller.signal});
+if(!r.ok){hideChatLoading();add("a","\u8bf7\u6c42\u5931\u8d25 HTTP "+r.status);return;}
+await drainChatSseFromResponse(r,sendCid);
+}catch(err){
+if(err&&err.name==="AbortError"){}
+else{hideChatLoading();add("a","\u8bf7\u6c42\u5931\u8d25: "+(err&&err.message?err.message:String(err)));}
+}finally{
+if(tab){tab.abortController=null;}
+updateTaskControls();
+hideChatLoading();
+void persistUsageAccumulator();
+void refreshConversationTitle(sendCid);
+}
+}
+
+initModePicker();
+initReasoningPicker();
+initKbAndSlashUi();
+if(goBtn)goBtn.addEventListener("click",function(){void sendChatMessage();});
+if(stopTaskBtn)stopTaskBtn.addEventListener("click",stopCurrentTask);
+var nwTopEl=document.getElementById("nwTop");
+if(nwTopEl)nwTopEl.addEventListener("click",function(){createConversationTab();});
+if(chatMoreBtn)chatMoreBtn.addEventListener("click",function(){void toggleSessionMenu();});
+if(ta)ta.addEventListener("keydown",function(e){
+if(e.key!=="Enter"||e.shiftKey)return;
+if(e.isComposing)return;
+e.preventDefault();
+void sendChatMessage();
+});
+void loadUsageAccumulator();
+void restoreConversationLayoutFromServer();
+if(typeof renderChatTabs==="function")renderChatTabs();
+_updateUsageBottom();

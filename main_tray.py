@@ -67,7 +67,7 @@ if _dr:
     DATA_ROOT = Path(_dr).resolve()
 else:
     DATA_ROOT = Path.home() / "AI_DATA_ROOT"
-# 向环境变量写入回收站路径（供 cli_file_ops 等工具读取）
+# 向环境变量写入回收站路径（供 file_ops 等工具读取 AGENT_RECYCLE_ROOT）
 os.environ.setdefault("AGENT_RECYCLE_ROOT", str(DATA_ROOT / "AI_安全删除回收站"))
 
 HOST = os.environ.get("HOST", "127.0.0.1")

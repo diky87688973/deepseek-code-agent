@@ -186,15 +186,6 @@ pre{margin:0;padding:8px;max-height:220px;overflow:auto;white-space:pre-wrap;wor
 .b.a .chat-diff-card .diff-unified{max-height:260px;border:0;border-radius:0;background:#0d0d0d}
 .done-banner{margin-bottom:8px;padding:10px 12px;border-radius:6px;background:#1e3d2a;border:1px solid #2d5a3d;color:#89d185;font-size:12px;line-height:1.45}
 .dispatch-title{margin-bottom:8px;padding:7px 10px;border-radius:6px;border:1px solid #3c3c3c;background:#202327;color:#cfd6dd;font-size:11px;line-height:1.4}
-.orch-cards{display:flex;flex-direction:column;gap:8px}
-.orch-card{border:1px solid #3c3c3c;border-radius:6px;background:#1f2226;padding:8px}
-.orch-card .oc-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:11px}
-.orch-card .oc-kind{color:#9aa0a6}
-.orch-card .oc-file{color:#c9d1d9;word-break:break-all}
-.orch-card .oc-panels{display:flex;gap:8px;flex-wrap:wrap}
-.orch-card .oc-panel{flex:1;min-width:220px;background:#0d0d0d;border:1px solid #2a2a2a;border-radius:4px}
-.orch-card .oc-title{font-size:10px;color:#9aa0a6;padding:4px 6px;border-bottom:1px solid #2a2a2a}
-.orch-card .oc-pre{margin:0;padding:6px;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word;color:#ccc;font-family:Consolas,ui-monospace,monospace;font-size:10px}
 
 .usage-bottom{flex:0 0 auto;border-top:1px solid #333;padding:6px 8px;background:#1e1e1e;font-size:10px;line-height:1.45;min-height:50px;display:flex;flex-direction:column;justify-content:center}
 .usage-bottom .ub-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -301,3 +292,23 @@ pre{margin:0;padding:8px;max-height:220px;overflow:auto;white-space:pre-wrap;wor
 .kb-fpath{flex:1;min-width:0;color:#6e7681;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 .kb-hint-bar{padding:4px 10px;font-size:11px;color:#9aa0a6;border-bottom:1px solid #2a2d32;background:#1e2024;line-height:1.4}
+
+/* ── Loading spinner ── */
+.step-inline-spin {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.step-spinner {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid #888;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: cwa-spin 0.7s linear infinite;
+}
+@keyframes cwa-spin {
+  to { transform: rotate(360deg); }
+}

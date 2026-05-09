@@ -1,0 +1,153 @@
+# -*- coding: utf-8 -*-
+"""在单文件或目录下用正则检索，每条命中返回 region_start/region_end（与 replace_in_file 一致）及行列。"""
+
+from __future__ import annotations
+
+import re
+import time
+from pathlib import Path
+
+import agent_common as ac
+
+
+def agent_main(
+    *,
+    path: str,
+    pattern: str,
+    ignore_case: bool = False,
+    multiline: bool = False,
+    recursive: bool = False,
+    glob_pattern: str = "",
+    encoding: str = "utf-8",
+    limit: int = 200,
+    allow_outside_workspace: bool = False,
+    run_type: str = "",
+    _progress_dict: dict | None = None,
+) -> dict:
+    """
+    对目标文件或目录下各文件全文做 regex.finditer，每条命中返回：
+    - region_start / region_end：0-based 半开，可直接传入 replace_in_file；
+    - line / column：起点 1-based；
+    - end_line / end_column：终点开区间（与 replace 行列模式一致）；
+    - match：匹配的子串。
+    """
+    _ = run_type
+    try:
+        if limit <= 0:
+            raise ValueError("limit 必须 > 0")
+
+        root = ac.resolve_path(path, allow_outside_workspace=allow_outside_workspace)
+        if not root.exists():
+            raise FileNotFoundError(f"路径不存在: {root}")
+
+        flags = re.MULTILINE
+        if ignore_case:
+            flags |= re.IGNORECASE
+        if multiline:
+            flags |= re.DOTALL
+        try:
+            rx = re.compile(pattern, flags)
+        except re.error as ex:
+            raise ValueError(f"正则无效: {ex}") from ex
+
+        files = _collect_files(root, recursive, glob_pattern)
+        items: list[dict] = []
+        scanned = 0
+        _last_prog = 0.0
+        if _progress_dict is not None:
+            _progress_dict.update({"scanned": 0, "currentFile": "", "phase": "regex"})
+
+        for fp in files:
+            if ac.progress_abort_requested(_progress_dict):
+                return {"ok": False, "data": None, "error": {"type": "Aborted", "message": "用户已停止搜索"}}
+            if len(items) >= limit:
+                break
+            scanned += 1
+            if _progress_dict is not None:
+                now = time.time()
+                if scanned == 1 or scanned % 50 == 0 or now - _last_prog >= 1.0:
+                    _progress_dict.update({"scanned": scanned, "currentFile": fp.name, "phase": "regex"})
+                    _last_prog = now
+            try:
+                text = ac.read_file_text(fp, encoding)
+            except OSError:
+                continue
+            _fi = 0
+            for m in rx.finditer(text):
+                _fi += 1
+                if _fi % 200 == 0 and ac.progress_abort_requested(_progress_dict):
+                    return {"ok": False, "data": None, "error": {"type": "Aborted", "message": "用户已停止搜索"}}
+                if len(items) >= limit:
+                    break
+                s, e = m.span()
+                sl, sc, el, ec = ac.span_region_rowcols(text, s, e)
+                mt = m.group(0)
+                items.append(
+                    {
+                        "file": str(fp),
+                        "region_start": s,
+                        "region_end": e,
+                        "line": sl,
+                        "column": sc,
+                        "end_line": el,
+                        "end_column": ec,
+                        "match": mt,
+                    }
+                )
+
+        return ac.ok(
+            {
+                "count": len(items),
+                "items": items,
+                "truncated": len(items) >= limit,
+                "hint": "单文件改写给 replace_in_file 时复制对应条目的 region_start、region_end；与 find_in_file 语义一致。",
+            }
+        )
+    except Exception as e:
+        return ac.err(e)
+
+
+def main() -> None:
+    import argparse
+    import json
+    import sys
+
+    p = argparse.ArgumentParser(description="regex_locate")
+    p.add_argument("--path", required=True, help="文件或目录（相对工作区或绝对路径）")
+    p.add_argument("--pattern", required=True, help="正则表达式")
+    p.add_argument("--ignoreCase", action="store_true")
+    p.add_argument("--multiline", action="store_true")
+    p.add_argument("--recursive", action="store_true")
+    p.add_argument("--glob_pattern", default="", help="省略=仅常见文本/源码后缀；* 表示全部文件（含各类非文本/二进制）")
+    p.add_argument("--encoding", default="utf-8")
+    p.add_argument("--limit", type=int, default=200)
+    p.add_argument("--allowOutsideWorkspace", action="store_true")
+    p.add_argument("--jsonOut", action="store_true")
+    args = p.parse_args()
+    r = agent_main(
+        path=args.path,
+        pattern=args.pattern,
+        ignore_case=bool(args.ignoreCase),
+        multiline=bool(args.multiline),
+        recursive=bool(args.recursive),
+        glob_pattern=str(args.glob_pattern if args.glob_pattern is not None else ""),
+        encoding=args.encoding,
+        limit=args.limit,
+        allow_outside_workspace=bool(args.allowOutsideWorkspace),
+    )
+    if args.jsonOut:
+        print(json.dumps(r, ensure_ascii=False))
+    else:
+        if r.get("ok") and isinstance(r.get("data"), dict):
+            for it in r["data"].get("items") or []:
+                print(
+                    f"{it['file']}:{it['line']}:{it['column']} "
+                    f"[{it['region_start']},{it['region_end']}) {it['match']}"
+                )
+        else:
+            print((r.get("error") or {}).get("message", ""), file=sys.stderr)
+            sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

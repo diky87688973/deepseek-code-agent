@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""DeepSeek Code Agent: OpenAI-compatible Chat Completions + tool library (cli_*.py entrypoints).
+"""DeepSeek Code Agent: OpenAI-compatible Chat Completions + 工具库（tool_list_agent.json）。
 
 Configure CHAT_API_BASE_URL + CHAT_API_KEY (DEEPSEEK_* still accepted as fallback).
 Typical body: messages, tools, stream with SSE data: lines — see provider docs for JSON mode, tools, and errors.
 - 本仓库工具库与 Agent 落盘文本（JSON 等）默认 UTF-8。
 - 工具调用失败时（ok 非 true）可向 DATA_ROOT 下 debug 目录写入 JSON 记录；AGENT_TOOL_DEBUG=0 关闭。
+- 工具返回 ok=false 时 error **必定**含 toolHelp：合并 argparse 等效 `--help` 与 tool_list_agent.json 摘要（未知工具亦有兜底说明），供模型纠正调用；进程内优先 agent_main（原生 Python 类型），`main()` 仅作 CLI 防腐。
 """
 from __future__ import annotations
 
@@ -23,6 +24,12 @@ import os
 import re
 import subprocess
 import sys
+
+# file_search 黑名单：禁止脱离服务端直接调用，必须走线程+SSE 进度推送路径
+_FILE_SEARCH_ALLOWED: bool = False
+_RESTRICTED_TOOLS: frozenset = frozenset({"file_search.py"})
+# 走线程 + _progress_dict，宿主轮询并推送 tool_progress（与 file_search 一致）
+_TOOL_PROGRESS_SCRIPTS: frozenset = frozenset({"file_search.py", "grep_files.py", "regex_locate.py"})
 import threading
 import time
 import uuid
@@ -112,7 +119,41 @@ def _kb_load_checked():
 _kb_load_checked()
 
 TOOLS_DIR = AGENT_ROOT / "tools"
-TOOL_LIST_JSON = TOOLS_DIR / "tool_list_cli.json"
+TOOL_LIST_JSON = TOOLS_DIR / "tool_list_agent.json"
+
+
+def _resolve_tool_script_path(script_name: str) -> Optional[Path]:
+    """工具脚本位于 tools/。"""
+    if not script_name:
+        return None
+    p = TOOLS_DIR / script_name
+    if p.is_file():
+        return p
+    return None
+
+
+def _ensure_tools_sys_path() -> None:
+    """将 tools/ 置于 sys.path 以便 importlib 加载各工具模块。"""
+    sd = str(TOOLS_DIR)
+    try:
+        if TOOLS_DIR.is_dir() and sd not in sys.path:
+            sys.path.insert(0, sd)
+    except Exception:
+        pass
+
+
+_ensure_tools_sys_path()
+import delete_file as _delete_file_mod
+import todo_list as _todo_list_mod
+
+_todo_list_mod.configure_storage(DATA_ROOT / "cache" / "todo_lists")
+_delete_file_mod.configure_trash_root(DATA_ROOT / "safe_delete")
+
+
+def _execute_todo_list(conversation_id: str, exec_args: Dict[str, Any]) -> dict:
+    return _todo_list_mod.execute(conversation_id, exec_args)
+
+
 USAGE_ACCUM_FILE = DATA_ROOT / "model_usage_accumulator.json"
 SESSION_DIR = DATA_ROOT / "cache" / "sessions"
 EXCERPTS_DIR = DATA_ROOT / "cache" / "excerpts"
@@ -128,7 +169,7 @@ CONTEXT_HISTORY_MAX_MESSAGES = 1000 # 历史最多放1000次对话内容(含工�
 CONTEXT_EXCERPT_START_INDEX = 99 # 截取做摘要的起始位置
 CONTEXT_RECENT_USER_ROUNDS = 100 # 每次压缩上下文,依旧保留最近100次对话(含工具记录)
 SUMMARY_IN_PROGRESS_TTL_SEC = 300.0
-MAX_TOOL_ROUNDS = 100 # 每轮对话允许调用工具次数的上限
+MAX_TOOL_ROUNDS = 10000 # 每轮对话允许调用工具次数的上限
 UI_RESTORE_MAX_TABS = 8 # 页面重开时最多恢复最近几个会话标签
 UI_RESTORE_MAX_CHAT_ITEMS = 40 # 每个会话只恢复最近若干条聊天气泡，不恢复步骤区
 PREVIEW_INTENT_KEYS = ("预览", "原文", "全文", "完整内容", "原始内容", "显示文件")
@@ -249,8 +290,6 @@ def _record_tool_debug_failure(
 # ---------- in-memory multi-round conversations (stateless API per DeepSeek docs) ----------
 CONVERSATIONS: Dict[str, List[Dict[str, Any]]] = {}
 PENDING_USER_CONFIRM: Dict[str, Dict[str, Any]] = {}
-TODO_LISTS: Dict[str, Dict[str, Any]] = {}
-_TODO_DATA_DIR = DATA_ROOT / "cache" / "todo_lists"
 
 CONVERSATION_MODES: Dict[str, str] = {}
 SUMMARY_IN_PROGRESS: Dict[str, float] = {}
@@ -313,6 +352,18 @@ def _consume_conversation_stop_requested(cid: str, run_id: str = "") -> bool:
         return True
 
 
+def _peek_conversation_stop_requested(cid: str, run_id: str = "") -> bool:
+    """是否已有停止请求（不消费标志，供工具执行循环内轮询）。"""
+    key = str(cid or "")
+    with _CONVERSATION_STOP_LOCK:
+        active = _ACTIVE_CONVERSATION_RUNS.get(key)
+        eff = str(run_id or active or "")
+        flags = _CONVERSATION_STOP_FLAGS.get(key)
+        if not flags or not eff:
+            return False
+        return eff in flags
+
+
 def _finish_conversation_stopped(cid: str, rollback_messages: List[Dict[str, Any]]) -> Dict[str, Any]:
     messages = copy.deepcopy(rollback_messages)
     _tail_drop_incomplete_tool_assistant(messages)
@@ -346,9 +397,10 @@ def _subprocess_cli_help(script_name: str) -> str:
     # Best-effort: import tool and get --help text in-process (no subprocess)
     if not script_name or not str(script_name).endswith(".py"):
         return ""
-    script_path = TOOLS_DIR / script_name
-    if not script_path.is_file():
+    script_path = _resolve_tool_script_path(script_name)
+    if not script_path or not script_path.is_file():
         return ""
+    _ensure_tools_sys_path()
     try:
         import importlib as _il, io as _io
         mod_name = script_name[:-3]
@@ -418,7 +470,7 @@ def _unknown_tool_result(api_name: Any, script_by_api: Dict[str, str]) -> dict:
     if len(names) <= cap:
         lines.append(", ".join(names))
     else:
-        lines.append(", ".join(names[:cap]) + f" … 另有 {len(names) - cap} 个未列出，请查看 tool_list_cli.json")
+        lines.append(", ".join(names[:cap]) + f" … 另有 {len(names) - cap} 个未列出，请查看 tools/tool_list_agent.json")
     if key:
         close = difflib.get_close_matches(key, names, n=5, cutoff=0.34)
         if not close and key.endswith("s") and len(key) > 1:
@@ -436,7 +488,7 @@ def _unknown_tool_result(api_name: Any, script_by_api: Dict[str, str]) -> dict:
     return {"ok": False, "data": None, "error": {"type": "UnknownTool", "message": msg}}
 
 
-def _execute_cli_run_type(conversation_id: str, exec_args: Dict[str, Any]) -> dict:
+def _execute_run_type(conversation_id: str, exec_args: Dict[str, Any]) -> dict:
     rt = str(exec_args.get("runType") or exec_args.get("run_type") or "").strip().lower()
     cid = str(conversation_id or "")
     # 不传 runType 则为查询模式
@@ -450,143 +502,6 @@ def _execute_cli_run_type(conversation_id: str, exec_args: Dict[str, Any]) -> di
         CONVERSATION_MODES[cid] = rt
     return {"ok": True, "data": {"runType": rt, "action": "switch"}}
 
-
-
-def _todo_persist(cid: str) -> None:
-    """将 cid 的 Todo-List 写入磁盘"""
-    if not cid:
-        return
-    try:
-        _TODO_DATA_DIR.mkdir(parents=True, exist_ok=True)
-        lst = TODO_LISTS.get(cid)
-        fp = _TODO_DATA_DIR / f"{cid}.json"
-        if lst is None:
-            if fp.exists():
-                fp.unlink()
-            return
-        fp.write_text(json.dumps(lst, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
-
-
-def _todo_load(cid: str) -> None:
-    """从磁盘加载 cid 的 Todo-List 到内存"""
-    if not cid or cid in TODO_LISTS:
-        return
-    try:
-        fp = _TODO_DATA_DIR / f"{cid}.json"
-        if fp.exists():
-            raw = fp.read_text(encoding="utf-8")
-            lst = json.loads(raw)
-            if isinstance(lst, dict) and "listId" in lst and "items" in lst:
-                TODO_LISTS[cid] = lst
-    except Exception:
-        pass
-
-
-def _execute_cli_todo_list(conversation_id: str, exec_args: Dict[str, Any]) -> dict:
-    """处理 cli_todo_list 调用，使用 TODO_LISTS 内存状态。"""
-    action = str(exec_args.get("action") or "").strip().lower()
-    cid = str(conversation_id or "")
-    if action == "create":
-        items_raw = str(exec_args.get("items") or "")
-        if not items_raw.strip():
-            return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "create 需要 items"}}
-        try:
-            parsed = json.loads(items_raw)
-        except json.JSONDecodeError as e:
-            return {"ok": False, "data": None, "error": {"type": "ValueError", "message": f"items 不是合法 JSON: {e}"}}
-        if not isinstance(parsed, list) or not parsed:
-            return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "items 必须是非空数组"}}
-        items = []
-        for i, it in enumerate(parsed):
-            if not isinstance(it, str) or not it.strip():
-                return {"ok": False, "data": None, "error": {"type": "ValueError", "message": f"items[{i}] 不是有效字符串"}}
-            items.append({"text": str(it).strip(), "done": False})
-        lid = uuid.uuid4().hex[:12]
-        TODO_LISTS[cid] = {"listId": lid, "items": items, "collapsed": False}
-        _todo_persist(cid)
-        return {"ok": True, "data": {"listId": lid, "items": items, "collapsed": False}, "error": None}
-    elif action == "check":
-        lst = TODO_LISTS.get(cid)
-        if lst is None:
-            return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "当前对话无活跃清单，请先用 create"}}
-        idx = int(exec_args.get("itemIndex", -1))
-        if idx < 0 or idx >= len(lst["items"]):
-            return {"ok": False, "data": None, "error": {"type": "IndexError", "message": f"itemIndex {idx} 越界，共 {len(lst['items'])} 项"}}
-        lst["items"][idx]["done"] = True
-        _todo_persist(cid)
-        return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"]}, "error": None}
-    elif action == "uncheck":
-        lst = TODO_LISTS.get(cid)
-        if lst is None:
-            return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "当前对话无活跃清单，请先用 create"}}
-        idx = int(exec_args.get("itemIndex", -1))
-        if idx < 0 or idx >= len(lst["items"]):
-            return {"ok": False, "data": None, "error": {"type": "IndexError", "message": f"itemIndex {idx} 越界，共 {len(lst['items'])} 项"}}
-        lst["items"][idx]["done"] = False
-        _todo_persist(cid)
-        return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"]}, "error": None}
-    elif action == "add_item":
-        lst = TODO_LISTS.get(cid)
-        if lst is None:
-            return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "当前对话无活跃清单，请先用 create"}}
-        text = str(exec_args.get("text") or "").strip()
-        if not text:
-            return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "add_item 需要 text"}}
-        idx = exec_args.get("itemIndex")
-        item = {"text": text, "done": False}
-        if idx is not None and isinstance(idx, int) and 0 <= idx <= len(lst["items"]):
-            lst["items"].insert(idx, item)
-        else:
-            lst["items"].append(item)
-        _todo_persist(cid)
-        return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"]}, "error": None}
-    elif action == "remove_item":
-        lst = TODO_LISTS.get(cid)
-        if lst is None:
-            return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "当前对话无活跃清单，请先用 create"}}
-        idx = int(exec_args.get("itemIndex", -1))
-        if idx < 0 or idx >= len(lst["items"]):
-            return {"ok": False, "data": None, "error": {"type": "IndexError", "message": f"itemIndex {idx} 越界，共 {len(lst['items'])} 项"}}
-        lst["items"].pop(idx)
-        _todo_persist(cid)
-        return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"]}, "error": None}
-    elif action == "replace_item":
-        lst = TODO_LISTS.get(cid)
-        if lst is None:
-            return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "当前对话无活跃清单，请先用 create"}}
-        idx = int(exec_args.get("itemIndex", -1))
-        text = str(exec_args.get("text") or "").strip()
-        if idx < 0 or idx >= len(lst["items"]):
-            return {"ok": False, "data": None, "error": {"type": "IndexError", "message": f"itemIndex {idx} 越界，共 {len(lst['items'])} 项"}}
-        if not text:
-            return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "replace_item 需要 text"}}
-        lst["items"][idx]["text"] = text
-        _todo_persist(cid)
-        return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"]}, "error": None}
-    elif action == "collapse":
-        lst = TODO_LISTS.get(cid)
-        if lst is None:
-            return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "当前对话无活跃清单，请先用 create"}}
-        # 切换折叠状态
-        lst["collapsed"] = not lst.get("collapsed", False)
-        return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"], "collapsed": lst["collapsed"]}, "error": None}
-    elif action == "close":
-        lst = TODO_LISTS.get(cid)
-        if lst is None:
-            return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "当前对话无活跃清单，请先用 create"}}
-        TODO_LISTS.pop(cid, None)
-        _todo_persist(cid)
-        return {"ok": True, "data": {"close": True}, "error": None}
-    elif action == "query":
-        _todo_load(cid)
-        lst = TODO_LISTS.get(cid)
-        if lst is None:
-            return {"ok": True, "data": None, "error": None}
-        return {"ok": True, "data": list(lst["items"]), "error": None}
-    else:
-        return {"ok": False, "data": None, "error": {"type": "ValueError", "message": f"未知 action: {action}"}}
 
 
 def _safe_json_loads(s: str) -> Optional[dict]:
@@ -658,11 +573,6 @@ def _session_fallback_key() -> bytes:
     return hmac.new(SESSION_APP_ENTROPY, _session_key_material(), hashlib.sha256).digest()
 
 
-def _legacy_session_fallback_keys() -> List[bytes]:
-    material = _session_key_material()
-    return [material, hashlib.sha256(material).digest()]
-
-
 def _xor_stream(data: bytes, key: bytes, nonce: bytes) -> bytes:
     out = bytearray()
     counter = 0
@@ -711,19 +621,15 @@ def _decrypt_session_payload(raw: Any) -> Optional[bytes]:
     if alg == "dpapi-user-v1":
         data = base64.b64decode(str(raw.get("data") or "").encode("ascii"))
         return _dpapi_crypt(data, False)
-    if alg in {"local-hmac-sha256-stream-v1", "hmac-sha256-stream-v1"}:
+    if alg == "local-hmac-sha256-stream-v1":
         key = _session_fallback_key()
         nonce = base64.b64decode(str(raw.get("nonce") or "").encode("ascii"))
         cipher = base64.b64decode(str(raw.get("data") or "").encode("ascii"))
         tag = base64.b64decode(str(raw.get("tag") or "").encode("ascii"))
         expected = hmac.new(key, nonce + cipher, hashlib.sha256).digest()
-        if hmac.compare_digest(tag, expected):
-            return _xor_stream(cipher, key, nonce)
-        for legacy_key in _legacy_session_fallback_keys():
-            expected = hmac.new(legacy_key, nonce + cipher, hashlib.sha256).digest()
-            if hmac.compare_digest(tag, expected):
-                return _xor_stream(cipher, legacy_key, nonce)
-        raise ValueError("session encryption tag mismatch")
+        if not hmac.compare_digest(tag, expected):
+            raise ValueError("session encryption tag mismatch")
+        return _xor_stream(cipher, key, nonce)
     raise ValueError(f"unsupported session encryption alg: {alg}")
 
 
@@ -890,6 +796,51 @@ def _load_last_open_session_state() -> Dict[str, Any]:
         return {}
 
 
+_CATALOG_TOOL_DESCRIPTION_MAX_CHARS = 24000
+
+
+def _format_catalog_tool_examples(examples: Any) -> str:
+    """将 tool_list_agent.json 中的 examples 并入工具 description / toolHelp，便于模型对齐用法。"""
+    if not isinstance(examples, list) or not examples:
+        return ""
+    blocks: List[str] = []
+    for i, ex in enumerate(examples, 1):
+        if isinstance(ex, str) and str(ex).strip():
+            blocks.append(f"示例{i}：\n{str(ex).strip()}")
+            continue
+        if not isinstance(ex, dict):
+            continue
+        title = str(ex.get("title") or ex.get("name") or f"示例{i}").strip()
+        note = ex.get("note") or ex.get("description")
+        note_s = str(note).strip() if note is not None else ""
+        args = ex.get("args")
+        lines = [f"示例{i}：{title}"]
+        if note_s:
+            lines.append(note_s)
+        if isinstance(args, dict) and args:
+            try:
+                dumped = json.dumps(args, ensure_ascii=False, indent=2)
+            except TypeError:
+                dumped = str(args)
+            lines.append("建议 arguments（键名与 function 参数一致，布尔用小写 true/false）：")
+            lines.append(dumped)
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+def _catalog_tool_full_description(entry: dict, script_fn: str) -> str:
+    base = str(entry.get("purpose") or script_fn).strip()
+    ext = entry.get("extended_description")
+    if isinstance(ext, str) and ext.strip():
+        base = f"{base}\n\n{ext.strip()}"
+    ex_text = _format_catalog_tool_examples(entry.get("examples"))
+    if ex_text:
+        base = f"{base}\n\n—— 调用示例 ——\n{ex_text}"
+    if len(base) > _CATALOG_TOOL_DESCRIPTION_MAX_CHARS:
+        base = base[: _CATALOG_TOOL_DESCRIPTION_MAX_CHARS - 2] + "\n…"
+    return base
+
+
 def load_catalog() -> dict:
     if not TOOL_LIST_JSON.exists():
         raise RuntimeError(f"missing {TOOL_LIST_JSON}")
@@ -913,7 +864,7 @@ def api_function_name(script_name: str) -> str:
 
 
 def catalog_to_openai_tools(catalog: dict) -> Tuple[List[dict], Dict[str, str]]:
-    """Return OpenAI-format tools + mapping api_name -> script filename cli_*.py."""
+    """Return OpenAI-format tools + mapping api_name -> script filename (e.g. read_file.py)."""
     tools: List[dict] = []
     name_map: Dict[str, str] = {}
     for t in catalog.get("tools", []):
@@ -935,20 +886,17 @@ def catalog_to_openai_tools(catalog: dict) -> Tuple[List[dict], Dict[str, str]]:
                 sch = {"type": "boolean", "description": desc}
             elif typ == "enum":
                 sch = {"type": "string", "description": desc, "enum": list(arg.get("values", []))}
+            elif typ == "array":
+                arr_items = arg.get("arrayItems", {"type": "string"})
+                sch = {"type": "array", "description": desc, "items": arr_items}
+            elif typ in ("object", "json-object", "json_object"):
+                sch = {"type": "object", "description": desc}
             else:
                 sch = {"type": "string", "description": desc}
             props[pname] = sch
             if arg.get("required"):
                 required.append(pname)
-        if "usePreview" not in props and api != "cli_preview_render":
-            _preview_desc = "仅 function/schema 参数，多数 cli 子进程无对应 argv；含义见 tool_list_cli.json 的 agent_hints.function_call_extras。写盘/改动类默认尝试联动预览；extract 等只读默认不预览。"
-            if api in ("cli_command_exec", "cli_python_inline"):
-                _preview_desc = "cli_command_exec、cli_python_inline 由服务端强制联动预览（不可关闭）；含义仍见 agent_hints.function_call_extras。"
-            props["usePreview"] = {
-                "type": "boolean",
-                "description": _preview_desc,
-            }
-        if "step_title" not in props and api != "cli_preview_render":
+        if "step_title" not in props:
             props["step_title"] = {
                 "type": "string",
                 "description": "可选。一句简短中文说明本次调用用途，将用作侧栏步骤主标题（建议≤40字）；省略则使用系统默认动作标题。",
@@ -957,7 +905,7 @@ def catalog_to_openai_tools(catalog: dict) -> Tuple[List[dict], Dict[str, str]]:
             "type": "function",
             "function": {
                 "name": api,
-                "description": str(t.get("purpose", fn)),
+                "description": _catalog_tool_full_description(t, fn),
                 "parameters": {
                     "type": "object",
                     "properties": props,
@@ -971,9 +919,9 @@ def catalog_to_openai_tools(catalog: dict) -> Tuple[List[dict], Dict[str, str]]:
 
 
 def _openai_tools_sort_key(t: dict) -> Tuple[int, str]:
-    """OpenAI tools list order: cli_command_exec last (lower implicit weight)."""
+    """OpenAI tools list order: shell 类工具排后（隐式降低被选概率）。"""
     name = str((t.get("function") or {}).get("name") or "")
-    deprioritize = 1 if name == "cli_command_exec" else 0
+    deprioritize = 1 if name in ("run_command", "python_inline") else 0
     return (deprioritize, name)
 
 
@@ -987,125 +935,6 @@ def normalize_cli_args(raw: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _normalize_replace_literal_payload_keys(obj: Dict[str, Any]) -> None:
-    if obj.get("type") != "replace_literal":
-        return
-    if "oldText" not in obj and isinstance(obj.get("oldString"), str):
-        obj["oldText"] = obj.pop("oldString")
-    if "newText" not in obj and isinstance(obj.get("newString"), str):
-        obj["newText"] = obj.pop("newString")
-
-
-def _repair_payload_nested_aliases(fixed: Dict[str, Any]) -> None:
-    p = fixed.get("payload")
-    if isinstance(p, str):
-        try:
-            o = json.loads(p)
-        except Exception:
-            return
-        if isinstance(o, dict):
-            _normalize_replace_literal_payload_keys(o)
-            fixed["payload"] = json.dumps(o, ensure_ascii=False)
-    elif isinstance(p, dict):
-        _normalize_replace_literal_payload_keys(p)
-
-
-def _repair_structured_edit_args(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Best-effort repair for malformed model args targeting cli_structured_edit.
-    Keeps compatibility when model mistakenly puts extract instruction in text/top-level.
-    """
-    fixed = dict(args or {})
-    _repair_payload_nested_aliases(fixed)
-    if fixed.get("payload") is not None:
-        return fixed
-
-    # Case A: top-level extract fields were mistakenly provided
-    mode = fixed.get("mode")
-    if isinstance(mode, str) and mode in {"lines", "lines_columns", "offsets"}:
-        payload = {"type": "extract", "mode": mode}
-        for k in ("startLine", "endLine", "startColumn", "endColumn", "start", "end", "outFile", "outEncoding", "usePreview"):
-            if k in fixed:
-                payload[k] = fixed.pop(k)
-        fixed["payload"] = payload
-        return fixed
-
-    # Case B: text contains pseudo instruction, e.g. mode=extract|offsets-0,-1
-    txt = fixed.get("text")
-    if isinstance(txt, str):
-        m = re.search(r"extract\s*\|\s*offsets\s*[-:]\s*(-?\d+)\s*,\s*(-?\d+)", txt, flags=re.IGNORECASE)
-        if m:
-            fixed.pop("text", None)
-            fixed["payload"] = {
-                "type": "extract",
-                "mode": "offsets",
-                "start": int(m.group(1)),
-                "end": int(m.group(2)),
-            }
-            return fixed
-        if re.search(r"extract", txt, flags=re.IGNORECASE):
-            fixed.pop("text", None)
-            fixed["payload"] = {"type": "extract", "mode": "offsets", "start": 0, "end": -1}
-            return fixed
-
-    return fixed
-
-
-_STRUCTURED_EDIT_WRITE_TYPES = frozenset(
-    {
-        "append",
-        "append_line",
-        "insert",
-        "replace_range",
-        "replace_literal",
-        "replace_markers",
-        "delete_segments",
-    }
-)
-
-
-def _structured_edit_payload_type_from_args(ad: Optional[Dict[str, Any]]) -> Optional[str]:
-    if not isinstance(ad, dict):
-        return None
-    pl = ad.get("payload")
-    if pl is None:
-        pl = ad.get("--payload")
-    if isinstance(pl, str):
-        try:
-            obj = json.loads(pl)
-        except Exception:
-            return None
-        pl = obj
-    if isinstance(pl, dict):
-        t = pl.get("type")
-        return t if isinstance(t, str) else None
-    return None
-
-
-def _default_use_preview_link(script: str, args: Optional[Dict[str, Any]]) -> bool:
-    """写盘/改动类默认尝试联动预览；只读默认关闭（未传 usePreview 时）。"""
-    if not script or script == "cli_preview_render.py":
-        return False
-    sl = script.lower()
-    if sl == "cli_structured_edit.py":
-        t = _structured_edit_payload_type_from_args(args)
-        if t is None:
-            return False
-        return t in _STRUCTURED_EDIT_WRITE_TYPES
-    if sl == "cli_file_ops.py":
-        if not isinstance(args, dict):
-            return False
-        act = args.get("action") or args.get("--action")
-        return isinstance(act, str) and bool(act.strip())
-    if sl == "cli_patch_apply.py":
-        return True
-    return False
-
-
-_AGENT_MAIN_ARG_ALIASES: Dict[str, str] = {
-    "glob": "glob_pattern",
-    "type": "type_filter",
-}
-
 
 def _camel_to_snake(name: str) -> str:
     name = str(name or "").strip().lstrip("-").replace("-", "_")
@@ -1115,8 +944,7 @@ def _camel_to_snake(name: str) -> str:
 
 def _agent_main_param_name(raw_key: str) -> str:
     key = str(raw_key or "").strip().lstrip("-")
-    snake = _camel_to_snake(key)
-    return _AGENT_MAIN_ARG_ALIASES.get(snake, snake)
+    return _camel_to_snake(key)
 
 
 def _strip_internal_tool_result(result: dict) -> dict:
@@ -1144,7 +972,7 @@ def _try_execute_tool_agent_main(script_name: str, mod: Any, args: Dict[str, Any
         if pn == "json_out":
             continue
         if pn not in params:
-            # 例如 cli_command_exec/cli_python_inline 的 outFile 属于 CLI 外壳能力，回退 main() 保持兼容。
+            # 例如 CLI 入口的 --outFile 仅作用于 main()/子进程，不在 agent_main 形参内。
             return None
         kwargs[pn] = v
 
@@ -1168,8 +996,97 @@ def _try_execute_tool_agent_main(script_name: str, mod: Any, args: Dict[str, Any
     return {"ok": False, "data": None, "error": {"type": "ToolError", "message": f"工具 {script_name} agent_main 返回非 dict"}}
 
 
+_TOOL_HELP_MAX_CHARS = 20000
+
+# 模型偶发把数组/对象序列化成字符串传入；在调用 agent_main 前解析为 Python 类型（agent_main 禁止依赖 JSON 字符串参数）。
+_COERCE_JSON_CONTAINER_KEYS = frozenset({"rules", "items", "confirms", "indices"})
+
+
+def _coerce_tool_arguments_for_agent(args: Dict[str, Any]) -> Dict[str, Any]:
+    """将误传的 JSON 字符串解析为 list/dict，保证进程内 agent_main 收到 Python 原生类型。"""
+    if not isinstance(args, dict):
+        return {}
+    out = dict(args)
+    for k in _COERCE_JSON_CONTAINER_KEYS:
+        v = out.get(k)
+        if not isinstance(v, str):
+            continue
+        s = v.strip()
+        if len(s) < 2 or s[0] not in "[{":
+            continue
+        try:
+            parsed = json.loads(s)
+        except Exception:
+            continue
+        out[k] = parsed
+    return out
+
+
+def _capture_tool_help_from_module(mod: Any) -> Optional[str]:
+    bp = getattr(mod, "build_parser", None)
+    if not callable(bp):
+        return None
+    try:
+        import tool_help_share as _ths
+
+        return _ths.capture_help(bp())
+    except Exception:
+        return None
+
+
+def _capture_tool_help_from_catalog(script_name: str) -> Optional[str]:
+    try:
+        cat = load_catalog()
+        for t in cat.get("tools", []):
+            if str(t.get("name", "")).strip() == script_name:
+                lines = [str(t.get("purpose", "")), "", "参数摘要:"]
+                for a in t.get("args", []) or []:
+                    lines.append(f'  {a.get("flag", "")} — {a.get("description", "")}')
+                ex_text = _format_catalog_tool_examples(t.get("examples"))
+                if ex_text:
+                    lines.extend(["", "调用示例:", ex_text])
+                return "\n".join(lines)
+    except Exception:
+        pass
+    return None
+
+
+def attach_tool_help_on_failure(script_name: str, mod: Any | None, result: dict) -> dict:
+    """工具返回 ok=false 时**必须**附带 toolHelp：合并工具自身说明、argparse --help、tool_list_agent.json（与命令行 --help 等效）。"""
+    if not isinstance(result, dict) or result.get("ok"):
+        return result
+    err = result.get("error")
+    if not isinstance(err, dict):
+        return result
+    blocks: List[str] = []
+    prior = err.get("toolHelp")
+    if isinstance(prior, str) and prior.strip():
+        blocks.append("【工具返回的说明】\n" + prior.strip())
+    h_cli = _capture_tool_help_from_module(mod) if mod is not None else None
+    if h_cli:
+        blocks.append("【--help（argparse 完整用法）】\n" + h_cli.strip())
+    h_cat = _capture_tool_help_from_catalog(script_name)
+    if h_cat:
+        blocks.append("【工具清单（tool_list_agent.json）】\n" + h_cat.strip())
+    if not h_cli and not h_cat:
+        blocks.append(
+            f"【--help】\n未找到 {script_name} 的 argparse 帮助与目录条目；请核对脚本名、WORKSPACE_DIR 与 tools/tool_list_agent.json 是否一致。"
+        )
+    merged = "\n\n".join(blocks)
+    if len(merged) > _TOOL_HELP_MAX_CHARS:
+        merged = merged[:_TOOL_HELP_MAX_CHARS] + "\n…"
+    return {**result, "error": {**err, "toolHelp": merged}}
+
+
 def execute_tool_script(script_name: str, args: Dict[str, Any]) -> dict:
     """统一进程内执行工具（源码运行 / PyInstaller 打包后均走此路）"""
+    # 黑名单工具拒绝脱离服务端直接调用
+    if script_name in _RESTRICTED_TOOLS and not _FILE_SEARCH_ALLOWED:
+        return attach_tool_help_on_failure(
+            script_name,
+            None,
+            {"ok": False, "data": None, "error": {"type": "Restricted", "message": "file_search 禁止直接调用，请通过对话界面使用（支持实时进度展示）"}},
+        )
     import importlib
     import io
 
@@ -1182,30 +1099,38 @@ def _execute_tool_script_locked(script_name: str, args: Dict[str, Any]) -> dict:
     import importlib
     import io
 
-    script_path = TOOLS_DIR / script_name
-    if not script_path.exists():
-        hint = [str(script_path)]
+    script_path = _resolve_tool_script_path(script_name)
+    if script_path is None:
+        hint = [str(TOOLS_DIR / script_name)]
         try:
-            cands = sorted({p.name for p in TOOLS_DIR.glob("cli_*.py")})[:50]
-            hint.append("\n\n现有 cli_*.py（节选）：" + ", ".join(cands))
+            c1 = [p.name for p in TOOLS_DIR.glob("*.py")]
+            cands = sorted(set(c1))[:50]
+            hint.append("\n\n工具脚本（节选）：" + ", ".join(cands))
         except Exception:
             pass
-        return {"ok": False, "data": None, "error": {"type": "ToolNotFound", "message": "\n".join(hint)}}
+        return attach_tool_help_on_failure(
+            script_name,
+            None,
+            {"ok": False, "data": None, "error": {"type": "ToolNotFound", "message": "\n".join(hint)}},
+        )
 
+    _ensure_tools_sys_path()
     args = normalize_cli_args(args)
+    args = _coerce_tool_arguments_for_agent(args)
     mod_name = script_name.replace('.py', '')
-    tools_path = str(TOOLS_DIR)
-    if tools_path not in sys.path:
-        sys.path.insert(0, tools_path)
 
     try:
         mod = importlib.import_module(mod_name)
     except Exception as e:
-        return {"ok": False, "data": None, "error": {"type": "ImportError", "message": f"进程内加载 {script_name} 失败: {e}"}}
+        return attach_tool_help_on_failure(
+            script_name,
+            None,
+            {"ok": False, "data": None, "error": {"type": "ImportError", "message": f"进程内加载 {script_name} 失败: {e}"}},
+        )
 
     agent_result = _try_execute_tool_agent_main(script_name, mod, args)
     if agent_result is not None:
-        return agent_result
+        return attach_tool_help_on_failure(script_name, mod, agent_result)
 
     # agent_main 不可用或参数属于 CLI 外壳能力时，回退到 main() 模拟 argv。
     argv = [script_name]
@@ -1213,7 +1138,7 @@ def _execute_tool_script_locked(script_name: str, args: Dict[str, Any]) -> dict:
         if v is None:
             continue
         if isinstance(v, bool):
-            if k == "--safeMode" and script_name == "cli_command_exec.py":
+            if k == "--safeMode" and script_name == "run_command.py":
                 argv.append("--safeMode" if v else "--no-safeMode")
                 continue
             if v:
@@ -1238,7 +1163,11 @@ def _execute_tool_script_locked(script_name: str, args: Dict[str, Any]) -> dict:
     except Exception as e:
         sys.stdout = old_stdout
         sys.argv = old_argv
-        return {"ok": False, "data": None, "error": {"type": "ToolError", "message": f"工具 {script_name} 执行异常: {e}"}}
+        return attach_tool_help_on_failure(
+            script_name,
+            mod,
+            {"ok": False, "data": None, "error": {"type": "ToolError", "message": f"工具 {script_name} 执行异常: {e}"}},
+        )
     finally:
         sys.stdout = old_stdout
         sys.argv = old_argv
@@ -1247,10 +1176,19 @@ def _execute_tool_script_locked(script_name: str, args: Dict[str, Any]) -> dict:
     if output:
         lines = output.splitlines()
         try:
-            return json.loads(lines[-1])
+            parsed = json.loads(lines[-1])
+            return attach_tool_help_on_failure(script_name, mod, parsed)
         except json.JSONDecodeError:
-            return {"ok": False, "data": None, "error": {"type": "JSONParseError", "message": f"工具 {script_name} 输出解析失败: {lines[-1][:300]}"}}
-    return {"ok": False, "data": None, "error": {"type": "EmptyOutput", "message": f"工具 {script_name} 无有效输出"}}
+            return attach_tool_help_on_failure(
+                script_name,
+                mod,
+                {"ok": False, "data": None, "error": {"type": "JSONParseError", "message": f"工具 {script_name} 输出解析失败: {lines[-1][:300]}"}},
+            )
+    return attach_tool_help_on_failure(
+        script_name,
+        mod,
+        {"ok": False, "data": None, "error": {"type": "EmptyOutput", "message": f"工具 {script_name} 无有效输出"}},
+    )
 
 
 def preview_payload(d: dict, limit: int = 50000) -> str:
@@ -1268,66 +1206,36 @@ def preview_payload(d: dict, limit: int = 50000) -> str:
 def preview_tool_result(script_name: str, result: dict, text_limit: int = 12000) -> str:
     """SSE tool_end.preview：extract 返回文本可能很大，preview_payload 整段截断会导致 JSON 不完整，前端无法解析出 data.text。"""
     sn = (script_name or "").lower()
-    if "preview_render" in sn:
-        return preview_payload(result, limit=0)
     if isinstance(result, dict) and result.get("ok") and isinstance(result.get("data"), dict):
         d = result["data"]
-        if d.get("type") == "extract" and isinstance(d.get("text"), str) and "structured_edit" in sn:
-            text = d["text"]
+        if "read_file" in sn and isinstance(d.get("content"), str):
+            text = d["content"]
             snippet = text if len(text) <= text_limit else text[:text_limit] + "\n…"
             slim = {
                 "ok": True,
                 "data": {
-                    "type": "extract",
-                    "resultLen": len(text),
-                    "written": bool(d.get("written")),
-                    "text": snippet,
+                    "path": d.get("path"),
+                    "content": snippet,
+                    "truncated": bool(d.get("truncated")),
+                    "totalCharsReturned": d.get("totalCharsReturned"),
                 },
             }
             return json.dumps(slim, ensure_ascii=False)
-        if (
-            d.get("type") == "replace_range"
-            and "structured_edit" in sn
-            and isinstance(d.get("previewFullBefore"), str)
-            and isinstance(d.get("previewFullAfter"), str)
-        ):
-            bef = d["previewFullBefore"]
-            aft = d["previewFullAfter"]
-            lim = text_limit
-            if len(bef) > lim:
-                bef = bef[:lim] + "\n…"
-            if len(aft) > lim:
-                aft = aft[:lim] + "\n…"
+        if "grep_files" in sn and isinstance(d.get("matches"), list):
+            m = d["matches"][:80]
             slim = {
                 "ok": True,
                 "data": {
-                    "type": "replace_range",
-                    "file": d.get("file"),
-                    "previewFullBefore": bef,
-                    "previewFullAfter": aft,
-                    "previewTruncated": bool(
-                        len(d["previewFullBefore"]) > lim or len(d["previewFullAfter"]) > lim
-                    ),
+                    "matchCount": d.get("matchCount"),
+                    "truncated": d.get("truncated"),
+                    "matches": m,
                 },
             }
             return json.dumps(slim, ensure_ascii=False)
-        if ("command_exec" in sn or "python_inline" in sn) and isinstance(d.get("stdout"), str):
+        if ("run_command" in sn or "python_inline" in sn) and isinstance(d.get("stdout"), str):
             out = d["stdout"]
             snippet = out if len(out) <= text_limit else out[:text_limit] + "\n…"
             slim = {"ok": True, "data": {"stdout": snippet, "stdoutLen": len(out)}}
-            return json.dumps(slim, ensure_ascii=False)
-        if "orch_dispatch" in sn and isinstance(d.get("cards"), list):
-            cards = d.get("cards") or []
-            slim = {
-                "ok": True,
-                "data": {
-                    "exitCode": d.get("exitCode"),
-                    "cards": cards,
-                    "writeTargets": d.get("writeTargets") or [],
-                    "stdout": (d.get("stdout") or "")[:2000],
-                    "stderr": (d.get("stderr") or "")[:2000],
-                },
-            }
             return json.dumps(slim, ensure_ascii=False)
         if "regex_locate" in sn and isinstance(d.get("items"), list):
             items = d["items"]
@@ -1351,8 +1259,11 @@ def preview_tool_result(script_name: str, result: dict, text_limit: int = 12000)
                 except Exception:
                     context = ""
                 snippets.append(
-                    "%s:%d:%d %s"
+                    "%s [%s,%s) %s:%d:%d %s"
                     % (
+                        fp.split("/")[-1] if "/" in fp else fp.split("\\")[-1] if "\\" in fp else fp,
+                        item.get("region_start", ""),
+                        item.get("region_end", ""),
                         fp.split("/")[-1] if "/" in fp else fp.split("\\")[-1] if "\\" in fp else fp,
                         ln,
                         col,
@@ -1367,6 +1278,14 @@ def preview_tool_result(script_name: str, result: dict, text_limit: int = 12000)
                     "snippets": snippets,
                 },
             }
+            return json.dumps(slim, ensure_ascii=False)
+        if "text_diff" in sn and isinstance(d.get("summary"), dict):
+            dm = d.get("diffMarkdown")
+            sm = d.get("summary")
+            slim_dm = dm
+            if isinstance(dm, str) and len(dm) > text_limit:
+                slim_dm = dm[:text_limit] + "\n…"
+            slim = {"ok": True, "data": {"summary": sm, "diffMarkdown": slim_dm}}
             return json.dumps(slim, ensure_ascii=False)
     return preview_payload(result)
 
@@ -1391,83 +1310,12 @@ def _chat_diff_markdown_for_tool(script_name: str, result: dict, exec_args: Dict
     if "text_diff" in sn:
         dm = data.get("diffMarkdown")
         return dm if isinstance(dm, str) and dm.strip() else None
-    if "find_replace" in sn:
-        dm = data.get("diffMarkdown")
-        return dm if isinstance(dm, str) and dm.strip() else None
-    if "structured_edit" not in sn:
+    if "replace_in_file" in sn:
+        dt = data.get("diffText")
+        if isinstance(dt, str) and dt.strip():
+            return "```diff\n" + dt + "\n```" if not dt.strip().startswith("```") else dt
         return None
-    t = data.get("type")
-    if t == "replace_range" and isinstance(data.get("previewFullBefore"), str) and isinstance(
-        data.get("previewFullAfter"), str
-    ):
-        bef = data["previewFullBefore"]
-        aft = data["previewFullAfter"]
-        fp = exec_args.get("--file") if isinstance(exec_args, dict) else None
-        if fp is None and isinstance(exec_args, dict):
-            fp = exec_args.get("file")
-        label = "file"
-        if isinstance(fp, str) and fp.strip():
-            label = Path(fp).name
-        dl = list(
-            difflib.unified_diff(
-                bef.splitlines(),
-                aft.splitlines(),
-                fromfile=label,
-                tofile=label,
-                lineterm="",
-                n=3,
-            )
-        )
-        if not dl:
-            return None
-        return _fenced_diff_from_unified_lines(dl)
-    if t != "replace_literal":
-        return None
-    pl_raw = exec_args.get("payload") if isinstance(exec_args, dict) else None
-    if pl_raw is None and isinstance(exec_args, dict):
-        pl_raw = exec_args.get("--payload")
-    if isinstance(pl_raw, str):
-        try:
-            pl_obj: Any = json.loads(pl_raw)
-        except Exception:
-            pl_obj = None
-    elif isinstance(pl_raw, dict):
-        pl_obj = pl_raw
-    else:
-        pl_obj = None
-    if not isinstance(pl_obj, dict) or pl_obj.get("type") != "replace_literal":
-        return None
-    ot, nt = pl_obj.get("oldText"), pl_obj.get("newText")
-    if not isinstance(ot, str) or not isinstance(nt, str):
-        return None
-    fp = exec_args.get("--file") if isinstance(exec_args, dict) else None
-    if fp is None and isinstance(exec_args, dict):
-        fp = exec_args.get("file")
-    label = "文件"
-    if isinstance(fp, str) and fp.strip():
-        label = Path(fp).name
-    dl = list(
-        difflib.unified_diff(
-            ot.splitlines(),
-            nt.splitlines(),
-            fromfile=label + " · 改前",
-            tofile=label + " · 改后",
-            lineterm="",
-            n=3,
-        )
-    )
-    if not dl:
-        return None
-    if "\n" not in ot and "\n" not in nt:
-        dl = [
-            (
-                "# 字面替换对照；@@ 内为片段行号，不是文件全文第几行。"
-                if re.match(r"^@@ -\d+ \+\d+ @@$", line)
-                else line
-            )
-            for line in dl
-        ]
-    return _fenced_diff_from_unified_lines(dl)
+    return None
 
 
 MAX_TOOL_RESULT_CHARS: int = 32000
@@ -1508,25 +1356,9 @@ def _is_user_confirm_required(result: dict) -> bool:
 
 
 def _merge_confirm_into_user_confirm_args(exec_args: Dict[str, Any], confirm: str) -> Dict[str, Any]:
+    """回填用户确认：仅扁平 --confirm。"""
     out = dict(exec_args)
-    pkey = "--payload" if "--payload" in out else ("payload" if "payload" in out else None)
-    if pkey:
-        raw = out[pkey]
-        if isinstance(raw, dict):
-            obj = dict(raw)
-        elif isinstance(raw, str):
-            try:
-                obj = json.loads(raw) if raw.strip() else {}
-            except Exception:
-                obj = {}
-        else:
-            obj = {}
-        if not isinstance(obj, dict):
-            obj = {}
-        obj["confirm"] = confirm
-        out[pkey] = json.dumps(obj, ensure_ascii=False)
-    else:
-        out["--confirm"] = confirm
+    out["--confirm"] = confirm
     return out
 
 
@@ -1578,32 +1410,9 @@ def _build_direct_preview_message(script_name: str, result: dict, user_text: str
     if not isinstance(data, dict):
         return None
     sn = (script_name or "").lower()
-    if "preview_render" in sn and isinstance(data.get("previewText"), str):
-        return data["previewText"]
+    if "replace_in_file" in sn and isinstance(data.get("diffText"), str):
+        return data["diffText"]
     return None
-
-
-def _pick_preview_args_from_result(result: dict, fallback_args: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
-    data = result.get("data") if isinstance(result, dict) else None
-    if not isinstance(data, dict):
-        data = {}
-    for k in ("outFile", "file", "path", "targetFile"):
-        v = data.get(k)
-        if isinstance(v, str) and v.strip() and Path(v).exists() and Path(v).is_file():
-            return {"file": v, "label": "预览"}
-    if isinstance(fallback_args, dict):
-        for k in ("file", "path", "targetFile"):
-            v = fallback_args.get(k)
-            if isinstance(v, str) and v.strip() and Path(v).exists() and Path(v).is_file():
-                return {"file": v, "label": "预览"}
-    for k in ("text", "stdout", "previewText", "content", "stderr"):
-        v = data.get(k)
-        if isinstance(v, str) and v:
-            return {"text": v, "label": "预览"}
-    return None
-
-
-
 
 
 _REASONING_EFFORTS: Dict[str, str] = {}
@@ -2316,6 +2125,7 @@ def run_agent_turn(
             }
             messages.append(assistant_msg)
             direct_preview_content: Optional[str] = None
+            turn_stop_after_this_batch = False
             for tc in tcalls:
                 fn = tc.get("function") or {}
                 api_name = fn.get("name")
@@ -2331,22 +2141,10 @@ def run_agent_turn(
                         step_title = str(_st_raw).strip()
                         if len(step_title) > 80:
                             step_title = step_title[:79] + "…"
-                explicit_preview: Optional[bool] = None
-                if isinstance(args, dict) and "usePreview" in args:
-                    _up = args.get("usePreview")
-                    if isinstance(_up, bool):
-                        explicit_preview = _up
                 script = script_by_api.get(api_name or "")
-                if script == "cli_structured_edit.py" and isinstance(args, dict):
-                    args = _repair_structured_edit_args(args)
                 exec_args = dict(args) if isinstance(args, dict) else {}
                 exec_args.pop("usePreview", None)
-                if explicit_preview is not None:
-                    use_preview = explicit_preview
-                else:
-                    use_preview = _default_use_preview_link(script, args)
-                if script in ("cli_command_exec.py", "cli_python_inline.py"):
-                    use_preview = True
+                exec_args = _coerce_tool_arguments_for_agent(exec_args)
                 if script and isinstance(args, dict):
                     sl = script.lower()
                     if ("open_meteo" in sl or "ip_geolocate" in sl) and not str(exec_args.get("ip") or "").strip() and client_ip:
@@ -2356,6 +2154,7 @@ def run_agent_turn(
                             exec_args["ip"] = clean_ip
                 if not script:
                     result = _unknown_tool_result(api_name, script_by_api)
+                    result = attach_tool_help_on_failure("(unknown)", None, result)
                     if not (isinstance(result, dict) and result.get("ok") is True):
                         _record_tool_debug_failure(
                             conversation_id=conversation_id,
@@ -2392,34 +2191,117 @@ def run_agent_turn(
                         "tool_call_id": tc.get("id"),
                         "step_title": step_title,
                     }
-                    if script == "cli_run_type.py":
-                        result = _execute_cli_run_type(conversation_id, exec_args)
-                    elif script == "cli_todo_list.py":
-                        result = _execute_cli_todo_list(conversation_id, exec_args)
+                    if script == "run_type.py":
+                        result = _execute_run_type(conversation_id, exec_args)
+                        if isinstance(result, dict) and not result.get("ok"):
+                            import importlib as _il_rt
+
+                            try:
+                                _rtm = _il_rt.import_module("run_type")
+                            except Exception:
+                                _rtm = None
+                            result = attach_tool_help_on_failure(script, _rtm, result)
+                    elif script == "todo_list.py":
+                        result = _execute_todo_list(conversation_id, exec_args)
+                        result = attach_tool_help_on_failure(script, _todo_list_mod, result)
                     else:
-                        _WRITE_TOOLS_RUNTYPE = frozenset({"cli_structured_edit.py", "cli_file_ops.py", "cli_patch_apply.py", "cli_command_exec.py", "cli_python_inline.py"})
+                        _WRITE_TOOLS_RUNTYPE = frozenset(
+                            {
+                                "file_ops.py",
+                                "python_inline.py",
+                                "write_file.py",
+                                "read_write.py",
+                                "replace_in_file.py",
+                                "apply_patch.py",
+                                "run_command.py",
+                                "delete_file.py",
+                            }
+                        )
                         if script in _WRITE_TOOLS_RUNTYPE:
                             current_mode = CONVERSATION_MODES.get(conversation_id, "")
                             if current_mode == "plan":
-                                # Plan 模式：cli_structured_edit 交工具自身细粒度判断（extract/delete_segments 无 outFile 放行）
-                                if script == "cli_structured_edit.py":
-                                    result = execute_tool_script(script, exec_args)
+                                # Plan 模式：replace_in_file 仅允许 dryRun 预览；其余写类工具一律拒绝
+                                if script == "replace_in_file.py":
+                                    _dr = exec_args.get("--dryRun", True)
+                                    if _dr is False or _dr == 0:
+                                        result = {"ok": False, "data": None, "error": {"type": "ModeConflict", "message": "当前为 Plan 模式，禁止执行写操作。请先切换为 Execute 模式后再执行。"}}
+                                        result = attach_tool_help_on_failure(script, None, result)
+                                    else:
+                                        result = execute_tool_script(script, exec_args)
                                 else:
                                     # Plan 模式下所有写操作一律拒绝
                                     result = {"ok": False, "data": None, "error": {"type": "ModeConflict", "message": "当前为 Plan 模式，禁止执行写操作。请先切换为 Execute 模式后再执行。"}}
+                                    result = attach_tool_help_on_failure(script, None, result)
                             elif current_mode == "execute":
                                 # Execute 模式下必须有执行清单(Todo-List)
-                                _todo = TODO_LISTS.get(conversation_id)
+                                _todo = _todo_list_mod.session_lists.get(conversation_id)
                                 _no_todo = _todo is None or not _todo.get("items")
                                 if _no_todo:
-                                    result = {"ok": False, "data": None, "error": {"type": "ModeConflict", "message": "当前为 Execute 模式，但未找到执行清单(Todo-List)。请先用 cli_todo_list create 创建执行清单后再执行写操作。"}}
+                                    result = {"ok": False, "data": None, "error": {"type": "ModeConflict", "message": "当前为 Execute 模式，但未找到执行清单(Todo-List)。请先用 todo_list（action=create）创建执行清单后再执行写操作。"}}
+                                    result = attach_tool_help_on_failure(script, None, result)
                                 else:
                                     result = execute_tool_script(script, exec_args)
                             else:
                                 # Auto 模式：不拦截
                                 result = execute_tool_script(script, exec_args)
                         else:
-                            result = execute_tool_script(script, exec_args)
+                            # file_search / grep_files / regex_locate：线程执行 + 注入 _progress_dict，宿主轮询推送 tool_progress
+                            if script in _TOOL_PROGRESS_SCRIPTS:
+                                _search_progress: Dict[str, Any] = {}
+                                _exec_args_with_progress = dict(exec_args)
+                                _exec_args_with_progress["_progress_dict"] = _search_progress
+                                _ts_result_holder: Dict[str, Any] = {}
+                                _tool_aborted_by_user = False
+                                global _FILE_SEARCH_ALLOWED
+                                if script == "file_search.py":
+                                    _FILE_SEARCH_ALLOWED = True
+
+                                def _run_tool_with_progress() -> None:
+                                    try:
+                                        _ts_result_holder["r"] = execute_tool_script(script, _exec_args_with_progress)
+                                    finally:
+                                        pass
+
+                                import threading as _thr
+
+                                _t = _thr.Thread(target=_run_tool_with_progress, daemon=True)
+                                _t.start()
+                                try:
+                                    while _t.is_alive():
+                                        if _peek_conversation_stop_requested(conversation_id, run_id):
+                                            _search_progress["_abort"] = True
+                                            _tool_aborted_by_user = True
+                                            for _join_i in range(40):
+                                                if not _t.is_alive():
+                                                    break
+                                                _t.join(timeout=0.25)
+                                            break
+                                        _sp_scanned = _search_progress.get("scanned")
+                                        if _sp_scanned is not None:
+                                            yield {
+                                                "type": "tool_progress",
+                                                "conversation_id": conversation_id,
+                                                "tool_call_id": tc.get("id"),
+                                                "scanned": _sp_scanned,
+                                                "currentFile": _search_progress.get("currentFile", ""),
+                                            }
+                                        _t.join(timeout=0.5)
+                                    if _tool_aborted_by_user:
+                                        if _consume_conversation_stop_requested(conversation_id, run_id):
+                                            pass
+                                        turn_stop_after_this_batch = True
+                                        result = {
+                                            "ok": False,
+                                            "data": None,
+                                            "error": {"type": "Aborted", "message": "用户已停止任务"},
+                                        }
+                                    else:
+                                        result = _ts_result_holder.get("r", {})
+                                finally:
+                                    if script == "file_search.py":
+                                        _FILE_SEARCH_ALLOWED = False
+                            else:
+                                result = execute_tool_script(script, exec_args)
                     if not (isinstance(result, dict) and result.get("ok") is True):
                         _record_tool_debug_failure(
                             conversation_id=conversation_id,
@@ -2442,7 +2324,7 @@ def run_agent_turn(
                         "ok": bool(result.get("ok")),
                         "preview": preview_tool_result(script, result),
                     }
-                    if script == "cli_user_confirm.py" and _is_user_confirm_required(result) and isinstance(exec_args, dict):
+                    if script == "user_confirm.py" and _is_user_confirm_required(result) and isinstance(exec_args, dict):
                         _te_tool_end["user_confirm_required"] = True
                         _ucd = result.get("data") or {}
                         _te_tool_end["user_confirm_title"] = str(_ucd.get("title") or "")
@@ -2450,14 +2332,14 @@ def run_agent_turn(
                         _te_tool_end["user_confirm_options"] = list(_cos) if isinstance(_cos, list) else []
                         if bool(_ucd.get("multi")):
                             _te_tool_end["user_confirm_multi"] = True
-                        _cix = _ucd.get("customOptionIndex")
+                        _cix = _ucd.get("custom_option_index")
                         if isinstance(_cix, int):
                             _te_tool_end["user_confirm_custom_index"] = _cix
                         PENDING_USER_CONFIRM[conversation_id] = {
                             "tool_call_id": str(tc.get("id") or ""),
                             "exec_args": dict(exec_args),
                         }
-                    if script == "cli_todo_list.py" and isinstance(result, dict) and result.get("ok"):
+                    if script == "todo_list.py" and isinstance(result, dict) and result.get("ok"):
                         _td = result.get("data")
                         if _td is None:
                             # 无活跃清单 → 发送关闭信号
@@ -2474,7 +2356,7 @@ def run_agent_turn(
                             elif isinstance(_td.get("items"), list):
                                 _te_tool_end["todo_list"] = True
                                 _te_tool_end["todo_list_data"] = _td
-                                TODO_LISTS[conversation_id] = _td
+                                _todo_list_mod.session_lists[conversation_id] = _td
                                 # 发送独立的 todo_list SSE 事件供前端专属区域渲染
                                 sse_data = {
                                     "type": "todo_list",
@@ -2488,7 +2370,7 @@ def run_agent_turn(
                                 yield sse_data
                     yield _te_tool_end
                     
-                    if script == "cli_run_type.py" and isinstance(result, dict) and result.get("ok"):
+                    if script == "run_type.py" and isinstance(result, dict) and result.get("ok"):
                         _dc = result.get("data") or {}
                         _rtm = _dc.get("runType")
                         if _rtm in ("auto", "plan", "execute"):
@@ -2496,40 +2378,6 @@ def run_agent_turn(
                     md_chat = _chat_diff_markdown_for_tool(script, result, exec_args)
                     if md_chat:
                         yield {"type": "assistant_markdown", "markdown": md_chat}
-                    if use_preview:
-                        pa = _pick_preview_args_from_result(result, exec_args)
-                        if isinstance(pa, dict):
-                            linked_id = f"{tc.get('id')}:linked-preview"
-                            yield {
-                                "type": "tool_start",
-                                "api_name": "cli_preview_render",
-                                "script": "cli_preview_render.py",
-                                "args": pa,
-                                "tool_call_id": linked_id,
-                            }
-                            pr = execute_tool_script("cli_preview_render.py", pa)
-                            _log_agent_console_tool(conversation_id, "cli_preview_render", "cli_preview_render.py", pa, pr)
-                            if not (isinstance(pr, dict) and pr.get("ok") is True):
-                                _record_tool_debug_failure(
-                                    conversation_id=conversation_id,
-                                    api_name="cli_preview_render",
-                                    script="cli_preview_render.py",
-                                    tool_call_id=linked_id,
-                                    request=pa,
-                                    response=pr,
-                                    source="linked_preview_render",
-                                )
-                            yield {
-                                "type": "tool_end",
-                                "api_name": "cli_preview_render",
-                                "script": "cli_preview_render.py",
-                                "tool_call_id": linked_id,
-                                "ok": bool(pr.get("ok")),
-                                "preview": preview_tool_result("cli_preview_render.py", pr),
-                            }
-                            turn_tool_records.append({"api_name": "cli_preview_render", "script": "cli_preview_render.py", "ok": bool(pr.get("ok"))})
-                            if direct_preview_content is None:
-                                direct_preview_content = _build_direct_preview_message("cli_preview_render.py", pr, user_text_for_preview)
                     if direct_preview_content is None:
                         direct_preview_content = _build_direct_preview_message(script, result, user_text_for_preview)
                 turn_tool_records.append({"api_name": api_name, "script": script or "(unknown)", "ok": bool(result.get("ok"))})
@@ -2538,6 +2386,9 @@ def run_agent_turn(
                     "tool_call_id": tc.get("id"),
                     "content": _truncate_tool_result(result),
                 })
+                if turn_stop_after_this_batch:
+                    yield _finish_conversation_stopped(conversation_id, rollback_messages)
+                    return
             if conversation_id in PENDING_USER_CONFIRM:
                 CONVERSATIONS[conversation_id] = messages
                 _save_conversation(conversation_id, messages)
@@ -2784,12 +2635,12 @@ def chat_user_confirm_stream(inp: ChatUserConfirmIn, request: Request):
         PENDING_USER_CONFIRM.pop(cid, None)
         raise HTTPException(500, "invalid pending user_confirm state")
     exec_args1 = _merge_confirm_into_user_confirm_args(exec_args0, conf)
-    result = execute_tool_script("cli_user_confirm.py", exec_args1)
+    result = execute_tool_script("user_confirm.py", exec_args1)
     if not (isinstance(result, dict) and result.get("ok") is True):
         _record_tool_debug_failure(
             conversation_id=cid,
-            api_name="cli_user_confirm",
-            script="cli_user_confirm.py",
+            api_name="user_confirm",
+            script="user_confirm.py",
             tool_call_id=tool_call_id,
             request=exec_args1,
             response=result,
@@ -2849,7 +2700,7 @@ def chat_user_confirm_stream(inp: ChatUserConfirmIn, request: Request):
                     "type": "tool_preview_update",
                     "conversation_id": cid,
                     "tool_call_id": tool_call_id,
-                    "preview": preview_tool_result("cli_user_confirm.py", result),
+                    "preview": preview_tool_result("user_confirm.py", result),
                 }
                 yield f"data: {json.dumps(_tpd, ensure_ascii=False)}\n\n"
             finally:

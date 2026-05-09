@@ -108,12 +108,10 @@ deepseek-code-agent/
 │       ├── app_icon_128x128.png
 │       └── app_icon_16x16.png
 │
-├── tools/           # 20+ 内置工具
-│   ├── cli_structured_edit.py
-│   ├── cli_python_inline.py
-│   ├── cli_directory_list.py
-│   ├── cli_web_fetch.py
-│   ├── cli_git_workspace.py
+├── tools/           # 内置工具（见 tools/tool_list_agent.json）
+│   ├── read_file.py / write_file.py / replace_in_file.py / apply_patch.py
+│   ├── grep_files.py / glob_files.py / run_command.py / python_inline.py
+│   ├── tool_list_agent.json
 │   └── ...
 │
 └── util/            # 核心模块
