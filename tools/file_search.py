@@ -256,7 +256,12 @@ def agent_main(
         if regex:
             compiled = re.compile(pattern, flags)
         else:
-            compiled = re.compile(re.escape(pattern), flags)
+            # 字面模式：| 分隔多个子串，逐个转义后用 OR 连接
+            parts = [re.escape(p) for p in pattern.split("|") if p]
+            if parts:
+                compiled = re.compile("|".join(parts), flags)
+            else:
+                compiled = re.compile(re.escape(pattern), flags)
 
         if target_path.is_file():
             results = _search_file(target_path, compiled, context_lines, limit, _progress_dict=_progress_dict)

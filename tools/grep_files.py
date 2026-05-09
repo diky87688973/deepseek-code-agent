@@ -21,6 +21,22 @@ def _first_match_span(line: str, pat, *, is_regex: bool, ignore_case: bool) -> t
 
     needle = str(pat)
     haystack = line.lower() if ignore_case else line
+
+    # 多 pattern 支持：字面模式下 | 分隔多个子串，任一匹配即返回最先出现的
+    if "|" in needle:
+        parts = [p for p in needle.split("|") if p]
+        if parts:
+            best: tuple[int, int, str] | None = None
+            for sub in parts:
+                idx = haystack.find(sub)
+                if idx >= 0:
+                    if best is None or idx < best[0]:
+                        end = idx + len(sub)
+                        best = (idx, end, line[idx:end])
+            if best is not None:
+                return best
+        return None
+
     idx = haystack.find(needle)
     if idx < 0:
         return None

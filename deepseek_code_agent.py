@@ -165,17 +165,20 @@ SESSION_ENCRYPTION_MAGIC = "__code_web_agent_session_encrypted__"
 SESSION_APP_ENTROPY = hashlib.sha256((str(AGENT_ROOT) + "|code-web-agent-session-v1").encode("utf-8")).digest()
 
 
-CONTEXT_HISTORY_MAX_MESSAGES = 1000 # 历史最多放1000次对话内容(含工具记录)
-CONTEXT_EXCERPT_START_INDEX = 99 # 截取做摘要的起始位置
-CONTEXT_RECENT_USER_ROUNDS = 100 # 每次压缩上下文,依旧保留最近100次对话(含工具记录)
-SUMMARY_IN_PROGRESS_TTL_SEC = 300.0
-MAX_TOOL_ROUNDS = 10000 # 每轮对话允许调用工具次数的上限
-UI_RESTORE_MAX_TABS = 8 # 页面重开时最多恢复最近几个会话标签
-UI_RESTORE_MAX_CHAT_ITEMS = 40 # 每个会话只恢复最近若干条聊天气泡，不恢复步骤区
-PREVIEW_INTENT_KEYS = ("预览", "原文", "全文", "完整内容", "原始内容", "显示文件")
+# ── Agent 运行参数：从 AGENT_CONFIG 读取，config.json / 环境变量可覆盖 ──
+_CONTEXT_CFG = AGENT_CONFIG
+CONTEXT_HISTORY_MAX_MESSAGES = int(_CONTEXT_CFG.get("AGENT_CONTEXT_HISTORY_MAX_MESSAGES", 1000))
+CONTEXT_EXCERPT_START_INDEX = int(_CONTEXT_CFG.get("AGENT_CONTEXT_EXCERPT_START_INDEX", 99))
+CONTEXT_RECENT_USER_ROUNDS = int(_CONTEXT_CFG.get("AGENT_CONTEXT_RECENT_USER_ROUNDS", 100))
+SUMMARY_IN_PROGRESS_TTL_SEC = float(_CONTEXT_CFG.get("AGENT_SUMMARY_IN_PROGRESS_TTL_SEC", 300.0))
+MAX_TOOL_ROUNDS = int(_CONTEXT_CFG.get("AGENT_MAX_TOOL_ROUNDS", 10000))
+UI_RESTORE_MAX_TABS = int(_CONTEXT_CFG.get("AGENT_UI_RESTORE_MAX_TABS", 8))
+UI_RESTORE_MAX_CHAT_ITEMS = int(_CONTEXT_CFG.get("AGENT_UI_RESTORE_MAX_CHAT_ITEMS", 40))
+_PREVIEW_RAW = _CONTEXT_CFG.get("AGENT_PREVIEW_INTENT_KEYS", ["预览", "原文", "全文", "完整内容", "原始内容", "显示文件", "打开", "查看", "读取", "给我看看", "看一下", "看一看"])
+PREVIEW_INTENT_KEYS = tuple(_PREVIEW_RAW) if isinstance(_PREVIEW_RAW, (list, tuple)) else tuple(_PREVIEW_RAW)
 
 # @路径：是否在进模型前由服务端预读并注入全文。False=由模型按需用工具读取；True=恢复预注入。
-AT_MESSAGE_FILE_PREFETCH = False
+AT_MESSAGE_FILE_PREFETCH = bool(_CONTEXT_CFG.get("AGENT_AT_MESSAGE_FILE_PREFETCH", False))
 
 # ---------- 控制台调试：stderr 输出 JSON 行（SSE 事件、工具完整入参/出参）。AGENT_CONSOLE_LOG=0 关闭 ----------
 def _agent_console_log_enabled() -> bool:
@@ -696,6 +699,47 @@ def _find_conversation_file(cid: str) -> Optional[Path]:
     return None
 
 
+def _find_title_file(cid: str) -> Optional[Path]:
+    """查找 cid 对应的 .title 文件（同目录同级）"""
+    if not cid:
+        return None
+    # 先找 session 文件所在目录下的 .title 文件
+    sfile = _find_conversation_file(cid)
+    if sfile is not None:
+        tfile = sfile.with_suffix(".title")
+        if tfile.is_file():
+            return tfile
+    # 再平铺查找
+    flat = SESSION_DIR / f"{cid}.title"
+    if flat.is_file():
+        return flat
+    try:
+        for p in SESSION_DIR.glob(f"*/{cid}.title"):
+            if p.is_file():
+                return p
+    except Exception:
+        pass
+    return None
+
+
+def _save_title_file(cid: str, title: str) -> None:
+    """将标题写入独立 .title 文件，不加密"""
+    if not cid or not title:
+        return
+    try:
+        # 优先放在 session 文件同目录
+        sfile = _find_conversation_file(cid)
+        if sfile is not None:
+            tfile = sfile.with_suffix(".title")
+        else:
+            day = time.strftime("%Y-%m-%d", time.localtime())
+            tfile = SESSION_DIR / day / f"{cid}.title"
+            tfile.parent.mkdir(parents=True, exist_ok=True)
+        tfile.write_text(title.strip()[:80], encoding="utf-8")
+    except Exception as e:
+        print(f"WARN: failed to save title file for {cid}: {e}", file=sys.stderr, flush=True)
+
+
 def _conversation_file_for_save(cid: str) -> Path:
     existing = _find_conversation_file(cid)
     if existing is not None:
@@ -711,15 +755,16 @@ def _save_conversation(cid: str, messages: List[Dict[str, Any]], title: str = ""
         SESSION_DIR.mkdir(parents=True, exist_ok=True)
         fp = _conversation_file_for_save(cid)
         fp.parent.mkdir(parents=True, exist_ok=True)
-        if not title:
-            title = _fallback_title_from_messages(cid, messages)
-        # 明文存储：第一行标题，后续messages
-        plain = f"__title__:{title[:80]}\n" + json.dumps(messages, ensure_ascii=False)
+        # 仅存储 messages JSON，不再内嵌标题
+        plain = json.dumps(messages, ensure_ascii=False)
         envelope = _encrypt_session_payload(plain.encode("utf-8"))
         if envelope is None:
             fp.write_text(plain, encoding="utf-8")
         else:
             fp.write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+        # 如果有标题则独立写入 .title 文件
+        if title:
+            _save_title_file(cid, title)
     except Exception as e:
         print(f"WARN: failed to save conversation {cid}: {e}", file=sys.stderr, flush=True)
 
@@ -732,10 +777,6 @@ def _load_conversation(cid: str) -> Optional[List[Dict[str, Any]]]:
         if fp is None or not fp.is_file():
             return None
         raw_text = fp.read_text(encoding="utf-8")
-        if raw_text.startswith("__title__:"):
-            idx = raw_text.find("\n")
-            if idx != -1:
-                raw_text = raw_text[idx+1:]
         raw = json.loads(raw_text)
         decrypted = _decrypt_session_payload(raw)
         if decrypted is not None:
@@ -746,6 +787,26 @@ def _load_conversation(cid: str) -> Optional[List[Dict[str, Any]]]:
         return None
     except Exception:
         return None
+
+
+# 磁盘上已有会话文件但无法解析/解密时，禁止继续对话（避免用空 messages 覆盖写盘导致历史丢失）
+SESSION_PERSIST_UNREADABLE_SSE_DETAIL = "当前会话已停止，请重新发起会话。"
+
+
+def _persisted_session_unreadable_after_load(cid: str) -> bool:
+    """若 DATA_ROOT 下已存在该 cid 的 json 持久化文件，但无法加载为消息列表，且内存中无历史，则视为不可恢复，必须拒绝后续对话。"""
+    key = str(cid or "").strip()
+    if not key:
+        return False
+    if CONVERSATIONS.get(key):
+        return False
+    fp = _find_conversation_file(key)
+    if fp is None or not fp.is_file():
+        return False
+    if _load_conversation(key) is not None:
+        return False
+    print(f"WARN: session file exists but is unreadable (refuse chat to avoid overwrite); cid={key} path={fp}", file=sys.stderr, flush=True)
+    return True
 
 
 def _chat_history_from_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, str]]:
@@ -764,14 +825,13 @@ def _chat_history_from_messages(messages: List[Dict[str, Any]]) -> List[Dict[str
 
 
 def _load_conversation_title(cid: str) -> str:
-    """从 session 文件第一行读取标题，没有则返回空"""
+    """从独立 .title 文件读取标题，没有则返回空"""
     try:
-        fp = _find_conversation_file(cid)
-        if fp is None or not fp.is_file():
-            return ""
-        first_line = fp.read_text(encoding="utf-8").split("\n", 1)[0]
-        if first_line.startswith("__title__:"):
-            return first_line[len("__title__:"):].strip()[:80]
+        tfile = _find_title_file(cid)
+        if tfile is not None and tfile.is_file():
+            title = tfile.read_text(encoding="utf-8").strip()[:80]
+            if title:
+                return title
     except Exception:
         pass
     return ""
@@ -2259,7 +2319,7 @@ def run_agent_turn(
                 "reasoning_content": reasoning_content or "",
             }
             messages.append(assistant_msg)
-            direct_preview_content: Optional[str] = None
+            direct_preview_content: List[str] = []
             turn_stop_after_this_batch = False
             for tc in tcalls:
                 fn = tc.get("function") or {}
@@ -2513,8 +2573,9 @@ def run_agent_turn(
                     md_chat = _chat_diff_markdown_for_tool(script, result, exec_args)
                     if md_chat:
                         yield {"type": "assistant_markdown", "markdown": md_chat}
-                    if direct_preview_content is None:
-                        direct_preview_content = _build_direct_preview_message(script, result, user_text_for_preview)
+                    _preview = _build_direct_preview_message(script, result, user_text_for_preview)
+                    if _preview:
+                        direct_preview_content.append(_preview)
                 turn_tool_records.append({"api_name": api_name, "script": script or "(unknown)", "ok": bool(result.get("ok"))})
                 messages.append({
                     "role": "tool",
@@ -2529,11 +2590,11 @@ def run_agent_turn(
                 _save_conversation(conversation_id, messages)
                 yield {"type": "paused_for_user_confirm", "conversation_id": conversation_id}
                 return
-            if isinstance(direct_preview_content, str) and direct_preview_content:
-                messages.append({"role": "assistant", "content": direct_preview_content, "reasoning_content": ""})
+            if direct_preview_content:
+                combined = "\n\n".join(direct_preview_content)
+                messages.append({"role": "assistant", "content": combined, "reasoning_content": ""})
                 if not content_parts:
-                    yield {"type": "assistant", "content": direct_preview_content}
-                break
+                    yield {"type": "assistant", "content": combined}
             api_messages = _build_api_messages_for_model(messages, conversation_id)
             continue
 
@@ -2841,6 +2902,15 @@ def chat_user_confirm_stream(inp: ChatUserConfirmIn, request: Request):
             finally:
                 pass
             _ensure_conversation_loaded(cid)
+            if _persisted_session_unreadable_after_load(cid):
+                _se = {
+                    "type": "error",
+                    "conversation_id": cid,
+                    "where": "session_persist",
+                    "detail": SESSION_PERSIST_UNREADABLE_SSE_DETAIL,
+                }
+                yield f"data: {json.dumps(_se, ensure_ascii=False)}\n\n"
+                return
             _apply_conversation_request_options(cid, mode, mod)
             for ev in run_agent_turn(cid, "", client_ip=client_ip, mode_hint=mode, resume_after_user_confirm=True, run_id=_run_id):
                 ev2 = _conversation_sse_event(cid, ev)
@@ -2895,7 +2965,15 @@ def chat_history(conversation_id: str = ""):
         raise HTTPException(400, "empty conversation_id")
     _ensure_conversation_loaded(cid)
     messages = list(CONVERSATIONS.get(cid, []))
-    return {"ok": True, "conversation_id": cid, "items": _chat_history_from_messages(messages)}
+    # 附带当前待办清单，供前端刷新页面后恢复 Todo 显示
+    todo_list = None
+    try:
+        todo_r = _todo_list_mod.execute(cid, {"action": "query"})
+        if todo_r.get("ok") and todo_r.get("data") is not None:
+            todo_list = todo_r["data"]
+    except Exception:
+        pass
+    return {"ok": True, "conversation_id": cid, "items": _chat_history_from_messages(messages), "todo_list": todo_list}
 
 
 @app.get("/api/chat/sessions")
@@ -2909,25 +2987,39 @@ def chat_sessions():
             if cid and title:
                 title_by_id[cid] = title
     rows: List[Dict[str, Any]] = []
+    seen_ids: set[str] = set()
     try:
-        files = list(SESSION_DIR.glob("*.json")) + list(SESSION_DIR.glob("*/*.json"))
-        files = sorted([p for p in files if p.is_file()], key=lambda p: p.stat().st_mtime, reverse=True)
+        # 优先从 .title 文件收集会话（标题来源）
+        title_files = list(SESSION_DIR.glob("*.title")) + list(SESSION_DIR.glob("*/*.title"))
+        for tf in title_files:
+            cid = tf.stem
+            if not re.match(r"^[A-Za-z0-9._:-]{8,128}$", cid) or cid in seen_ids:
+                continue
+            seen_ids.add(cid)
+            title = tf.read_text(encoding="utf-8").strip()[:80] if tf.is_file() else ""
+            try:
+                updated_at = int(tf.stat().st_mtime * 1000)
+            except Exception:
+                updated_at = 0
+            rows.append({"id": cid, "title": title or title_by_id.get(cid) or f"会话 {cid[:8]}", "updated_at": updated_at, "date_group": _session_date_group_from_path(tf)})
+        # 补充没有 .title 文件的 session（新会话等），仍显示
+        json_files = list(SESSION_DIR.glob("*.json")) + list(SESSION_DIR.glob("*/*.json"))
+        for fp in json_files:
+            cid = fp.stem
+            if not re.match(r"^[A-Za-z0-9._:-]{8,128}$", cid) or cid in seen_ids:
+                continue
+            seen_ids.add(cid)
+            messages = CONVERSATIONS.get(cid)
+            if messages is None:
+                messages = _load_conversation(cid) or []
+            title = _load_conversation_title(cid) or title_by_id.get(cid) or _fallback_title_from_messages(cid, list(messages))
+            try:
+                updated_at = int(fp.stat().st_mtime * 1000)
+            except Exception:
+                updated_at = 0
+            rows.append({"id": cid, "title": title[:80], "updated_at": updated_at, "date_group": _session_date_group_from_path(fp)})
     except Exception:
-        files = []
-    for fp in files[:100]:
-        cid = fp.stem
-        if not re.match(r"^[A-Za-z0-9._:-]{8,128}$", cid):
-            continue
-        messages = CONVERSATIONS.get(cid)
-        if messages is None:
-            messages = _load_conversation(cid) or []
-        # 标题优先级：session文件内 > last_open_session_state缓存 > 消息提取
-        title = _load_conversation_title(cid) or title_by_id.get(cid) or _fallback_title_from_messages(cid, list(messages))
-        try:
-            updated_at = int(fp.stat().st_mtime * 1000)
-        except Exception:
-            updated_at = 0
-        rows.append({"id": cid, "title": title[:80], "updated_at": updated_at, "date_group": _session_date_group_from_path(fp)})
+        pass
     rows.sort(key=lambda r: (r.get("date_group") or "", r.get("updated_at", 0)), reverse=True)
     return {"ok": True, "sessions": rows}
 
@@ -2940,6 +3032,8 @@ def chat_title(body: ChatTitleIn):
     _ensure_conversation_loaded(cid)
     messages = list(CONVERSATIONS.get(cid, []))
     title = _generate_conversation_title(cid, messages)
+    # 生成标题后写入独立 .title 文件
+    _save_title_file(cid, title)
     return {"ok": True, "conversation_id": cid, "title": title}
 
 
@@ -3132,6 +3226,15 @@ def chat_stream(inp: ChatIn, request: Request):
                 yield f"data: {json.dumps(_err_ev, ensure_ascii=False)}\n\n"
                 return
             _ensure_conversation_loaded(cid)
+            if _persisted_session_unreadable_after_load(cid):
+                _se = {
+                    "type": "error",
+                    "conversation_id": cid,
+                    "where": "session_persist",
+                    "detail": SESSION_PERSIST_UNREADABLE_SSE_DETAIL,
+                }
+                yield f"data: {json.dumps(_se, ensure_ascii=False)}\n\n"
+                return
             _apply_conversation_request_options(cid, mode, mod)
             for ev in run_agent_turn(cid, text, client_ip=client_ip, mode_hint=mode, run_id=_run_id):
                 ev2 = _conversation_sse_event(cid, ev)

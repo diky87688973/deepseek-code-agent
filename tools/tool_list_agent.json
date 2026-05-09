@@ -12,7 +12,9 @@
     "archive_plan": "archive：action=list 可读；extract/create 在 Plan 模式会被工具拒绝；传 runType 与当前执行模式一致。",
     "delete_safe": "delete_file 不落盘 unlink，而是将文件移到 DATA_ROOT/safe_delete 下按日期分桶；默认 dryRun。",
     "catalog_examples": "各工具的 examples 会并入宿主下发给模型的 function.description（及失败时的 toolHelp）；示例键名与 function schema 完全一致，布尔为 JSON true/false。",
-    "tool_help_on_failure": "凡工具返回 ok=false，宿主在 error.toolHelp 中附带 argparse 等效 --help 全文 + 本清单摘要；模型须据此纠错。"
+    "tool_help_on_failure": "凡工具返回 ok=false，宿主在 error.toolHelp 中附带 argparse 等效 --help 全文 + 本清单摘要；模型须据此纠错。",
+    "region_replace_safety": "replace_in_file 提供四种替换方式：① lineStart+lineEnd（行替换，推荐）：按行号替换，坐标永不漂移。② regions 数组：一次传入 [{regionStart,regionEnd,newText},...]，工具自动降序防漂移。③ 单次 regionStart+regionEnd：精确替换。④ rules 数组：字面 oldText→newText 批量替换。",
+    "literal_replace_ambiguity": "⚠️ oldText+newText 字面替换默认 replaceAll=true（替换全部匹配）。若 oldText 内容在文件中有多处相同文本，会全部误伤。安全做法：① 每次设 expectedReplacements=n 校验替换次数；② oldText 尽量带上唯一上下文（如行首空格+前一行特征）；③ 无歧义时也可用 regionStart/regionEnd（注意坐标偏移风险）。"
   },
   "tools": [
     {
@@ -207,7 +209,7 @@
           "flag": "--pattern",
           "type": "string",
           "required": true,
-          "description": "搜索模式；regex=false 时为字面（含特殊字符无正则语义）。"
+          "description": "搜索模式；regex=false 时为字面（| 为 OR 分隔符，如 \"foo|bar\" 匹配 foo 或 bar）。"
         },
         {
           "flag": "--globPattern",
@@ -377,7 +379,7 @@
           "flag": "--pattern",
           "type": "string",
           "required": true,
-          "description": "定位串；regex=false 为字面；true 时为 Python 正则。"
+          "description": "定位串；regex=false 为字面（| 为 OR 分隔符）；true 时为 Python 正则。"
         },
         {
           "flag": "--regex",
@@ -580,7 +582,7 @@
           "flag": "--pattern",
           "type": "string",
           "required": true,
-          "description": "搜索内容；regex=false 时为字面；true 时为 Python 正则。"
+          "description": "搜索内容；regex=false 时为字面（| 为 OR 分隔符）；true 时为 Python 正则。"
         },
         {
           "flag": "--regex",
@@ -1611,13 +1613,13 @@
           "flag": "--lineStart",
           "type": "integer",
           "required": false,
-          "description": "行列矩形：1-based 起始行。"
+          "description": "1-based 起始行。与 lineEnd 成对使用：不传列坐标=纯行替换；传 startColumn+endColumn=矩形替换。"
         },
         {
           "flag": "--lineEnd",
           "type": "integer",
           "required": false,
-          "description": "矩形结束行（闭）。"
+          "description": "1-based 结束行（闭区间）。与 lineStart 成对：不传列坐标=纯行替换；传 startColumn+endColumn=矩形替换。"
         },
         {
           "flag": "--startColumn",
@@ -1651,6 +1653,54 @@
             }
           },
           "description": "顺序替换规则列表；每项含 oldText、newText。"
+        },
+        {
+          "flag": "--regions",
+          "type": "array",
+          "required": false,
+          "arrayItems": {
+            "type": "object",
+            "required": [
+              "regionStart",
+              "regionEnd"
+            ],
+            "properties": {
+              "regionStart": {
+                "type": "integer"
+              },
+              "regionEnd": {
+                "type": "integer"
+              },
+              "newText": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "多区间替换数组，每项含 regionStart、regionEnd、newText。工具内部按坐标降序处理，杜绝多次单区间替换导致的坐标漂移。"
+        },
+        {
+          "flag": "--lineRanges",
+          "type": "array",
+          "required": false,
+          "arrayItems": {
+            "type": "object",
+            "required": [
+              "lineStart",
+              "lineEnd"
+            ],
+            "properties": {
+              "lineStart": {
+                "type": "integer"
+              },
+              "lineEnd": {
+                "type": "integer"
+              },
+              "newText": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "多行替换数组，每项含 lineStart、lineEnd、newText。工具内部按行号降序处理、检测重叠。"
         },
         {
           "flag": "--dryRun",
@@ -1794,6 +1844,57 @@
             "backup": true,
             "dryRun": false,
             "runType": "execute"
+          }
+        },
+        {
+          "title": "纯行替换（lineStart+lineEnd）",
+          "note": "只传行号不传列坐标，行号永不漂移。",
+          "args": {
+            "path": "app.py",
+            "lineStart": 10,
+            "lineEnd": 12,
+            "newText": "def new_func():\\n    pass\\n",
+            "dryRun": true
+          }
+        },
+        {
+          "title": "lineRanges 多组行替换",
+          "note": "一次传入多组行区间，工具自动按行号降序处理、检测重叠。",
+          "args": {
+            "path": "app.py",
+            "lineRanges": [
+              {
+                "lineStart": 10,
+                "lineEnd": 12,
+                "newText": "def f1():\\n    pass\\n"
+              },
+              {
+                "lineStart": 5,
+                "lineEnd": 6,
+                "newText": "# section 1\\n"
+              }
+            ],
+            "dryRun": true
+          }
+        },
+        {
+          "title": "regions 多区间替换",
+          "note": "一次传入多组字符区间，工具自动降序防漂移。",
+          "args": {
+            "path": "app.py",
+            "regions": [
+              {
+                "regionStart": 800,
+                "regionEnd": 850,
+                "newText": "new_code_here"
+              },
+              {
+                "regionStart": 100,
+                "regionEnd": 120,
+                "newText": "x = 1"
+              }
+            ],
+            "dryRun": true
           }
         }
       ]

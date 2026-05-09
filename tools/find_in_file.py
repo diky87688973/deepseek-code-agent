@@ -21,7 +21,13 @@ def _collect_spans(
         if not sub:
             raise ValueError("pattern 不能为空")
         flags = re.IGNORECASE if ignore_case else 0
-        for m in re.finditer(re.escape(sub), full, flags):
+        # 字面模式：| 分隔多个子串，逐个转义后用 OR 连接
+        parts = [re.escape(p) for p in sub.split("|") if p]
+        if parts:
+            rx = re.compile("|".join(parts), flags)
+        else:
+            rx = re.compile(re.escape(sub), flags)
+        for m in rx.finditer(full):
             s, e = m.span()
             spans.append((s, e, full[s:e]))
         return spans
