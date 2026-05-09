@@ -92,6 +92,11 @@ def _search_file(
         return [{"file": str(path), "error": str(e)}]
 
     total = len(lines)
+    starts: list[int] = []
+    cur = 0
+    for ln in lines:
+        starts.append(cur)
+        cur += len(ln)
     for lineno, line in enumerate(lines, 1):
         if lineno % 256 == 0 and ac.progress_abort_requested(_progress_dict):
             return [{"_abort": True}]
@@ -109,13 +114,19 @@ def _search_file(
         for i in range(lineno, min(total, lineno + context_lines)):
             ctx_after.append({"line": i + 1, "text": lines[i].rstrip("\n").rstrip("\r")})
 
+        line_text = line.rstrip("\n").rstrip("\r")
+        match_text = m.group()
+        region_start = starts[lineno - 1] + m.start()
+        region_end = starts[lineno - 1] + m.end()
         results.append(
             {
                 "file": str(path),
                 "line": lineno,
                 "column": m.start() + 1,
-                "lineText": line.rstrip("\n").rstrip("\r"),
-                "matchText": m.group(),
+                "text": line_text,
+                "match": match_text,
+                "regionStart": region_start,
+                "regionEnd": region_end,
                 "contextBefore": ctx_before,
                 "contextAfter": ctx_after,
             }
@@ -146,7 +157,6 @@ def _search_directory(
     _last_report = time.time()
 
     _prog_data = {"scanned": 0, "phase": "search"}
-    print(json.dumps({"_progress_": _prog_data}), flush=True)
     if _progress_dict is not None:
         _progress_dict.update(_prog_data)
 
@@ -171,7 +181,6 @@ def _search_directory(
                 pass
 
         _prog_data = {"scanned": scanned, "currentFile": entry.name, "phase": "search"}
-        print(json.dumps({"_progress_": _prog_data}), flush=True)
         if _progress_dict is not None:
             _progress_dict.update(_prog_data)
 
@@ -192,7 +201,6 @@ def _search_directory(
         _now = time.time()
         if scanned == 1 or scanned % 500 == 0 or _now - _last_report >= 2.0:
             _prog_data = {"scanned": scanned, "phase": "search"}
-            print(json.dumps({"_progress_": _prog_data}), flush=True)
             if _progress_dict is not None:
                 _progress_dict.update(_prog_data)
             _last_report = _now
@@ -234,10 +242,13 @@ def agent_main(
     ignore_case: bool = False,
     no_gitignore: bool = False,
     limit: int | None = None,
+    restrict_to_workspace: bool = False,
+    run_type: str = "",
     _progress_dict: dict | None = None,
 ) -> dict:
+    _ = run_type
     try:
-        target_path = Path(path).expanduser().resolve()
+        target_path = ac.resolve_path(path, allow_outside_workspace=not restrict_to_workspace)
         if not target_path.exists():
             raise FileNotFoundError(f"目标不存在: {target_path}")
 
@@ -259,6 +270,7 @@ def agent_main(
                 "totalMatches": len(results),
                 "matches": results,
                 "errors": None,
+                "hint": "matches 中的 regionStart/regionEnd 可直接传给 replace_in_file；大范围只定位时优先 file_search，轻量搜索优先 grep_files。",
             }
         else:
             data = _search_directory(
@@ -275,6 +287,11 @@ def agent_main(
             if isinstance(data, dict) and data.get("_host_aborted"):
                 return {"ok": False, "data": None, "error": {"type": "Aborted", "message": "用户已停止搜索"}}
 
+        if isinstance(data, dict):
+            data.setdefault(
+                "hint",
+                "matches 中的 regionStart/regionEnd 可直接传给 replace_in_file；大范围只定位时优先 file_search，轻量搜索优先 grep_files。",
+            )
         return {"ok": True, "data": data, "error": None}
     except Exception as e:
         return {"ok": False, "data": None, "error": {"type": e.__class__.__name__, "message": str(e)}}
@@ -297,6 +314,8 @@ def main() -> None:
     p.add_argument("--ignoreCase", action="store_true", dest="ignore_case")
     p.add_argument("--noGitignore", action="store_true", dest="no_gitignore")
     p.add_argument("--limit", type=int, default=None)
+    p.add_argument("--restrictToWorkspace", action="store_true")
+    p.add_argument("--runType", default="")
     p.add_argument("--jsonOut", action="store_true")
     args = p.parse_args()
     r = agent_main(
@@ -309,6 +328,8 @@ def main() -> None:
         ignore_case=args.ignore_case,
         no_gitignore=args.no_gitignore,
         limit=args.limit,
+        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
+        run_type=str(getattr(args, "runType", "") or ""),
     )
     if args.jsonOut:
         print(json.dumps(r, ensure_ascii=False))

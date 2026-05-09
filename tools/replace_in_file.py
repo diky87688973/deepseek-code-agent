@@ -114,7 +114,7 @@ def agent_main(
     expected_replacements: int | None = None,
     encoding: str = "utf-8",
     backup: bool = False,
-    allow_outside_workspace: bool = False,
+    restrict_to_workspace: bool = False,
     run_type: str = "",
 ) -> dict:
     try:
@@ -144,7 +144,7 @@ def agent_main(
             end_column=end_column,
         )
 
-        fp = ac.resolve_path(path, allow_outside_workspace=allow_outside_workspace)
+        fp = ac.resolve_path(path, allow_outside_workspace=not restrict_to_workspace)
         if not fp.is_file():
             raise FileNotFoundError(f"文件不存在: {fp}")
 
@@ -222,10 +222,10 @@ def agent_main(
         bak_path_str: str | None = None
         if backup and fp.is_file():
             bak = fp.with_suffix(fp.suffix + ".bak")
-            bak.write_text(original, encoding=encoding, newline="\n")
+            ac.write_unicode_file(bak, original, encoding=encoding)
             bak_path_str = str(bak)
 
-        fp.write_text(new_body, encoding=encoding, newline="\n")
+        ac.write_unicode_file(fp, new_body, encoding=encoding)
         return ac.ok(
             {
                 "path": str(fp),
@@ -266,7 +266,11 @@ def main() -> None:
     p.add_argument("--expectedReplacements", type=int, default=None)
     p.add_argument("--encoding", default="utf-8")
     p.add_argument("--backup", action="store_true")
-    p.add_argument("--allowOutsideWorkspace", action="store_true")
+    p.add_argument(
+        "--restrictToWorkspace",
+        action="store_true",
+        help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
+    )
     p.add_argument("--runType", default="")
     p.add_argument("--jsonOut", action="store_true")
     args = p.parse_args()
@@ -295,7 +299,7 @@ def main() -> None:
         expected_replacements=args.expectedReplacements,
         encoding=args.encoding,
         backup=bool(args.backup),
-        allow_outside_workspace=args.allowOutsideWorkspace,
+        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
         run_type=str(args.runType or ""),
     )
     print(json.dumps(r, ensure_ascii=False))

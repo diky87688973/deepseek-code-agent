@@ -240,7 +240,7 @@ def agent_main(
     output_format: str | None = None,
     password: str | None = None,
     glob_pattern: str | None = None,
-    allow_outside_workspace: bool = False,
+    restrict_to_workspace: bool = False,
     run_type: str = "",
 ) -> dict:
     act = str(action or "").strip().lower()
@@ -254,20 +254,20 @@ def agent_main(
         }
 
     try:
-        src = ac.resolve_path(source, allow_outside_workspace=allow_outside_workspace)
+        src = ac.resolve_path(source, allow_outside_workspace=not restrict_to_workspace)
         if act == "list":
             data = _list_archive(src, password, glob_pattern)
             return ac.ok(data)
         if act == "extract":
             if not dest:
                 return ac.err(ValueError("extract 需要 dest"))
-            dst = ac.resolve_path(dest, allow_outside_workspace=allow_outside_workspace)
+            dst = ac.resolve_path(dest, allow_outside_workspace=not restrict_to_workspace)
             data = _extract_archive(src, dst, password, glob_pattern)
             return ac.ok(data)
         if act == "create":
             if not dest:
                 return ac.err(ValueError("create 需要 dest"))
-            dst = ac.resolve_path(dest, allow_outside_workspace=allow_outside_workspace)
+            dst = ac.resolve_path(dest, allow_outside_workspace=not restrict_to_workspace)
             fmt = (output_format or "").strip() or None
             if fmt:
                 out_fmt = fmt
@@ -290,7 +290,11 @@ def main() -> None:
     p.add_argument("--output_format", default=None)
     p.add_argument("--password", default=None)
     p.add_argument("--glob_pattern", default=None)
-    p.add_argument("--allowOutsideWorkspace", action="store_true")
+    p.add_argument(
+        "--restrictToWorkspace",
+        action="store_true",
+        help="源/目标路径限定在 WORKSPACE_DIR 内（默认不限制）。",
+    )
     p.add_argument("--runType", default="")
     p.add_argument("--jsonOut", action="store_true")
     args = p.parse_args()
@@ -301,7 +305,7 @@ def main() -> None:
         output_format=args.output_format,
         password=args.password,
         glob_pattern=args.glob_pattern,
-        allow_outside_workspace=bool(args.allowOutsideWorkspace),
+        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
         run_type=str(args.runType or ""),
     )
     if args.jsonOut:

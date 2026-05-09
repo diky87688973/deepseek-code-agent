@@ -57,6 +57,10 @@ def _git_check_ignore_batch(repo_root: Path, relative_posix_paths: list[str]) ->
 def _match_path(rel_posix: str, name: str, pattern: str) -> bool:
     """按 pathlib/fnmatch 常见用法匹配路径；Windows 下路径与模式大小写不敏感。"""
     pat = pattern or "*"
+    pat_norm = pat.replace("\\", "/")
+    # 默认「递归全部」：**/* 应对根目录单层文件生效；仅用 fnmatch 时 **/* 常无法匹配不带 / 的相对路径。
+    if pat_norm in ("**/*", "**"):
+        return True
     target_rel = rel_posix
     target_name = name
     if os.name == "nt":
@@ -114,9 +118,10 @@ def agent_main(
     *,
     path: str,
     glob_pattern: str = "**/*",
+    pattern: str | None = None,
     recursive: bool = True,
     limit: int = 500,
-    allow_outside_workspace: bool = False,
+    restrict_to_workspace: bool = False,
     run_type: str = "",
     entry_type: str = "file",
     no_gitignore: bool = False,
@@ -132,13 +137,21 @@ def agent_main(
 
         et = _normalize_entry_type(entry_type)
 
-        rp = ac.resolve_path(path, allow_outside_workspace=allow_outside_workspace)
+        rp = ac.resolve_path(path, allow_outside_workspace=not restrict_to_workspace)
         if not rp.exists():
             raise FileNotFoundError(f"路径不存在: {rp}")
         if not rp.is_dir():
             raise ValueError(f"path 必须是目录: {rp}")
 
-        pattern = (glob_pattern or "").strip() or ("**/*" if recursive else "*")
+        gp_raw = (glob_pattern or "").strip()
+        pt_raw = (pattern or "").strip()
+        if gp_raw and gp_raw != "**/*":
+            effective_glob = gp_raw
+        elif pt_raw:
+            effective_glob = pt_raw
+        else:
+            effective_glob = gp_raw or ("**/*" if recursive else "*")
+        match_pat = (effective_glob or "").strip() or ("**/*" if recursive else "*")
 
         respect_gitignore = not no_gitignore
         repo_root = _find_git_root(rp) if respect_gitignore else None
@@ -158,7 +171,7 @@ def agent_main(
         elif respect_gitignore and repo_root is not None and git_available:
             meta["gitignoreApplied"] = True
 
-        iterator = _iter_matching_paths(rp, pattern, recursive)
+        iterator = _iter_matching_paths(rp, match_pat, recursive)
 
         items: list[dict] = []
 
@@ -229,7 +242,7 @@ def agent_main(
         return ac.ok(
             {
                 "path": str(rp),
-                "globPattern": glob_pattern,
+                "globPattern": match_pat,
                 "entryType": et,
                 "count": len(items),
                 "truncated": truncated,
@@ -249,10 +262,19 @@ def main() -> None:
     p = argparse.ArgumentParser(description="glob_files")
     p.add_argument("--path", required=True, help="目录根路径")
     p.add_argument("--glob_pattern", default="**/*")
+    p.add_argument(
+        "--pattern",
+        default=None,
+        help="globPattern 的短别名；若与非默认 globPattern 同传则以 globPattern 为准。",
+    )
     p.add_argument("--recursive", action="store_true", default=True)
     p.add_argument("--noRecursive", action="store_false", dest="recursive")
     p.add_argument("--limit", type=int, default=500)
-    p.add_argument("--allowOutsideWorkspace", action="store_true")
+    p.add_argument(
+        "--restrictToWorkspace",
+        action="store_true",
+        help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
+    )
     p.add_argument(
         "--entryType",
         dest="entry_type",
@@ -267,12 +289,15 @@ def main() -> None:
     )
     p.add_argument("--jsonOut", action="store_true")
     args = p.parse_args()
+    alias_pt = getattr(args, "pattern", None)
+    restrict = bool(getattr(args, "restrictToWorkspace", False))
     r = agent_main(
         path=args.path,
         glob_pattern=args.glob_pattern,
+        pattern=str(alias_pt).strip() if alias_pt else None,
         recursive=args.recursive,
         limit=args.limit,
-        allow_outside_workspace=args.allowOutsideWorkspace,
+        restrict_to_workspace=restrict,
         entry_type=str(args.entry_type),
         no_gitignore=bool(args.noGitignore),
     )

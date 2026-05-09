@@ -6,7 +6,7 @@ Configure CHAT_API_BASE_URL + CHAT_API_KEY (DEEPSEEK_* still accepted as fallbac
 Typical body: messages, tools, stream with SSE data: lines — see provider docs for JSON mode, tools, and errors.
 - 本仓库工具库与 Agent 落盘文本（JSON 等）默认 UTF-8。
 - 工具调用失败时（ok 非 true）可向 DATA_ROOT 下 debug 目录写入 JSON 记录；AGENT_TOOL_DEBUG=0 关闭。
-- 工具返回 ok=false 时 error **必定**含 toolHelp：合并 argparse 等效 `--help` 与 tool_list_agent.json 摘要（未知工具亦有兜底说明），供模型纠正调用；进程内优先 agent_main（原生 Python 类型），`main()` 仅作 CLI 防腐。
+- 工具返回 ok=false 时 error **必定**含 toolHelp：合并 argparse 等效 `--help` 与 tool_list_agent.json 摘要（未知工具亦有兜底说明），供模型纠正调用；**仅**通过各脚本 `agent_main` 进程内执行（原生 Python 类型），不向 `main()`/模拟 argv 降级。
 """
 from __future__ import annotations
 
@@ -462,6 +462,46 @@ def _enrich_tool_result_error(script_name: str, result: dict) -> dict:
     return result
 
 
+def _intent_tool_hints(key_lower: str, names: list[str]) -> list[str]:
+    """未知工具名时按常见臆造后缀给出可读推荐，避免 closest-match 跑偏到无关工具。"""
+    hit: list[str] = []
+    if any(
+        s in key_lower
+        for s in (
+            "directory",
+            "dir_list",
+            "list_dir",
+            "folder",
+            "cli_directory",
+            "ls",
+        )
+    ):
+        for c in ("glob_files", "file_ops", "grep_files"):
+            if c in names:
+                hit.append(c)
+    if any(
+        s in key_lower
+        for s in (
+            "find_replace",
+            "replace",
+            "substitute",
+            "sed",
+            "rewrite",
+            "cli_find",
+        )
+    ):
+        for c in ("replace_in_file", "read_write", "apply_patch", "write_file"):
+            if c in names:
+                hit.append(c)
+    seen: set[str] = set()
+    out: list[str] = []
+    for x in hit:
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out[:6]
+
+
 def _unknown_tool_result(api_name: Any, script_by_api: Dict[str, str]) -> dict:
     key = str(api_name or "").strip()
     names = sorted(script_by_api.keys())
@@ -471,6 +511,9 @@ def _unknown_tool_result(api_name: Any, script_by_api: Dict[str, str]) -> dict:
         lines.append(", ".join(names))
     else:
         lines.append(", ".join(names[:cap]) + f" … 另有 {len(names) - cap} 个未列出，请查看 tools/tool_list_agent.json")
+    intent = _intent_tool_hints(key.lower(), names)
+    if intent:
+        lines.extend(["", "按调用意图推荐（优先尝试）：" + ", ".join(intent)])
     if key:
         close = difflib.get_close_matches(key, names, n=5, cutoff=0.34)
         if not close and key.endswith("s") and len(key) > 1:
@@ -951,32 +994,75 @@ def _strip_internal_tool_result(result: dict) -> dict:
     return {k: v for k, v in result.items() if not str(k).startswith("_")}
 
 
-def _try_execute_tool_agent_main(script_name: str, mod: Any, args: Dict[str, Any]) -> Optional[dict]:
-    """优先直接调用工具的 agent_main；参数无法映射时返回 None 交给 CLI main 回退。"""
+def _execute_tool_agent_main(script_name: str, mod: Any, args: Dict[str, Any]) -> dict:
+    """仅调用模块的 agent_main（不向 main()/CLI _stdout 降级）。"""
     import inspect
 
     fn = getattr(mod, "agent_main", None)
     if not callable(fn):
-        return None
+        return {
+            "ok": False,
+            "data": None,
+            "error": {"type": "ToolError", "message": f"{script_name} 未定义可调用的 agent_main。"},
+        }
+
     try:
         sig = inspect.signature(fn)
-    except (TypeError, ValueError):
-        return None
+    except (TypeError, ValueError) as e:
+        return {
+            "ok": False,
+            "data": None,
+            "error": {"type": "ToolError", "message": f"{script_name} agent_main 签名无效: {e}"},
+        }
 
     params = sig.parameters
+    kw_target_kinds = frozenset(
+        {
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        }
+    )
+    accepted = {n for n, p in params.items() if p.kind in kw_target_kinds}
+    varkw = next((n for n, p in params.items() if p.kind == inspect.Parameter.VAR_KEYWORD), None)
+
+    arg_copy = dict(args)
     kwargs: Dict[str, Any] = {}
-    for k, v in args.items():
+    unknown: list[str] = []
+
+    for k, v in arg_copy.items():
         if v is None:
             continue
         pn = _agent_main_param_name(k)
         if pn == "json_out":
             continue
-        if pn not in params:
-            # 例如 CLI 入口的 --outFile 仅作用于 main()/子进程，不在 agent_main 形参内。
-            return None
-        kwargs[pn] = v
+        if pn.startswith("_"):
+            continue
+        if pn in accepted:
+            kwargs[pn] = v
+            continue
 
-    if "parser_for_help" in params and "parser_for_help" not in kwargs:
+        if varkw is not None:
+            kwargs[pn] = v
+            continue
+
+        unknown.append(f"{str(k)!r}(→{pn})")
+
+    if unknown:
+        allow_list = sorted(x for x in accepted if x != "parser_for_help")
+        return {
+            "ok": False,
+            "data": None,
+            "error": {
+                "type": "BadToolArguments",
+                "message": (
+                    f"{script_name} agent_main 不识别下列参数（请对照 function schema / tools/tool_list_agent.json）："
+                    f"{', '.join(sorted(set(unknown)))}。"
+                    f"允许的形参名：{', '.join(allow_list)}。"
+                ),
+            },
+        }
+
+    if "parser_for_help" in accepted and "parser_for_help" not in kwargs:
         build_parser = getattr(mod, "build_parser", None)
         if callable(build_parser):
             try:
@@ -984,22 +1070,130 @@ def _try_execute_tool_agent_main(script_name: str, mod: Any, args: Dict[str, Any
             except Exception:
                 pass
 
+    allow_list_hint = sorted(x for x in accepted if x != "parser_for_help")
     try:
         result = fn(**kwargs)
-    except TypeError:
-        return None
+    except TypeError as e:
+        return {
+            "ok": False,
+            "data": None,
+            "error": {
+                "type": "TypeError",
+                "message": (
+                    f"{script_name} agent_main 参数不匹配或缺失必填项：{e}；"
+                    f"本轮已解析关键字={sorted(kwargs.keys())}；"
+                    f"形参清单={allow_list_hint}"
+                ),
+            },
+        }
     except Exception as e:
-        return {"ok": False, "data": None, "error": {"type": "ToolError", "message": f"工具 {script_name} agent_main 执行异常: {e}"}}
+        return {
+            "ok": False,
+            "data": None,
+            "error": {"type": "ToolError", "message": f"{script_name} agent_main 执行异常: {e}"},
+        }
 
     if isinstance(result, dict):
         return _strip_internal_tool_result(result)
-    return {"ok": False, "data": None, "error": {"type": "ToolError", "message": f"工具 {script_name} agent_main 返回非 dict"}}
+    return {
+        "ok": False,
+        "data": None,
+        "error": {"type": "ToolError", "message": f"{script_name} agent_main 须返回 dict，实际：{type(result).__name__}"},
+    }
 
 
 _TOOL_HELP_MAX_CHARS = 20000
 
 # 模型偶发把数组/对象序列化成字符串传入；在调用 agent_main 前解析为 Python 类型（agent_main 禁止依赖 JSON 字符串参数）。
 _COERCE_JSON_CONTAINER_KEYS = frozenset({"rules", "items", "confirms", "indices"})
+
+
+def _catalog_public_arg_names(script_name: str) -> set[str]:
+    out: set[str] = {"step_title"}
+    try:
+        cat = load_catalog()
+        for t in cat.get("tools", []):
+            if str(t.get("name", "")).strip() != script_name:
+                continue
+            for a in t.get("args", []) or []:
+                flag = str(a.get("flag", "")).strip()
+                if not flag:
+                    continue
+                out.add(flag[2:] if flag.startswith("--") else flag)
+            break
+    except Exception:
+        pass
+    return out
+
+
+def _validate_public_tool_args(script_name: str, args: Dict[str, Any]) -> Optional[dict]:
+    public = _catalog_public_arg_names(script_name)
+    if not public:
+        return None
+    bad: list[str] = []
+    for k in args.keys():
+        key = str(k).strip()
+        if key.startswith("_"):
+            continue
+        bare = key[2:] if key.startswith("--") else key
+        if bare not in public:
+            bad.append(bare)
+    if not bad:
+        rules = args.get("rules") or args.get("--rules")
+        if script_name == "replace_in_file.py" and isinstance(rules, list):
+            nested_bad: list[str] = []
+            for item in rules:
+                if not isinstance(item, dict):
+                    continue
+                for nk in item.keys():
+                    if str(nk) not in {"oldText", "newText"}:
+                        nested_bad.append(str(nk))
+            if not nested_bad:
+                return None
+            return {
+                "ok": False,
+                "data": None,
+                "error": {
+                    "type": "BadToolArguments",
+                    "message": (
+                        "replace_in_file.py 的 rules 只接受 oldText/newText；"
+                        f"不接受：{', '.join(sorted(set(nested_bad)))}。"
+                    ),
+                },
+            }
+        return None
+    return {
+        "ok": False,
+        "data": None,
+        "error": {
+            "type": "BadToolArguments",
+            "message": (
+                f"{script_name} 不接受未公开参数：{', '.join(sorted(set(bad)))}。"
+                f"请只使用 function schema / tools/tool_list_agent.json 中列出的参数。"
+            ),
+        },
+    }
+
+
+def _normalize_nested_tool_arg_keys(out: Dict[str, Any]) -> None:
+    """规范嵌套对象参数：对外 schema 用 camelCase，agent_main 内部统一 snake_case。"""
+    rules = out.get("rules") or out.get("--rules")
+    if isinstance(rules, list):
+        norm_rules: list[Any] = []
+        for item in rules:
+            if not isinstance(item, dict):
+                norm_rules.append(item)
+                continue
+            norm_rules.append(
+                {
+                    _agent_main_param_name(k): v
+                    for k, v in item.items()
+                }
+            )
+        if "rules" in out:
+            out["rules"] = norm_rules
+        if "--rules" in out:
+            out["--rules"] = norm_rules
 
 
 def _coerce_tool_arguments_for_agent(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1019,6 +1213,7 @@ def _coerce_tool_arguments_for_agent(args: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:
             continue
         out[k] = parsed
+    _normalize_nested_tool_arg_keys(out)
     return out
 
 
@@ -1087,17 +1282,13 @@ def execute_tool_script(script_name: str, args: Dict[str, Any]) -> dict:
             None,
             {"ok": False, "data": None, "error": {"type": "Restricted", "message": "file_search 禁止直接调用，请通过对话界面使用（支持实时进度展示）"}},
         )
-    import importlib
-    import io
-
     with _TOOL_EXEC_LOCK:
         return _execute_tool_script_locked(script_name, args)
 
 
 def _execute_tool_script_locked(script_name: str, args: Dict[str, Any]) -> dict:
-    """execute_tool_script 的加锁实现；保护进程内工具对 sys.argv/stdout 的全局修改。"""
+    """execute_tool_script 的加锁实现；仅调用 agent_main，不劫持 sys.argv/stdout。"""
     import importlib
-    import io
 
     script_path = _resolve_tool_script_path(script_name)
     if script_path is None:
@@ -1115,6 +1306,9 @@ def _execute_tool_script_locked(script_name: str, args: Dict[str, Any]) -> dict:
         )
 
     _ensure_tools_sys_path()
+    public_arg_error = _validate_public_tool_args(script_name, args)
+    if public_arg_error is not None:
+        return attach_tool_help_on_failure(script_name, None, public_arg_error)
     args = normalize_cli_args(args)
     args = _coerce_tool_arguments_for_agent(args)
     mod_name = script_name.replace('.py', '')
@@ -1128,67 +1322,8 @@ def _execute_tool_script_locked(script_name: str, args: Dict[str, Any]) -> dict:
             {"ok": False, "data": None, "error": {"type": "ImportError", "message": f"进程内加载 {script_name} 失败: {e}"}},
         )
 
-    agent_result = _try_execute_tool_agent_main(script_name, mod, args)
-    if agent_result is not None:
-        return attach_tool_help_on_failure(script_name, mod, agent_result)
-
-    # agent_main 不可用或参数属于 CLI 外壳能力时，回退到 main() 模拟 argv。
-    argv = [script_name]
-    for k, v in args.items():
-        if v is None:
-            continue
-        if isinstance(v, bool):
-            if k == "--safeMode" and script_name == "run_command.py":
-                argv.append("--safeMode" if v else "--no-safeMode")
-                continue
-            if v:
-                argv.append(k)
-            continue
-        argv.append(k)
-        if isinstance(v, (dict, list)):
-            v = json.dumps(v, ensure_ascii=False)
-        argv.append(str(v))
-    if "--jsonOut" not in args:
-        argv.append("--jsonOut")
-
-    old_argv = sys.argv
-    old_stdout = sys.stdout
-    captured = io.StringIO()
-    try:
-        sys.argv = argv
-        sys.stdout = captured
-        mod.main()
-    except SystemExit:
-        pass  # argparse 正常退出
-    except Exception as e:
-        sys.stdout = old_stdout
-        sys.argv = old_argv
-        return attach_tool_help_on_failure(
-            script_name,
-            mod,
-            {"ok": False, "data": None, "error": {"type": "ToolError", "message": f"工具 {script_name} 执行异常: {e}"}},
-        )
-    finally:
-        sys.stdout = old_stdout
-        sys.argv = old_argv
-
-    output = captured.getvalue().strip()
-    if output:
-        lines = output.splitlines()
-        try:
-            parsed = json.loads(lines[-1])
-            return attach_tool_help_on_failure(script_name, mod, parsed)
-        except json.JSONDecodeError:
-            return attach_tool_help_on_failure(
-                script_name,
-                mod,
-                {"ok": False, "data": None, "error": {"type": "JSONParseError", "message": f"工具 {script_name} 输出解析失败: {lines[-1][:300]}"}},
-            )
-    return attach_tool_help_on_failure(
-        script_name,
-        mod,
-        {"ok": False, "data": None, "error": {"type": "EmptyOutput", "message": f"工具 {script_name} 无有效输出"}},
-    )
+    agent_result = _execute_tool_agent_main(script_name, mod, args)
+    return attach_tool_help_on_failure(script_name, mod, agent_result)
 
 
 def preview_payload(d: dict, limit: int = 50000) -> str:
@@ -1262,8 +1397,8 @@ def preview_tool_result(script_name: str, result: dict, text_limit: int = 12000)
                     "%s [%s,%s) %s:%d:%d %s"
                     % (
                         fp.split("/")[-1] if "/" in fp else fp.split("\\")[-1] if "\\" in fp else fp,
-                        item.get("region_start", ""),
-                        item.get("region_end", ""),
+                        item.get("regionStart", ""),
+                        item.get("regionEnd", ""),
                         fp.split("/")[-1] if "/" in fp else fp.split("\\")[-1] if "\\" in fp else fp,
                         ln,
                         col,
@@ -1310,7 +1445,7 @@ def _chat_diff_markdown_for_tool(script_name: str, result: dict, exec_args: Dict
     if "text_diff" in sn:
         dm = data.get("diffMarkdown")
         return dm if isinstance(dm, str) and dm.strip() else None
-    if "replace_in_file" in sn:
+    if "replace_in_file" in sn or "write_file" in sn or "apply_patch" in sn:
         dt = data.get("diffText")
         if isinstance(dt, str) and dt.strip():
             return "```diff\n" + dt + "\n```" if not dt.strip().startswith("```") else dt
@@ -1410,7 +1545,7 @@ def _build_direct_preview_message(script_name: str, result: dict, user_text: str
     if not isinstance(data, dict):
         return None
     sn = (script_name or "").lower()
-    if "replace_in_file" in sn and isinstance(data.get("diffText"), str):
+    if ("replace_in_file" in sn or "write_file" in sn or "apply_patch" in sn) and isinstance(data.get("diffText"), str):
         return data["diffText"]
     return None
 

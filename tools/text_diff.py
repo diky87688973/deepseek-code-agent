@@ -32,14 +32,14 @@ def _side_from_file_or_text(
     text_arg: str | None,
     *,
     encoding: str,
-    allow_outside_workspace: bool,
+    restrict_to_workspace: bool,
 ) -> str:
     has_file = file_arg is not None and str(file_arg).strip() != ""
     has_text = text_arg is not None
     if int(has_file) + int(has_text) != 1:
         raise ValueError("每一侧必须且只能提供一个：文件路径或文本")
     if has_file:
-        fp = ac.resolve_path(str(file_arg).strip(), allow_outside_workspace=allow_outside_workspace)
+        fp = ac.resolve_path(str(file_arg).strip(), allow_outside_workspace=not restrict_to_workspace)
         if not fp.is_file():
             raise FileNotFoundError(f"不是文件或不存在: {fp}")
         return read_text_auto(fp, encoding)
@@ -64,7 +64,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--rightText", help="右侧文本")
     p.add_argument("--encoding", default="utf-8", help="读文件编码，默认 utf-8；可 auto")
     p.add_argument("--context", type=int, default=3, help="unified diff 上下文行数 n")
-    p.add_argument("--allowOutsideWorkspace", action="store_true", help="允许左侧/右侧文件越出工作区")
+    p.add_argument(
+        "--restrictToWorkspace",
+        action="store_true",
+        help="左右侧文件路径均限定在 WORKSPACE_DIR 内（默认不限制）。",
+    )
     p.add_argument("--jsonOut", action="store_true", help="JSON 输出")
     return p
 
@@ -77,7 +81,7 @@ def agent_main(
     right_text: str | None = None,
     encoding: str = "utf-8",
     context: int = 3,
-    allow_outside_workspace: bool = False,
+    restrict_to_workspace: bool = False,
     run_type: str = "",
 ) -> dict:
     """返回 data：summary、diff（行列表）、diffMarkdown。"""
@@ -87,10 +91,10 @@ def agent_main(
             raise ValueError("context 必须 >= 0")
 
         left = _side_from_file_or_text(
-            left_file, left_text, encoding=encoding, allow_outside_workspace=allow_outside_workspace
+            left_file, left_text, encoding=encoding, restrict_to_workspace=restrict_to_workspace
         )
         right = _side_from_file_or_text(
-            right_file, right_text, encoding=encoding, allow_outside_workspace=allow_outside_workspace
+            right_file, right_text, encoding=encoding, restrict_to_workspace=restrict_to_workspace
         )
 
         left_lines = left.splitlines()
@@ -143,7 +147,7 @@ def main() -> None:
         right_text=str(rt) if rt is not None else None,
         encoding=str(getattr(args, "encoding", "utf-8")),
         context=int(getattr(args, "context", 3)),
-        allow_outside_workspace=bool(getattr(args, "allowOutsideWorkspace", False)),
+        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
     )
     if res["ok"]:
         data = res["data"]

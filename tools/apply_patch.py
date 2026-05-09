@@ -15,7 +15,7 @@ def agent_main(
     patch_text: str | None = None,
     patch_file: str | None = None,
     dry_run: bool = True,
-    allow_outside_workspace: bool = False,
+    restrict_to_workspace: bool = False,
     run_type: str = "",
 ) -> dict:
     try:
@@ -27,7 +27,7 @@ def agent_main(
         if (patch_text is None) == (patch_file is None):
             raise ValueError("patch_text 与 patch_file 必须且只能提供一个")
 
-        r = ac.resolve_path(path, allow_outside_workspace=allow_outside_workspace)
+        r = ac.resolve_path(path, allow_outside_workspace=not restrict_to_workspace)
         if not r.is_dir():
             raise ValueError(f"path 必须是目录: {r}")
 
@@ -40,16 +40,25 @@ def agent_main(
                 raise ValueError("当前版本不支持 rename，请保持 ---/+++ 路径一致")
             rel = Path(fp["new_path"])
             abs_path = (r / rel).resolve()
-            if not str(abs_path).startswith(str(r)):
+            try:
+                abs_path.relative_to(r)
+            except ValueError:
                 raise ValueError(f"越界路径: {abs_path}")
             if not abs_path.is_file():
                 raise FileNotFoundError(f"仅支持更新已存在文件: {abs_path}")
             new_content = pe.apply_file_patch(abs_path, fp["hunks"])
             if not dry_run:
-                abs_path.write_text(new_content, encoding="utf-8")
+                ac.write_unicode_file(abs_path, new_content, encoding="utf-8")
             changed.append(str(abs_path))
 
-        return ac.ok({"path": str(r), "dryRun": dry_run, "changedFiles": changed})
+        return ac.ok(
+            {
+                "path": str(r),
+                "dryRun": dry_run,
+                "changedFiles": changed,
+                "diffText": raw[:16000] + ("…" if len(raw) > 16000 else ""),
+            }
+        )
     except Exception as e:
         return ac.err(e)
 
@@ -64,7 +73,11 @@ def main() -> None:
     p.add_argument("--patchFile", default=None)
     p.add_argument("--dryRun", action="store_true", default=True)
     p.add_argument("--commit", action="store_false", dest="dryRun")
-    p.add_argument("--allowOutsideWorkspace", action="store_true")
+    p.add_argument(
+        "--restrictToWorkspace",
+        action="store_true",
+        help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
+    )
     p.add_argument("--runType", default="")
     p.add_argument("--jsonOut", action="store_true")
     args = p.parse_args()
@@ -73,7 +86,7 @@ def main() -> None:
         patch_text=args.patchText,
         patch_file=args.patchFile,
         dry_run=args.dryRun,
-        allow_outside_workspace=args.allowOutsideWorkspace,
+        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
         run_type=str(args.runType or ""),
     )
     print(json.dumps(r, ensure_ascii=False))

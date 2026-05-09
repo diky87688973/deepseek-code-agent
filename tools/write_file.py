@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import difflib
+
 import agent_common as ac
 
 
@@ -13,7 +15,7 @@ def agent_main(
     encoding: str = "utf-8",
     dry_run: bool = True,
     create_only: bool = False,
-    allow_outside_workspace: bool = False,
+    restrict_to_workspace: bool = False,
     run_type: str = "",
 ) -> dict:
     """dry_run=True 时只返回元信息不落盘。run_type=plan 时禁止实际写盘。"""
@@ -23,24 +25,36 @@ def agent_main(
         if want_write and rt == "plan":
             return {"ok": False, "data": None, "error": {"type": "ModeConflict", "message": "当前为 Plan 模式，不允许写文件"}}
 
-        fp = ac.resolve_path(path, allow_outside_workspace=allow_outside_workspace)
+        fp = ac.resolve_path(path, allow_outside_workspace=not restrict_to_workspace)
         existed = fp.is_file()
         if create_only and existed:
             raise FileExistsError(f"create_only：文件已存在 {fp}")
 
-        parents_ok = str(fp.parent)
+        original = ac.read_file_text(fp, encoding) if existed else ""
+        diff_lines = list(
+            difflib.unified_diff(
+                original.splitlines(),
+                content.splitlines(),
+                fromfile=str(fp) if existed else "/dev/null",
+                tofile=str(fp),
+                lineterm="",
+                n=3,
+            )
+        )
+        diff_text = "\n".join(diff_lines) if diff_lines else ""
         preview = {
             "path": str(fp),
             "encoding": encoding,
             "byteLengthApprox": len(content.encode(encoding, errors="replace")),
             "existedBefore": existed,
             "dryRun": dry_run,
+            "changed": content != original,
+            "diffText": diff_text[:16000] + ("…" if len(diff_text) > 16000 else ""),
         }
         if dry_run:
             return ac.ok({**preview, "written": False})
 
-        fp.parent.mkdir(parents=True, exist_ok=True)
-        fp.write_text(content, encoding=encoding, newline="\n")
+        ac.write_unicode_file(fp, content, encoding=encoding)
         return ac.ok({**preview, "written": True})
     except Exception as e:
         return ac.err(e)
@@ -58,7 +72,11 @@ def main() -> None:
     p.add_argument("--dryRun", action="store_true", default=True)
     p.add_argument("--commit", action="store_false", dest="dryRun", help="真正写盘（关闭 dryRun）")
     p.add_argument("--createOnly", action="store_true")
-    p.add_argument("--allowOutsideWorkspace", action="store_true")
+    p.add_argument(
+        "--restrictToWorkspace",
+        action="store_true",
+        help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
+    )
     p.add_argument("--runType", default="")
     p.add_argument("--jsonOut", action="store_true")
     args = p.parse_args()
@@ -68,7 +86,7 @@ def main() -> None:
         encoding=args.encoding,
         dry_run=args.dryRun,
         create_only=args.createOnly,
-        allow_outside_workspace=args.allowOutsideWorkspace,
+        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
         run_type=str(args.runType or ""),
     )
     print(json.dumps(r, ensure_ascii=False))

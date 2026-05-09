@@ -159,10 +159,10 @@ def agent_main(
     lang: str = "chi_sim+eng",
     region: str | None = None,
     engine: str = "auto",
-    allow_outside_workspace: bool = False,
+    restrict_to_workspace: bool = False,
 ) -> dict:
     try:
-        src = ac.resolve_path(source, allow_outside_workspace=allow_outside_workspace)
+        src = ac.resolve_path(source, allow_outside_workspace=not restrict_to_workspace)
         if not src.is_file():
             return ac.err(FileNotFoundError(f"图片不存在: {src}"))
 
@@ -226,7 +226,11 @@ def main() -> None:
     p.add_argument("--lang", default="chi_sim+eng")
     p.add_argument("--region", default=None)
     p.add_argument("--engine", default="auto")
-    p.add_argument("--allowOutsideWorkspace", action="store_true")
+    p.add_argument(
+        "--restrictToWorkspace",
+        action="store_true",
+        help="将 source 限定在 WORKSPACE_DIR 内（默认不限制）。",
+    )
     p.add_argument("--jsonOut", action="store_true")
     args = p.parse_args()
     r = agent_main(
@@ -234,7 +238,7 @@ def main() -> None:
         lang=args.lang,
         region=args.region,
         engine=args.engine,
-        allow_outside_workspace=bool(args.allowOutsideWorkspace),
+        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
     )
     if args.jsonOut:
         print(json.dumps(r, ensure_ascii=False))

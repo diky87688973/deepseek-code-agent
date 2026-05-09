@@ -2,7 +2,7 @@
 """读取文件内容（整文件 / 行闭区间 / 行列矩形 / 字符半开区间）。
 
 - **agent_main**：仅接受 Python 原生类型（str、int、bool、None 等），禁止将数组/对象以 JSON 字符串传入。
-- **main()**：CLI 防腐层，解析 argv 后调用 agent_main；`build_parser()` 供宿主在失败时捕获等效 `--help` 文本。
+- **main()**：仅供人工调试，解析 argv 后调用 agent_main；`build_parser()` 供宿主在失败时捕获等效 `--help` 文本。
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ def agent_main(
     char_start: int | None = None,
     char_end: int | None = None,
     max_chars: int = 500_000,
-    allow_outside_workspace: bool = False,
+    restrict_to_workspace: bool = False,
     run_type: str = "",
 ) -> dict:
     """
@@ -39,7 +39,7 @@ def agent_main(
     """
     _ = run_type
     try:
-        fp = ac.resolve_path(path, allow_outside_workspace=allow_outside_workspace)
+        fp = ac.resolve_path(path, allow_outside_workspace=not restrict_to_workspace)
         if not fp.is_file():
             raise FileNotFoundError(f"不是已存在文件: {fp}")
 
@@ -135,7 +135,7 @@ def agent_main(
 def build_parser() -> argparse.ArgumentParser:
     import argparse
 
-    p = argparse.ArgumentParser(description="read_file：CLI 防腐层 → agent_main（仅 Python 类型）")
+    p = argparse.ArgumentParser(description="read_file：人工调试入口 → agent_main（仅 Python 类型）")
     p.add_argument("--path", required=True)
     p.add_argument("--encoding", default="utf-8")
     p.add_argument("--lineStart", type=int, default=None)
@@ -145,7 +145,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--charStart", type=int, default=None)
     p.add_argument("--charEnd", type=int, default=None)
     p.add_argument("--maxChars", type=int, default=500_000)
-    p.add_argument("--allowOutsideWorkspace", action="store_true")
+    p.add_argument(
+        "--restrictToWorkspace",
+        action="store_true",
+        help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
+    )
     p.add_argument("--runType", default="", help="占位，与清单一致；只读工具不拦截")
     p.add_argument("--jsonOut", action="store_true")
     return p
@@ -166,7 +170,7 @@ def main() -> None:
         char_start=args.charStart,
         char_end=args.charEnd,
         max_chars=args.maxChars,
-        allow_outside_workspace=bool(args.allowOutsideWorkspace),
+        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
         run_type=str(args.runType or ""),
     )
     if args.jsonOut:

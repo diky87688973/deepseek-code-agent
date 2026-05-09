@@ -23,7 +23,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--code", required=True, help="Python 源码字符串")
     p.add_argument("--cwd", help="执行前切换工作目录")
     p.add_argument("--timeoutSec", type=int, default=300, help="保留参数；进程内 exec 无法在时限点可靠中断")
-    p.add_argument("--allowOutsideWorkspace", action="store_true", help="允许 cwd 越出工作区")
+    p.add_argument(
+        "--restrictToWorkspace",
+        action="store_true",
+        help="cwd 限定在 WORKSPACE_DIR 内（默认不限制）。",
+    )
     p.add_argument("--jsonOut", action="store_true", help="向 stdout 输出 JSON 信封")
     p.add_argument("--outFile", help="同时将 JSON 结果写入该文件")
     p.add_argument("--runType", choices=["auto", "plan", "execute"], default="", help="plan 时拒绝执行")
@@ -61,7 +65,7 @@ def agent_main(
     code: str,
     cwd: str | None = None,
     timeout_sec: int = 300,
-    allow_outside_workspace: bool = False,
+    restrict_to_workspace: bool = False,
     run_type: str = "",
     parser_for_help: argparse.ArgumentParser | None = None,
 ) -> dict:
@@ -88,7 +92,7 @@ def agent_main(
 
         try:
             if cwd:
-                cp = ac.resolve_path(cwd, allow_outside_workspace=allow_outside_workspace)
+                cp = ac.resolve_path(cwd, allow_outside_workspace=not restrict_to_workspace)
                 if not cp.is_dir():
                     raise ValueError(f"cwd 不是目录: {cp}")
                 prev_cwd = os.getcwd()
@@ -151,7 +155,7 @@ def main() -> None:
         code=args.code,
         cwd=str(args.cwd) if args.cwd else None,
         timeout_sec=int(args.timeoutSec),
-        allow_outside_workspace=bool(args.allowOutsideWorkspace),
+        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
         run_type=str(getattr(args, "runType", "") or "").strip().lower(),
         parser_for_help=parser,
     )

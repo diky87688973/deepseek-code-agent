@@ -27,10 +27,10 @@ def workspace_root() -> Path:
 def resolve_path(
     raw: str | Path,
     *,
-    allow_outside_workspace: bool,
+    allow_outside_workspace: bool = True,
     workspace: Path | None = None,
 ) -> Path:
-    """将用户传入路径解析为绝对路径，并在 allow_outside_workspace=False 时限制在工作区内。"""
+    """将用户传入路径解析为绝对路径；allow_outside_workspace=False 时将路径限定在 WORKSPACE_DIR 内。"""
 
     p = Path(str(raw)).expanduser()
     if not p.is_absolute():
@@ -45,6 +45,13 @@ def resolve_path(
         except ValueError:
             raise PermissionError(f"路径越出工作区限制: {p}（工作区根: {root}）") from None
     return p
+
+
+def write_unicode_file(path: Path, content: str, *, encoding: str = "utf-8") -> None:
+    """落盘文本，换行统一为 \\n。避免 pathlib.Path.write_text(..., newline=) 在 Python 3.10 以下不可用。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding=encoding, newline="\n") as f:
+        f.write(content)
 
 
 def read_file_text(path: Path, encoding: str) -> str:

@@ -58,17 +58,17 @@ def _resolve_src_dest(
     dest: str | None,
     *,
     security_root: str | None,
-    allow_outside_workspace: bool,
+    restrict_to_workspace: bool,
 ) -> tuple[Path | None, Path, Path | None]:
-    src = ac.resolve_path(source, allow_outside_workspace=allow_outside_workspace)
+    src = ac.resolve_path(source, allow_outside_workspace=not restrict_to_workspace)
     dest_p: Path | None = None
     if dest is not None and str(dest).strip() != "":
         raw = Path(str(dest).strip())
         if raw.is_absolute():
-            dest_p = ac.resolve_path(str(raw), allow_outside_workspace=allow_outside_workspace)
+            dest_p = ac.resolve_path(str(raw), allow_outside_workspace=not restrict_to_workspace)
         else:
             combined = (src.parent / raw).resolve()
-            if not allow_outside_workspace:
+            if restrict_to_workspace:
                 root = ac.workspace_root()
                 try:
                     combined.relative_to(root)
@@ -204,7 +204,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--recursive", action="store_true", help="delete 目录时必须指定")
     p.add_argument("--dryRun", action="store_true", default=True, help="仅描述；关闭用 --commit")
     p.add_argument("--commit", action="store_false", dest="dryRun", help="真实执行")
-    p.add_argument("--allowOutsideWorkspace", action="store_true")
+    p.add_argument(
+        "--restrictToWorkspace",
+        action="store_true",
+        help="路径解析限定在 WORKSPACE_DIR 内（默认不限制）。",
+    )
     p.add_argument("--runType", choices=["auto", "plan", "execute"], default="", help="Plan 时拒绝写操作")
     p.add_argument("--jsonOut", action="store_true")
     return p
@@ -218,7 +222,7 @@ def agent_main(
     security_root: str | None = None,
     recursive: bool = False,
     dry_run: bool = True,
-    allow_outside_workspace: bool = False,
+    restrict_to_workspace: bool = False,
     run_type: str = "",
 ) -> dict:
     """扁平参数。delete 默认移入回收站（环境变量 AGENT_RECYCLE_ROOT）；在回收站内的 delete 为 purge。"""
@@ -238,7 +242,7 @@ def agent_main(
             source,
             dest,
             security_root=security_root,
-            allow_outside_workspace=allow_outside_workspace,
+        restrict_to_workspace=restrict_to_workspace,
         )
 
         if act == "delete":
@@ -272,7 +276,7 @@ def main() -> None:
         security_root=getattr(args, "securityRoot", None),
         recursive=bool(args.recursive),
         dry_run=bool(args.dryRun),
-        allow_outside_workspace=bool(args.allowOutsideWorkspace),
+        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
         run_type=str(args.runType or ""),
     )
     print(json.dumps(r, ensure_ascii=False))

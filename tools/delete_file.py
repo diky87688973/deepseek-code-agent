@@ -48,7 +48,7 @@ def agent_main(
     *,
     path: str,
     dry_run: bool = True,
-    allow_outside_workspace: bool = False,
+    restrict_to_workspace: bool = False,
     run_type: str = "",
 ) -> dict:
     try:
@@ -64,7 +64,7 @@ def agent_main(
         if _trash_root is None:
             return ac.err(RuntimeError("delete_file: 未配置回收目录（宿主应调用 configure_trash_root）"))
 
-        fp = ac.resolve_path(path, allow_outside_workspace=allow_outside_workspace)
+        fp = ac.resolve_path(path, allow_outside_workspace=not restrict_to_workspace)
         if not fp.is_file():
             return ac.err(FileNotFoundError(f"不是已存在文件: {fp}"))
 
@@ -91,14 +91,18 @@ def main() -> None:
     p.add_argument("--path", required=True)
     p.add_argument("--dryRun", action="store_true", default=True)
     p.add_argument("--commit", action="store_false", dest="dryRun", help="真正移到回收目录（关闭 dryRun）")
-    p.add_argument("--allowOutsideWorkspace", action="store_true")
+    p.add_argument(
+        "--restrictToWorkspace",
+        action="store_true",
+        help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
+    )
     p.add_argument("--runType", default="")
     p.add_argument("--jsonOut", action="store_true")
     args = p.parse_args()
     r = agent_main(
         path=args.path,
         dry_run=bool(args.dryRun),
-        allow_outside_workspace=bool(args.allowOutsideWorkspace),
+        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
         run_type=str(args.runType or ""),
     )
     if args.jsonOut:

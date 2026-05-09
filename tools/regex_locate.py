@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""在单文件或目录下用正则检索，每条命中返回 region_start/region_end（与 replace_in_file 一致）及行列。"""
+"""在单文件或目录下用正则检索，每条命中返回 regionStart/regionEnd（与 replace_in_file 一致）及行列。"""
 
 from __future__ import annotations
 
@@ -20,13 +20,13 @@ def agent_main(
     glob_pattern: str = "",
     encoding: str = "utf-8",
     limit: int = 200,
-    allow_outside_workspace: bool = False,
+    restrict_to_workspace: bool = False,
     run_type: str = "",
     _progress_dict: dict | None = None,
 ) -> dict:
     """
     对目标文件或目录下各文件全文做 regex.finditer，每条命中返回：
-    - region_start / region_end：0-based 半开，可直接传入 replace_in_file；
+    - regionStart / regionEnd：0-based 半开，可直接传入 replace_in_file；
     - line / column：起点 1-based；
     - end_line / end_column：终点开区间（与 replace 行列模式一致）；
     - match：匹配的子串。
@@ -36,7 +36,7 @@ def agent_main(
         if limit <= 0:
             raise ValueError("limit 必须 > 0")
 
-        root = ac.resolve_path(path, allow_outside_workspace=allow_outside_workspace)
+        root = ac.resolve_path(path, allow_outside_workspace=not restrict_to_workspace)
         if not root.exists():
             raise FileNotFoundError(f"路径不存在: {root}")
 
@@ -85,8 +85,8 @@ def agent_main(
                 items.append(
                     {
                         "file": str(fp),
-                        "region_start": s,
-                        "region_end": e,
+                        "regionStart": s,
+                        "regionEnd": e,
                         "line": sl,
                         "column": sc,
                         "end_line": el,
@@ -100,7 +100,7 @@ def agent_main(
                 "count": len(items),
                 "items": items,
                 "truncated": len(items) >= limit,
-                "hint": "单文件改写给 replace_in_file 时复制对应条目的 region_start、region_end；与 find_in_file 语义一致。",
+                "hint": "单文件改写给 replace_in_file 时复制对应条目的 regionStart、regionEnd；与 find_in_file 语义一致。",
             }
         )
     except Exception as e:
@@ -121,7 +121,11 @@ def main() -> None:
     p.add_argument("--glob_pattern", default="", help="省略=仅常见文本/源码后缀；* 表示全部文件（含各类非文本/二进制）")
     p.add_argument("--encoding", default="utf-8")
     p.add_argument("--limit", type=int, default=200)
-    p.add_argument("--allowOutsideWorkspace", action="store_true")
+    p.add_argument(
+        "--restrictToWorkspace",
+        action="store_true",
+        help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
+    )
     p.add_argument("--jsonOut", action="store_true")
     args = p.parse_args()
     r = agent_main(
@@ -133,7 +137,7 @@ def main() -> None:
         glob_pattern=str(args.glob_pattern if args.glob_pattern is not None else ""),
         encoding=args.encoding,
         limit=args.limit,
-        allow_outside_workspace=bool(args.allowOutsideWorkspace),
+        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
     )
     if args.jsonOut:
         print(json.dumps(r, ensure_ascii=False))
@@ -142,7 +146,7 @@ def main() -> None:
             for it in r["data"].get("items") or []:
                 print(
                     f"{it['file']}:{it['line']}:{it['column']} "
-                    f"[{it['region_start']},{it['region_end']}) {it['match']}"
+                    f"[{it['regionStart']},{it['regionEnd']}) {it['match']}"
                 )
         else:
             print((r.get("error") or {}).get("message", ""), file=sys.stderr)

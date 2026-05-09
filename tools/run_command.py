@@ -23,7 +23,7 @@ def agent_main(
     timeout_sec: int = 300,
     shell: str = "auto",
     safe_mode: bool = True,
-    allow_outside_workspace: bool = False,
+    restrict_to_workspace: bool = False,
     run_type: str = "",
 ) -> dict:
     try:
@@ -40,7 +40,7 @@ def agent_main(
 
         cwd_resolved: str | None = None
         if cwd:
-            cp = ac.resolve_path(cwd, allow_outside_workspace=allow_outside_workspace)
+            cp = ac.resolve_path(cwd, allow_outside_workspace=not restrict_to_workspace)
             if not cp.is_dir():
                 raise ValueError(f"cwd 不是目录: {cp}")
             cwd_resolved = str(cp)
@@ -90,7 +90,11 @@ def main() -> None:
     p.add_argument("--shell", choices=["auto", "cmd", "powershell"], default="auto")
     p.add_argument("--safeMode", action="store_true", default=True)
     p.add_argument("--no-safeMode", dest="safeMode", action="store_false")
-    p.add_argument("--allowOutsideWorkspace", action="store_true")
+    p.add_argument(
+        "--restrictToWorkspace",
+        action="store_true",
+        help="cwd 限定在 WORKSPACE_DIR 内（默认不限制）。",
+    )
     p.add_argument("--runType", default="")
     p.add_argument("--jsonOut", action="store_true")
     args = p.parse_args()
@@ -100,7 +104,7 @@ def main() -> None:
         timeout_sec=args.timeoutSec,
         shell=args.shell,
         safe_mode=args.safeMode,
-        allow_outside_workspace=args.allowOutsideWorkspace,
+        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
         run_type=str(args.runType or ""),
     )
     print(json.dumps(r, ensure_ascii=False))

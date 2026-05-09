@@ -16,12 +16,14 @@ def agent_main(
     encoding_write: str | None = None,
     line_start: int | None = None,
     line_end: int | None = None,
+    start_column: int | None = None,
+    end_column: int | None = None,
     char_start: int | None = None,
     char_end: int | None = None,
     max_chars: int = 0,
     dry_run: bool = True,
     create_only: bool = False,
-    allow_outside_workspace: bool = False,
+    restrict_to_workspace: bool = False,
     run_type: str = "",
 ) -> dict:
     """
@@ -35,10 +37,12 @@ def agent_main(
         encoding=encoding,
         line_start=line_start,
         line_end=line_end,
+        start_column=start_column,
+        end_column=end_column,
         char_start=char_start,
         char_end=char_end,
         max_chars=max_chars,
-        allow_outside_workspace=allow_outside_workspace,
+        restrict_to_workspace=restrict_to_workspace,
         run_type="",
     )
     if not r.get("ok"):
@@ -56,7 +60,7 @@ def agent_main(
         encoding=enc_w,
         dry_run=dry_run,
         create_only=create_only,
-        allow_outside_workspace=allow_outside_workspace,
+        restrict_to_workspace=restrict_to_workspace,
         run_type=run_type,
     )
     if not w.get("ok"):
@@ -93,13 +97,19 @@ def main() -> None:
     p.add_argument("--encodingWrite", default=None)
     p.add_argument("--lineStart", type=int, default=None)
     p.add_argument("--lineEnd", type=int, default=None)
+    p.add_argument("--startColumn", type=int, default=None)
+    p.add_argument("--endColumn", type=int, default=None)
     p.add_argument("--charStart", type=int, default=None)
     p.add_argument("--charEnd", type=int, default=None)
     p.add_argument("--maxChars", type=int, default=0)
     p.add_argument("--dryRun", action="store_true", default=True)
     p.add_argument("--commit", action="store_false", dest="dryRun")
     p.add_argument("--createOnly", action="store_true")
-    p.add_argument("--allowOutsideWorkspace", action="store_true")
+    p.add_argument(
+        "--restrictToWorkspace",
+        action="store_true",
+        help="读写两侧路径均限定在 WORKSPACE_DIR 内（默认不限制）。",
+    )
     p.add_argument("--runType", default="")
     p.add_argument("--jsonOut", action="store_true")
     args = p.parse_args()
@@ -110,12 +120,14 @@ def main() -> None:
         encoding_write=args.encodingWrite,
         line_start=args.lineStart,
         line_end=args.lineEnd,
+        start_column=args.startColumn,
+        end_column=args.endColumn,
         char_start=args.charStart,
         char_end=args.charEnd,
         max_chars=int(args.maxChars),
         dry_run=args.dryRun,
         create_only=args.createOnly,
-        allow_outside_workspace=bool(args.allowOutsideWorkspace),
+        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
         run_type=str(args.runType or ""),
     )
     print(json.dumps(r, ensure_ascii=False))

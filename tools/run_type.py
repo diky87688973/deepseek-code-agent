@@ -27,7 +27,7 @@ def agent_main(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="run_type：CLI 防腐层；宿主内联执行时走 _execute_run_type")
+    p = argparse.ArgumentParser(description="run_type：人工调试入口；宿主内联执行时走 _execute_run_type")
     p.add_argument("--runType", default=None)
     p.add_argument("--jsonOut", action="store_true")
     return p

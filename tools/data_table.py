@@ -146,11 +146,11 @@ def agent_main(
     sort_col: str | None = None,
     sort_desc: bool = False,
     col: str | None = None,
-    allow_outside_workspace: bool = False,
+    restrict_to_workspace: bool = False,
 ) -> dict:
     act = str(action or "").strip().lower().replace("-", "_")
     try:
-        src = ac.resolve_path(source, allow_outside_workspace=allow_outside_workspace)
+        src = ac.resolve_path(source, allow_outside_workspace=not restrict_to_workspace)
         if not src.is_file():
             return ac.err(FileNotFoundError(f"文件不存在: {src}"))
 
@@ -209,7 +209,11 @@ def main() -> None:
     p.add_argument("--sort_col", default=None)
     p.add_argument("--sort_desc", action="store_true")
     p.add_argument("--col", default=None)
-    p.add_argument("--allowOutsideWorkspace", action="store_true")
+    p.add_argument(
+        "--restrictToWorkspace",
+        action="store_true",
+        help="将 source 限定在 WORKSPACE_DIR 内（默认不限制）。",
+    )
     p.add_argument("--jsonOut", action="store_true")
     args = p.parse_args()
     r = agent_main(
@@ -223,7 +227,7 @@ def main() -> None:
         sort_col=args.sort_col,
         sort_desc=bool(args.sort_desc),
         col=args.col,
-        allow_outside_workspace=bool(args.allowOutsideWorkspace),
+        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
     )
     if args.jsonOut:
         print(json.dumps(r, ensure_ascii=False))

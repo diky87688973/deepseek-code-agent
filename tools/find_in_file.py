@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""在单个文件内定位字面或正则，返回与 read_file/replace_in_file 一致的字符半开区间 [region_start, region_end)。"""
+"""在单个文件内定位字面或正则，返回与 read_file/replace_in_file 一致的字符半开区间 [regionStart, regionEnd)。"""
 
 from __future__ import annotations
 
@@ -47,18 +47,18 @@ def agent_main(
     ignore_case: bool = False,
     occurrence: int = 0,
     encoding: str = "utf-8",
-    allow_outside_workspace: bool = False,
+    restrict_to_workspace: bool = False,
     run_type: str = "",
 ) -> dict:
     """
     在**单文件**全文（与 read_file 同一字节序列）上查找 pattern 的每次命中，
-    返回第 occurrence 次命中的 region_start / region_end（0-based 半开），可直接用于 replace_in_file。
+    返回第 occurrence 次命中的 regionStart / regionEnd（0-based 半开），可直接用于 replace_in_file。
 
     典型流程：find_in_file →（可选 read_file 核对）→ replace_in_file(region_*)。
     """
     _ = run_type
     try:
-        fp = ac.resolve_path(path, allow_outside_workspace=allow_outside_workspace)
+        fp = ac.resolve_path(path, allow_outside_workspace=not restrict_to_workspace)
         if not fp.is_file():
             raise FileNotFoundError(f"不是已存在文件: {fp}")
 
@@ -74,8 +74,8 @@ def agent_main(
                     "regex": regex,
                     "totalMatches": 0,
                     "occurrence": int(occurrence),
-                    "region_start": None,
-                    "region_end": None,
+                    "regionStart": None,
+                    "regionEnd": None,
                     "matched_text": None,
                     "hint": "未命中：缩小/调整 pattern，或先 grep 再改 occurrence；目录搜索请用 grep_files。",
                 }
@@ -96,15 +96,15 @@ def agent_main(
                 "regex": regex,
                 "totalMatches": total,
                 "occurrence": occ,
-                "region_start": rs,
-                "region_end": re_,
+                "regionStart": rs,
+                "regionEnd": re_,
                 "matched_text": matched,
                 "matched_length": re_ - rs,
                 "start_line": sl,
                 "start_column": sc,
                 "end_line": el,
                 "end_column": ec,
-                "hint": "将 region_start、region_end 原样传入 replace_in_file；end_line/end_column 与行列矩形替换一致（end_column 为开区间）。",
+                "hint": "将 regionStart、regionEnd 原样传入 replace_in_file；end_line/end_column 与行列矩形替换一致（end_column 为开区间）。",
             }
         )
     except Exception as e:
@@ -114,14 +114,18 @@ def agent_main(
 def build_parser() -> argparse.ArgumentParser:
     import argparse
 
-    p = argparse.ArgumentParser(description="find_in_file：CLI 防腐层 → agent_main")
+    p = argparse.ArgumentParser(description="find_in_file：人工调试入口 → agent_main")
     p.add_argument("--path", required=True)
     p.add_argument("--pattern", required=True)
     p.add_argument("--regex", action="store_true")
     p.add_argument("--ignoreCase", action="store_true")
     p.add_argument("--occurrence", type=int, default=0)
     p.add_argument("--encoding", default="utf-8")
-    p.add_argument("--allowOutsideWorkspace", action="store_true")
+    p.add_argument(
+        "--restrictToWorkspace",
+        action="store_true",
+        help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
+    )
     p.add_argument("--runType", default="", help="占位，只读不拦截")
     p.add_argument("--jsonOut", action="store_true")
     return p
@@ -139,7 +143,7 @@ def main() -> None:
         ignore_case=bool(args.ignoreCase),
         occurrence=args.occurrence,
         encoding=args.encoding,
-        allow_outside_workspace=bool(args.allowOutsideWorkspace),
+        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
         run_type=str(args.runType or ""),
     )
     if args.jsonOut:
