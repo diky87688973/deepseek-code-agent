@@ -22,15 +22,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = HelpfulParser(description="执行内联 Python 源码（进程内 exec，不经 shell）")
     p.add_argument("--code", required=True, help="Python 源码字符串")
     p.add_argument("--cwd", help="执行前切换工作目录")
-    p.add_argument("--timeoutSec", type=int, default=300, help="保留参数；进程内 exec 无法在时限点可靠中断")
+    p.add_argument("--timeout_sec", type=int, default=300, help="保留参数；进程内 exec 无法在时限点可靠中断")
     p.add_argument(
-        "--restrictToWorkspace",
+        "--restrict_to_workspace",
         action="store_true",
         help="cwd 限定在 WORKSPACE_DIR 内（默认不限制）。",
     )
-    p.add_argument("--jsonOut", action="store_true", help="向 stdout 输出 JSON 信封")
-    p.add_argument("--outFile", help="同时将 JSON 结果写入该文件")
-    p.add_argument("--runType", choices=["auto", "plan", "execute"], default="", help="plan 时拒绝执行")
+    p.add_argument("--json_out", action="store_true", help="向 stdout 输出 JSON 信封")
+    p.add_argument("--out_file", help="同时将 JSON 结果写入该文件")
+    p.add_argument("--run_type", choices=["auto", "plan", "execute"], default="", help="plan 时拒绝执行")
     return p
 
 
@@ -39,18 +39,18 @@ def _build_error(*, code: str, message: str, exit_code: int | None, hint: str, r
         "code": code,
         "type": "PythonInlineError",
         "message": message,
-        "exitCode": exit_code,
+        "exit_code": exit_code,
         "hint": hint,
         "retryable": retryable,
     }
 
 
 def _emit_envelope_file_and_stdout(args: argparse.Namespace, envelope: dict) -> None:
-    if args.outFile:
-        out = Path(args.outFile)
+    if args.out_file:
+        out = Path(args.out_file)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(envelope, ensure_ascii=False, indent=2), encoding="utf-8")
-    if args.jsonOut or not args.outFile:
+    if args.json_out or not args.out_file:
         print(json.dumps(envelope, ensure_ascii=False))
 
 
@@ -69,7 +69,7 @@ def agent_main(
     run_type: str = "",
     parser_for_help: argparse.ArgumentParser | None = None,
 ) -> dict:
-    """返回 {ok, data:{ok, stdout, stderr, exitCode, timeout}, error}。"""
+    """返回 {ok, data:{ok, stdout, stderr, exit_code, timeout}, error}。"""
     _ = timeout_sec
     try:
         rt = str(run_type or "").strip().lower()
@@ -115,7 +115,7 @@ def agent_main(
 
         data = {
             "ok": sub_ok,
-            "exitCode": exit_code,
+            "exit_code": exit_code,
             "stdout": captured_stdout.getvalue(),
             "stderr": captured_stderr.getvalue(),
             "timeout": False,
@@ -131,7 +131,7 @@ def agent_main(
             )
         return {"ok": sub_ok, "data": data, "error": error}
     except Exception as e:
-        data = {"ok": False, "exitCode": None, "stdout": "", "stderr": str(e), "timeout": False}
+        data = {"ok": False, "exit_code": None, "stdout": "", "stderr": str(e), "timeout": False}
         error = _build_error(
             code="E_INVALID",
             message=str(e),
@@ -149,14 +149,14 @@ def agent_main(
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    if args.timeoutSec <= 0:
-        raise ValueError("timeoutSec 必须 > 0")
+    if args.timeout_sec <= 0:
+        raise ValueError("timeout_sec 必须 > 0")
     env = agent_main(
         code=args.code,
         cwd=str(args.cwd) if args.cwd else None,
-        timeout_sec=int(args.timeoutSec),
-        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
-        run_type=str(getattr(args, "runType", "") or "").strip().lower(),
+        timeout_sec=int(args.timeout_sec),
+        restrict_to_workspace=bool(args.restrict_to_workspace),
+        run_type=str(args.run_type or "").strip().lower(),
         parser_for_help=parser,
     )
     _emit_envelope_file_and_stdout(args, env)

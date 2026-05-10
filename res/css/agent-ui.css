@@ -188,7 +188,7 @@ pre{margin:0;padding:8px;max-height:220px;overflow:auto;white-space:pre-wrap;wor
 .done-banner{margin-bottom:8px;padding:10px 12px;border-radius:6px;background:#1e3d2a;border:1px solid #2d5a3d;color:#89d185;font-size:12px;line-height:1.45}
 .dispatch-title{margin-bottom:8px;padding:7px 10px;border-radius:6px;border:1px solid #3c3c3c;background:#202327;color:#cfd6dd;font-size:11px;line-height:1.4}
 
-.usage-bottom{flex:0 0 auto;border-top:1px solid #333;padding:6px 8px;background:#1e1e1e;font-size:10px;line-height:1.45;min-height:50px;display:flex;flex-direction:column;justify-content:center}
+.usage-bottom{flex:0 0 auto;border-top:1px solid #333;padding:6px 8px;background:#1e1e1e;font-size:10px;line-height:1.45;min-height:72px;display:flex;flex-direction:column;justify-content:center}
 .usage-bottom .ub-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .usage-bottom .ub-row-main{justify-content:flex-start}
 .usage-bottom .ub-row-cost{margin-top:2px;color:#c9d1d9}
@@ -203,6 +203,20 @@ pre{margin:0;padding:8px;max-height:220px;overflow:auto;white-space:pre-wrap;wor
 .usage-bottom .ub-cost-cny{color:#c9d1d9;font-weight:400}
 .usage-bottom .ub-cost-or{color:#9aa0a6}
 .usage-bottom .ub-cost-usd{color:#9aa0a6}
+.usage-bottom .ub-row-ctx{margin-top:4px;align-items:center;gap:8px;flex-wrap:nowrap;width:100%}
+.usage-bottom .ctx-bar-host{flex:1;min-width:0;display:flex;align-items:center;position:relative}
+.usage-bottom .ctx-bar{display:flex;flex-direction:row;flex-wrap:nowrap;gap:2px;width:100%;min-height:10px;align-items:stretch;box-sizing:border-box}
+.usage-bottom .ctx-seg-col{display:flex;flex-direction:column;justify-content:flex-end;flex:1 1 0;min-width:2px;min-height:10px;box-sizing:border-box;cursor:default}
+.usage-bottom .ctx-seg-col.ctx-seg-col-zero{flex:0 0 2px;max-width:2px;min-width:2px}
+.usage-bottom .ctx-seg{display:block;min-height:10px;min-width:2px;cursor:inherit;box-sizing:border-box}
+.usage-bottom .ctx-bar-empty{color:#6e7681;font-size:10px;white-space:nowrap}
+.usage-bottom .ctx-seg-remaining{box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
+.ctx-layout-tooltip{box-sizing:border-box;max-width:min(420px,92vw);padding:8px 10px;background:#252526;border:1px solid #3c3c3c;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.45);font-size:11px;line-height:1.55;color:#d0d7de;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+.ctx-layout-tooltip .ctx-tip-line{display:grid;grid-template-columns:5.5rem 120px minmax(0,1fr);align-items:center;column-gap:8px;margin:4px 0}
+.ctx-layout-tooltip .ctx-tip-br{color:#e6edf3;font-weight:600;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.ctx-layout-tooltip .ctx-tip-track{display:flex;width:120px;height:8px;flex-shrink:0;background:#2a2d32;border-radius:3px;overflow:hidden;box-sizing:border-box}
+.ctx-layout-tooltip .ctx-tip-track-fill{display:block;height:100%;min-width:0;border-radius:2px;box-sizing:border-box}
+.ctx-layout-tooltip .ctx-tip-rest{color:#9aa0a6;text-align:left;min-width:0;white-space:nowrap;font-variant-numeric:tabular-nums}
 .side-tabbar{display:flex;align-items:stretch;gap:2px;padding:4px 6px 0 6px;border-bottom:1px solid #333;background:#252526;flex-wrap:wrap}
 .side-tab{position:relative;display:inline-flex;align-items:center;gap:4px;border:1px solid transparent;border-bottom:0;border-radius:8px 8px 0 0;padding:6px 10px 5px;font-size:11px;color:#9aa0a6;background:#202328;cursor:pointer;font:inherit}
 .side-tab.active{color:#d0d7de;background:#1e1e1e;border-color:#333;border-bottom-color:#1e1e1e}

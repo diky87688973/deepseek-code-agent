@@ -158,18 +158,18 @@ def agent_main(
         git_available = shutil.which("git") is not None
 
         meta: dict = {
-            "respectGitignoreRequested": respect_gitignore,
-            "gitRepoRoot": str(repo_root) if repo_root else None,
-            "gitignoreApplied": False,
-            "gitignoreNote": None,
+            "respect_gitignore_requested": respect_gitignore,
+            "git_repo_root": str(repo_root) if repo_root else None,
+            "gitignore_applied": False,
+            "gitignore_note": None,
         }
 
         if respect_gitignore and repo_root is None:
-            meta["gitignoreNote"] = "未处于 Git 仓库内(向上未找到 .git),未应用忽略规则"
+            meta["gitignore_note"] = "未处于 Git 仓库内(向上未找到 .git),未应用忽略规则"
         elif respect_gitignore and not git_available:
-            meta["gitignoreNote"] = "未找到 git 可执行文件,未应用忽略规则"
+            meta["gitignore_note"] = "未找到 git 可执行文件,未应用忽略规则"
         elif respect_gitignore and repo_root is not None and git_available:
-            meta["gitignoreApplied"] = True
+            meta["gitignore_applied"] = True
 
         iterator = _iter_matching_paths(rp, match_pat, recursive)
 
@@ -190,7 +190,7 @@ def agent_main(
             )
             return len(items) >= limit
 
-        if not meta["gitignoreApplied"]:
+        if not meta["gitignore_applied"]:
             for p in iterator:
                 if _append_item(p):
                     break
@@ -242,8 +242,8 @@ def agent_main(
         return ac.ok(
             {
                 "path": str(rp),
-                "globPattern": match_pat,
-                "entryType": et,
+                "glob_pattern": match_pat,
+                "entry_type": et,
                 "count": len(items),
                 "truncated": truncated,
                 "paths": paths,
@@ -265,32 +265,32 @@ def main() -> None:
     p.add_argument(
         "--pattern",
         default=None,
-        help="globPattern 的短别名；若与非默认 globPattern 同传则以 globPattern 为准。",
+        help="glob_pattern 的短别名；若与非默认 glob_pattern 同传则以 glob_pattern 为准。",
     )
     p.add_argument("--recursive", action="store_true", default=True)
-    p.add_argument("--noRecursive", action="store_false", dest="recursive")
+    p.add_argument("--no_recursive", action="store_false", dest="recursive")
     p.add_argument("--limit", type=int, default=500)
     p.add_argument(
-        "--restrictToWorkspace",
+        "--restrict_to_workspace",
         action="store_true",
         help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
     )
     p.add_argument(
-        "--entryType",
+        "--entry_type",
         dest="entry_type",
         choices=["file", "dir", "all"],
         default="file",
         help="列出文件/目录/全部（默认 file）。",
     )
     p.add_argument(
-        "--noGitignore",
+        "--no_gitignore",
         action="store_true",
         help="不应用 .gitignore（默认在 Git 仓库内会批量校验忽略规则）。",
     )
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
     alias_pt = getattr(args, "pattern", None)
-    restrict = bool(getattr(args, "restrictToWorkspace", False))
+    restrict = bool(args.restrict_to_workspace)
     r = agent_main(
         path=args.path,
         glob_pattern=args.glob_pattern,
@@ -299,7 +299,7 @@ def main() -> None:
         limit=args.limit,
         restrict_to_workspace=restrict,
         entry_type=str(args.entry_type),
-        no_gitignore=bool(args.noGitignore),
+        no_gitignore=bool(args.no_gitignore),
     )
     print(json.dumps(r, ensure_ascii=False))
 

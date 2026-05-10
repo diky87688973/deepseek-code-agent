@@ -23,7 +23,7 @@ def _ensure_under_root(root: Path, p: Path) -> None:
     try:
         p.resolve().relative_to(root.resolve())
     except ValueError:
-        raise ValueError(f"path 越出安全根目录 (--securityRoot): {p}") from None
+        raise ValueError(f"path 越出安全根目录 (--security_root): {p}") from None
 
 
 def _recycle_bin_root() -> Path:
@@ -99,9 +99,9 @@ def _do_delete(src: Path, recursive: bool, dry: bool) -> dict:
     if _is_inside_recycle(src, recycle):
         if src.is_file() or src.is_symlink():
             if dry:
-                return {"action": "purge", "target": str(src), "kind": "file", "dryRun": True}
+                return {"action": "purge", "target": str(src), "kind": "file", "dry_run": True}
             src.unlink(missing_ok=False)
-            return {"action": "purge", "target": str(src), "kind": "file", "dryRun": False}
+            return {"action": "purge", "target": str(src), "kind": "file", "dry_run": False}
         if src.is_dir():
             if not recursive:
                 raise IsADirectoryError(f"是目录且未指定 recursive: {src}")
@@ -111,7 +111,7 @@ def _do_delete(src: Path, recursive: bool, dry: bool) -> dict:
                     "target": str(src),
                     "kind": "dir",
                     "recursive": True,
-                    "dryRun": True,
+                    "dry_run": True,
                 }
             shutil.rmtree(src)
             return {
@@ -119,7 +119,7 @@ def _do_delete(src: Path, recursive: bool, dry: bool) -> dict:
                 "target": str(src),
                 "kind": "dir",
                 "recursive": True,
-                "dryRun": False,
+                "dry_run": False,
             }
         raise ValueError(f"无法识别类型: {src}")
 
@@ -132,11 +132,11 @@ def _do_delete(src: Path, recursive: bool, dry: bool) -> dict:
     rec_info = {
         "action": "recycle",
         "source": str(src),
-        "recycledTo": str(dest),
-        "recycleRoot": str(recycle.resolve()),
+        "recycled_to": str(dest),
+        "recycle_root": str(recycle.resolve()),
         "kind": kind,
         "recursive": bool(src.is_dir()),
-        "dryRun": dry,
+        "dry_run": dry,
     }
     if dry:
         return rec_info
@@ -150,8 +150,8 @@ def _do_delete(src: Path, recursive: bool, dry: bool) -> dict:
             dest = bucket / f"{src.stem}_{uuid.uuid4().hex[:4]}{src.suffix}"
 
     shutil.move(str(src), str(dest))
-    rec_info["recycledTo"] = str(dest)
-    rec_info["dryRun"] = False
+    rec_info["recycled_to"] = str(dest)
+    rec_info["dry_run"] = False
     return rec_info
 
 
@@ -162,9 +162,9 @@ def _do_rename(src: Path, dest: Path, dry: bool) -> dict:
         raise FileExistsError(f"目标已存在: {dest}")
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dry:
-        return {"action": "rename", "source": str(src), "dest": str(dest), "dryRun": True}
+        return {"action": "rename", "source": str(src), "dest": str(dest), "dry_run": True}
     src.rename(dest)
-    return {"action": "rename", "source": str(src), "dest": str(dest), "dryRun": False}
+    return {"action": "rename", "source": str(src), "dest": str(dest), "dry_run": False}
 
 
 def _do_copy(src: Path, dest: Path, dry: bool) -> dict:
@@ -172,12 +172,12 @@ def _do_copy(src: Path, dest: Path, dry: bool) -> dict:
         raise FileNotFoundError(f"不存在: {src}")
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dry:
-        return {"action": "copy", "source": str(src), "dest": str(dest), "dryRun": True}
+        return {"action": "copy", "source": str(src), "dest": str(dest), "dry_run": True}
     if src.is_dir():
         shutil.copytree(src, dest, dirs_exist_ok=True)
     else:
         shutil.copy2(src, dest)
-    return {"action": "copy", "source": str(src), "dest": str(dest), "dryRun": False}
+    return {"action": "copy", "source": str(src), "dest": str(dest), "dry_run": False}
 
 
 def _do_move(src: Path, dest: Path, dry: bool) -> dict:
@@ -185,9 +185,9 @@ def _do_move(src: Path, dest: Path, dry: bool) -> dict:
         raise FileNotFoundError(f"不存在: {src}")
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dry:
-        return {"action": "move", "source": str(src), "dest": str(dest), "dryRun": True}
+        return {"action": "move", "source": str(src), "dest": str(dest), "dry_run": True}
     shutil.move(str(src), str(dest))
-    return {"action": "move", "source": str(src), "dest": str(dest), "dryRun": False}
+    return {"action": "move", "source": str(src), "dest": str(dest), "dry_run": False}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -200,17 +200,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--source", required=True, help="源路径")
     p.add_argument("--dest", help="目标路径（delete 时不需要；相对路径相对于 source 父目录）")
-    p.add_argument("--securityRoot", help="若指定，source/dest 均须落在该目录下")
+    p.set_defaults(dry_run=True)
+    p.add_argument("--security_root", help="若指定，source/dest 均须落在该目录下")
     p.add_argument("--recursive", action="store_true", help="delete 目录时必须指定")
-    p.add_argument("--dryRun", action="store_true", default=True, help="仅描述；关闭用 --commit")
-    p.add_argument("--commit", action="store_false", dest="dryRun", help="真实执行")
+    p.add_argument("--dry_run", dest="dry_run", action="store_true", help="仅描述（默认）")
+    p.add_argument("--commit", dest="dry_run", action="store_false", help="真实执行")
     p.add_argument(
-        "--restrictToWorkspace",
+        "--restrict_to_workspace",
         action="store_true",
         help="路径解析限定在 WORKSPACE_DIR 内（默认不限制）。",
     )
-    p.add_argument("--runType", choices=["auto", "plan", "execute"], default="", help="Plan 时拒绝写操作")
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--run_type", choices=["auto", "plan", "execute"], default="", help="Plan 时拒绝写操作")
+    p.add_argument("--json_out", action="store_true")
     return p
 
 
@@ -242,7 +243,7 @@ def agent_main(
             source,
             dest,
             security_root=security_root,
-        restrict_to_workspace=restrict_to_workspace,
+            restrict_to_workspace=restrict_to_workspace,
         )
 
         if act == "delete":
@@ -273,11 +274,11 @@ def main() -> None:
         action=str(args.action),
         source=str(args.source),
         dest=args.dest,
-        security_root=getattr(args, "securityRoot", None),
+        security_root=args.security_root,
         recursive=bool(args.recursive),
-        dry_run=bool(args.dryRun),
-        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
-        run_type=str(args.runType or ""),
+        dry_run=bool(args.dry_run),
+        restrict_to_workspace=bool(args.restrict_to_workspace),
+        run_type=str(args.run_type or ""),
     )
     print(json.dumps(r, ensure_ascii=False))
 

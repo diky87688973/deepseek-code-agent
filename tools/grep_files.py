@@ -90,7 +90,7 @@ def agent_main(
         scanned = 0
         _last_prog = 0.0
         if _progress_dict is not None:
-            _progress_dict.update({"scanned": 0, "currentFile": "", "phase": "grep"})
+            _progress_dict.update({"scanned": 0, "current_file": "", "phase": "grep"})
         for fp in files:
             if ac.progress_abort_requested(_progress_dict):
                 return {"ok": False, "data": None, "error": {"type": "Aborted", "message": "用户已停止搜索"}}
@@ -100,7 +100,7 @@ def agent_main(
             if _progress_dict is not None:
                 now = time.time()
                 if scanned == 1 or scanned % 50 == 0 or now - _last_prog >= 1.0:
-                    _progress_dict.update({"scanned": scanned, "currentFile": fp.name, "phase": "grep"})
+                    _progress_dict.update({"scanned": scanned, "current_file": fp.name, "phase": "grep"})
                     _last_prog = now
             try:
                 text = ac.read_file_text(fp, encoding)
@@ -125,8 +125,8 @@ def agent_main(
                         "column": col0 + 1,
                         "text": line,
                         "match": match_text,
-                        "regionStart": region_start,
-                        "regionEnd": region_end,
+                        "region_start": region_start,
+                        "region_end": region_end,
                     }
                     if ctx > 0:
                         a = max(1, i - ctx)
@@ -136,12 +136,12 @@ def agent_main(
 
         return ac.ok(
             {
-                "matchCount": len(matches),
+                "match_count": len(matches),
                 "truncated": len(matches) >= limit,
                 "pattern": pattern,
                 "regex": regex,
                 "matches": matches,
-                "hint": "每条 match 的 regionStart/regionEnd 可直接传给 replace_in_file 做单文件精确替换；多行或复杂正则替换优先用 regex_locate。",
+                "hint": "每条 match 的 region_start/region_end 可直接传给 replace_in_file 做单文件精确替换；多行或复杂正则替换优先用 regex_locate。",
             }
         )
     except Exception as e:
@@ -156,20 +156,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--pattern", required=True)
     p.add_argument("--glob_pattern", default="", help="省略=仅常见文本/源码后缀；* 表示全部文件（含各类非文本/二进制）")
     p.add_argument("--regex", action="store_true")
-    p.add_argument("--ignoreCase", action="store_true")
+    p.add_argument("--ignore_case", action="store_true")
     p.add_argument("--recursive", action="store_true", default=True)
-    p.add_argument("--noRecursive", action="store_false", dest="recursive")
-    p.add_argument("--contextLines", type=int, default=0)
+    p.add_argument("--no_recursive", action="store_false", dest="recursive")
+    p.add_argument("--context_lines", type=int, default=0)
     p.add_argument("--limit", type=int, default=200)
     p.add_argument("--encoding", default="utf-8")
-    p.add_argument("--noGitignore", action="store_true", dest="no_gitignore")
+    p.add_argument("--no_gitignore", action="store_true", dest="no_gitignore")
     p.add_argument(
-        "--restrictToWorkspace",
+        "--restrict_to_workspace",
         action="store_true",
         help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
     )
-    p.add_argument("--runType", default="", help="占位，只读不拦截")
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--run_type", default="", help="占位，只读不拦截")
+    p.add_argument("--json_out", action="store_true")
     return p
 
 
@@ -182,14 +182,14 @@ def main() -> None:
         pattern=args.pattern,
         glob_pattern=args.glob_pattern,
         regex=args.regex,
-        ignore_case=args.ignoreCase,
+        ignore_case=args.ignore_case,
         recursive=args.recursive,
-        context_lines=args.contextLines,
+        context_lines=args.context_lines,
         limit=args.limit,
         encoding=args.encoding,
         no_gitignore=args.no_gitignore,
-        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
-        run_type=str(args.runType or ""),
+        restrict_to_workspace=bool(args.restrict_to_workspace),
+        run_type=str(args.run_type or ""),
     )
     print(json.dumps(r, ensure_ascii=False))
 

@@ -101,7 +101,7 @@ def main() -> None:
     p.add_argument("--multi", action="store_true")
     p.add_argument("--custom_option_index", type=int, default=None)
     p.add_argument("--interactive", action="store_true")
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
     try:
         cl = _normalize_confirms(json.loads(args.confirms))
@@ -116,7 +116,7 @@ def main() -> None:
         custom_option_index=args.custom_option_index,
         interactive=bool(args.interactive),
     )
-    if args.jsonOut:
+    if args.json_out:
         print(json.dumps(r, ensure_ascii=False))
     else:
         if r.get("ok") and isinstance(r.get("data"), dict):

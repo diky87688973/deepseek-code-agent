@@ -17,12 +17,15 @@ echo.
 echo === DeepSeek Code Agent v1 快速启动 ===
 echo.
 
-:: ── 从 config.json 读取端口 ──
-for /f "tokens=2 delims=:," %%a in ('findstr /i "AGENT_SERVER_PORT" config.json 2^>nul') do (
-    set PORT=%%a
-    set PORT=!PORT: =!
+:: ── 从 config.ini [server] 读取 port（首条匹配 ^port *=）──
+set PORT=
+for /f "usebackq tokens=2 delims==" %%a in (`findstr /r /i "^[ ]*port[ ]*=" config.ini 2^>nul`) do (
+    if not defined PORT (
+        set PORT=%%a
+        set PORT=!PORT: =!
+    )
 )
-if not defined PORT set PORT=8802
+if not defined PORT set PORT=8801
 
 :: 检查是否在项目根目录
 if not exist "main_tray.py" (
@@ -43,10 +46,10 @@ if exist "venv\Scripts\activate.bat" (
     echo [信息] 未找到虚拟环境，使用系统 Python
 )
 
-:: 检查 config.json
-if not exist "config.json" (
-    echo [警告] 未找到 config.json！
-    echo.       请配置 API Key 后再启动
+:: 检查 config.ini（与 util.config_loader 一致）
+if not exist "config.ini" (
+    echo [警告] 未找到 config.ini！
+    echo.       请复制模板并配置 [model] api_key、[server] port 等后再启动
     echo.
 )
 

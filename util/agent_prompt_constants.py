@@ -7,19 +7,19 @@ TOOL_AGENT_SYSTEM_PROMPT: str = (
     "\n 1.回答直接、简洁、中文优先；需要工具就调用工具，不要空谈。"
     "\n 2.只能调用已注册 function，名称必须与 function schema 完全一致；禁止臆造 cli_*、shell 别名或未注册工具。工具参数与示例以 function schema / tools/tool_list_agent.json 为准。"
     "\n 3.arguments 使用 JSON 原生类型；数组/对象直接传 list/dict，不要把 rules、items、confirms、indices 等序列化成字符串。"
-    "\n 4.工具返回 ok=false 时先看 error.toolHelp，再按 schema 修正参数；不要重复同一错误调用。"
-    "\n 5.写盘工具默认 dryRun=true：先看 diff/preview；确认执行时传 dryRun=false，并按当前模式传 runType。项目文本默认 UTF-8。"
-    "\n 6.每次 function call 尽量给 step_title：一句中文说明本次用途，建议不超过 40 字。"
+    "\n 4.工具返回 ok=false 时先看 error.tool_help，再按 schema 修正参数；不要重复同一错误调用。"
+    "\n 5.写盘工具默认 dry_run=true：先看 diff/preview；确认执行时传 dry_run=false，并按当前模式传 run_type。项目文本默认 UTF-8。"
+    "\n 6.【delete_file 安全铁律】永远默认 dry_run=true（只预览不删除）。用户口头说“删掉”时也必须先 dry_run 预览（返回 would_move_to），确认目标后再调一次 dry_run=false 真正执行。宁可没删，不可删错。禁止在 dry_run=true 时欺骗用户说“已删除”。"
     "\n\n"
     "【文本处理策略】"
     "\n 1.读文件用 read_file；列路径用 glob_files；内容搜索用 grep_files / regex_locate / file_search。"
-    "\n 2.精确替换优先 replace_in_file：能唯一匹配时用 oldText/newText；需要坐标时使用 grep_files、find_in_file 或 regex_locate 返回的 regionStart/regionEnd，不要猜行列或字符偏移。"
+    "\n 2.精确替换优先 replace_in_file：能唯一匹配时用 old_text/new_text；需要坐标时使用 grep_files、find_in_file 或 regex_locate 返回的 region_start/region_end，不要猜行列或字符偏移。"
     "\n 3.复制/抽取到另一个文件用 read_write，让工具在进程内管道传递内容，避免经模型搬运大段正文。"
     "\n 4.整文件覆盖用 write_file；目录/文件复制移动删除用 file_ops/delete_file；补丁用 apply_patch；对比用 text_diff。"
     "\n 5.run_command 和 python_inline 是最后手段；需要用户授权，Plan 模式会拦截。"
     "\n\n"
     "【Todo 与模式】"
-    "\n 1.每轮先用 todo_list(action=query) 检查存量清单；多步任务创建/维护 Todo-List，完成一步及时 check，全部完成 close。"
+    "\n 1.每轮先调用 todo_list(action=query) 检查存量清单。多步任务必须先创建 Todo-List，每成功完成一步立即 check，全部完成才 close，不得事后补签。"
     "\n 2.当前模式以本轮末尾的【当前为 XXX 模式】为准；不要凭历史记忆推断。Plan 只规划和只读；Execute 才执行写盘。"
     "\n 3.用户只说“执行吧/写吧/实施”时，若当前不是 Execute，只提示在界面切换模式或给出明确授权，不要调用 run_type 越权切换。"
     "\n\n"
@@ -27,7 +27,7 @@ TOOL_AGENT_SYSTEM_PROMPT: str = (
     "\n 写代码后尽量用 unified_diagnose 或对应校验工具检查；最终总结只说结论、改动、验证和必要风险。"
 )
 TOOL_AGENT_AUTO_MODE_PROMPT: str = (
-    "【当前为 AUTO 模式】：模式存疑时先查询 run_type。简单任务直接做；复杂任务先给简短方案再按工具结果推进。写盘仍遵守 dryRun 与工具自身模式校验。"
+    "【当前为 AUTO 模式】：模式存疑时先查询 run_type。简单任务直接做；复杂任务先给简短方案再按工具结果推进。写盘仍遵守 dry_run 与工具自身模式校验。"
 )
 TOOL_AGENT_PLAN_MODE_PROMPT: str = (
     "【当前为 PLAN 模式】：只读分析与规划，禁止真实写盘、删除、解压/创建归档、run_command、python_inline。需要执行时提示用户切换/授权。规划多步任务时创建 todo_list；输出目标、方案、风险、验收。"

@@ -6,7 +6,7 @@ Configure CHAT_API_BASE_URL + CHAT_API_KEY (DEEPSEEK_* still accepted as fallbac
 Typical body: messages, tools, stream with SSE data: lines — see provider docs for JSON mode, tools, and errors.
 - 本仓库工具库与 Agent 落盘文本（JSON 等）默认 UTF-8。
 - 工具调用失败时（ok 非 true）可向 DATA_ROOT 下 debug 目录写入 JSON 记录；AGENT_TOOL_DEBUG=0 关闭。
-- 工具返回 ok=false 时 error **必定**含 toolHelp：合并 argparse 等效 `--help` 与 tool_list_agent.json 摘要（未知工具亦有兜底说明），供模型纠正调用；**仅**通过各脚本 `agent_main` 进程内执行（原生 Python 类型），不向 `main()`/模拟 argv 降级。
+- 工具返回 ok=false 时 error **必定**含 tool_help：合并 argparse 等效 `--help` 与 tool_list_agent.json 摘要（未知工具亦有兜底说明），供模型纠正调用；**仅**通过各脚本 `agent_main` 进程内执行（原生 Python 类型），不向 `main()`/模拟 argv 降级。
 """
 from __future__ import annotations
 
@@ -30,6 +30,23 @@ _FILE_SEARCH_ALLOWED: bool = False
 _RESTRICTED_TOOLS: frozenset = frozenset({"file_search.py"})
 # 走线程 + _progress_dict，宿主轮询并推送 tool_progress（与 file_search 一致）
 _TOOL_PROGRESS_SCRIPTS: frozenset = frozenset({"file_search.py", "grep_files.py", "regex_locate.py"})
+# 写盘/写类工具：宿主在 dry_run 预览成功时统一注入 host_dry_run_notice（Plan 模式跳过）
+WRITE_TOOL_SCRIPTS: frozenset = frozenset(
+    {
+        "file_ops.py",
+        "python_inline.py",
+        "write_file.py",
+        "read_write.py",
+        "replace_in_file.py",
+        "apply_patch.py",
+        "run_command.py",
+        "delete_file.py",
+    }
+)
+_HOST_DRY_RUN_NOTICE_ZH = (
+    "【宿主提示】本次为预览（dry_run=true），磁盘未被修改。"
+    "确认写入请传 dry_run: false（命令行对应 --commit），并满足当前会话模式（如 Execute）与执行清单等要求。"
+)
 import threading
 import time
 import uuid
@@ -66,7 +83,7 @@ else:
     _base = Path(__file__).resolve().parent
 AGENT_ROOT = _base
 
-# 可写运行时数据目录：默认 ~/AI_DATA_ROOT（用户目录下），可通过 config.json 修改
+# 可写运行时数据目录：默认 ~/AI_DATA_ROOT（用户目录下），可通过 config.ini 修改
 _dr = str(AGENT_CONFIG.get("AGENT_DATA_ROOT_DIR") or "").strip()
 if _dr:
     DATA_ROOT = Path(_dr).resolve()
@@ -165,11 +182,23 @@ SESSION_ENCRYPTION_MAGIC = "__code_web_agent_session_encrypted__"
 SESSION_APP_ENTROPY = hashlib.sha256((str(AGENT_ROOT) + "|code-web-agent-session-v1").encode("utf-8")).digest()
 
 
-# ── Agent 运行参数：从 AGENT_CONFIG 读取，config.json / 环境变量可覆盖 ──
+# ── Agent 运行参数：从 AGENT_CONFIG 读取，config.ini / 环境变量可覆盖 ──
 _CONTEXT_CFG = AGENT_CONFIG
-CONTEXT_HISTORY_MAX_MESSAGES = int(_CONTEXT_CFG.get("AGENT_CONTEXT_HISTORY_MAX_MESSAGES", 1000))
-CONTEXT_EXCERPT_START_INDEX = int(_CONTEXT_CFG.get("AGENT_CONTEXT_EXCERPT_START_INDEX", 99))
-CONTEXT_RECENT_USER_ROUNDS = int(_CONTEXT_CFG.get("AGENT_CONTEXT_RECENT_USER_ROUNDS", 100))
+# full：保留末尾 full_user_rounds 个 user 回合为近期完整对话（含工具）；pure：紧挨其前 pure_user_rounds 个 user 回合为远期纯对话（折叠）。
+CONTEXT_FULL_USER_ROUNDS = int(_CONTEXT_CFG.get("AGENT_CONTEXT_FULL_USER_ROUNDS", 5))
+CONTEXT_PURE_USER_ROUNDS = int(_CONTEXT_CFG.get("AGENT_CONTEXT_PURE_USER_ROUNDS", 0))
+_SUMMARY_THINK_RAW = str(_CONTEXT_CFG.get("AGENT_SUMMARY_THINKING", "enabled") or "enabled").strip().lower()
+SUMMARY_THINKING_ENABLED = _SUMMARY_THINK_RAW not in ("0", "false", "no", "off", "disabled")
+# AGENT_CONTEXT_TOKEN_METHOD：config.ini 预留，当前未参与分支（仅 estimate）
+TOKEN_ESTIMATE_EN_PER_CHAR = float(_CONTEXT_CFG.get("AGENT_TOKEN_ESTIMATE_EN_PER_CHAR", 0.3))
+TOKEN_ESTIMATE_ZH_PER_CHAR = float(_CONTEXT_CFG.get("AGENT_TOKEN_ESTIMATE_ZH_PER_CHAR", 0.6))
+# 上下文比例条：与「已用 token 估算」对比的总预算（用于末尾剩余容量条）
+CONTEXT_LAYOUT_BUDGET_TOKENS = int(_CONTEXT_CFG.get("AGENT_CONTEXT_LAYOUT_BUDGET_TOKENS", 131072))
+CONTEXT_SUMMARY_TOKEN_THRESHOLD = int(_CONTEXT_CFG.get("AGENT_CONTEXT_SUMMARY_TOKEN_THRESHOLD", 200000))
+if TOKEN_ESTIMATE_EN_PER_CHAR < 0:
+    TOKEN_ESTIMATE_EN_PER_CHAR = 0.3
+if TOKEN_ESTIMATE_ZH_PER_CHAR < 0:
+    TOKEN_ESTIMATE_ZH_PER_CHAR = 0.6
 SUMMARY_IN_PROGRESS_TTL_SEC = float(_CONTEXT_CFG.get("AGENT_SUMMARY_IN_PROGRESS_TTL_SEC", 300.0))
 MAX_TOOL_ROUNDS = int(_CONTEXT_CFG.get("AGENT_MAX_TOOL_ROUNDS", 10000))
 UI_RESTORE_MAX_TABS = int(_CONTEXT_CFG.get("AGENT_UI_RESTORE_MAX_TABS", 8))
@@ -535,18 +564,18 @@ def _unknown_tool_result(api_name: Any, script_by_api: Dict[str, str]) -> dict:
 
 
 def _execute_run_type(conversation_id: str, exec_args: Dict[str, Any]) -> dict:
-    rt = str(exec_args.get("runType") or exec_args.get("run_type") or "").strip().lower()
+    rt = str(exec_args.get("run_type") or exec_args.get("--run_type") or "").strip().lower()
     cid = str(conversation_id or "")
-    # 不传 runType 则为查询模式
+    # 不传 run_type 则为查询模式
     if not rt or rt not in {"auto", "plan", "execute"}:
         mode = CONVERSATION_MODES.get(cid, "auto")
-        return {"ok": True, "data": {"runType": mode, "action": "query"}}
+        return {"ok": True, "data": {"run_type": mode, "action": "query"}}
     # 切换模式
     if rt == "auto":
         CONVERSATION_MODES.pop(cid, None)
     else:
         CONVERSATION_MODES[cid] = rt
-    return {"ok": True, "data": {"runType": rt, "action": "switch"}}
+    return {"ok": True, "data": {"run_type": rt, "action": "switch"}}
 
 
 
@@ -903,7 +932,7 @@ _CATALOG_TOOL_DESCRIPTION_MAX_CHARS = 24000
 
 
 def _format_catalog_tool_examples(examples: Any) -> str:
-    """将 tool_list_agent.json 中的 examples 并入工具 description / toolHelp，便于模型对齐用法。"""
+    """将 tool_list_agent.json 中的 examples 并入工具 description / tool_help，便于模型对齐用法。"""
     if not isinstance(examples, list) or not examples:
         return ""
     blocks: List[str] = []
@@ -990,7 +1019,7 @@ def catalog_to_openai_tools(catalog: dict) -> Tuple[List[dict], Dict[str, str]]:
             elif typ == "enum":
                 sch = {"type": "string", "description": desc, "enum": list(arg.get("values", []))}
             elif typ == "array":
-                arr_items = arg.get("arrayItems", {"type": "string"})
+                arr_items = arg.get("array_items", {"type": "string"})
                 sch = {"type": "array", "description": desc, "items": arr_items}
             elif typ in ("object", "json-object", "json_object"):
                 sch = {"type": "object", "description": desc}
@@ -1209,7 +1238,7 @@ def _validate_public_tool_args(script_name: str, args: Dict[str, Any]) -> Option
                 if not isinstance(item, dict):
                     continue
                 for nk in item.keys():
-                    if str(nk) not in {"oldText", "newText"}:
+                    if str(nk) not in {"old_text", "new_text"}:
                         nested_bad.append(str(nk))
             if not nested_bad:
                 return None
@@ -1219,7 +1248,7 @@ def _validate_public_tool_args(script_name: str, args: Dict[str, Any]) -> Option
                 "error": {
                     "type": "BadToolArguments",
                     "message": (
-                        "replace_in_file.py 的 rules 只接受 oldText/newText；"
+                        "replace_in_file.py 的 rules 只接受 old_text/new_text；"
                         f"不接受：{', '.join(sorted(set(nested_bad)))}。"
                     ),
                 },
@@ -1239,7 +1268,7 @@ def _validate_public_tool_args(script_name: str, args: Dict[str, Any]) -> Option
 
 
 def _normalize_nested_tool_arg_keys(out: Dict[str, Any]) -> None:
-    """规范嵌套对象参数：对外 schema 用 camelCase，agent_main 内部统一 snake_case。"""
+    """规范嵌套对象参数：将 rules 数组内键名转为 snake_case（与 agent_main 一致）。"""
     rules = out.get("rules") or out.get("--rules")
     if isinstance(rules, list):
         norm_rules: list[Any] = []
@@ -1310,14 +1339,14 @@ def _capture_tool_help_from_catalog(script_name: str) -> Optional[str]:
 
 
 def attach_tool_help_on_failure(script_name: str, mod: Any | None, result: dict) -> dict:
-    """工具返回 ok=false 时**必须**附带 toolHelp：合并工具自身说明、argparse --help、tool_list_agent.json（与命令行 --help 等效）。"""
+    """工具返回 ok=false 时**必须**附带 tool_help：合并工具自身说明、argparse --help、tool_list_agent.json（与命令行 --help 等效）。"""
     if not isinstance(result, dict) or result.get("ok"):
         return result
     err = result.get("error")
     if not isinstance(err, dict):
         return result
     blocks: List[str] = []
-    prior = err.get("toolHelp")
+    prior = err.get("tool_help")
     if isinstance(prior, str) and prior.strip():
         blocks.append("【工具返回的说明】\n" + prior.strip())
     h_cli = _capture_tool_help_from_module(mod) if mod is not None else None
@@ -1333,7 +1362,35 @@ def attach_tool_help_on_failure(script_name: str, mod: Any | None, result: dict)
     merged = "\n\n".join(blocks)
     if len(merged) > _TOOL_HELP_MAX_CHARS:
         merged = merged[:_TOOL_HELP_MAX_CHARS] + "\n…"
-    return {**result, "error": {**err, "toolHelp": merged}}
+    return {**result, "error": {**err, "tool_help": merged}}
+
+
+def maybe_attach_write_tool_host_dry_run_notice(
+    script_name: str,
+    result: Any,
+    conversation_mode: str,
+) -> Any:
+    """写类工具成功返回且 data.dry_run 为预览时，向 data 写入 host_dry_run_notice；Plan 模式不加。"""
+    if not isinstance(result, dict) or not result.get("ok"):
+        return result
+    data = result.get("data")
+    if not isinstance(data, dict):
+        return result
+    if str(conversation_mode or "").strip().lower() == "plan":
+        return result
+    sn = script_name or ""
+    if sn not in WRITE_TOOL_SCRIPTS:
+        return result
+    dr = data.get("dry_run")
+    if dr is not True and dr != 1:
+        return result
+    if data.get("host_dry_run_notice"):
+        return result
+    out = dict(result)
+    out_data = dict(data)
+    out_data["host_dry_run_notice"] = _HOST_DRY_RUN_NOTICE_ZH
+    out["data"] = out_data
+    return out
 
 
 def execute_tool_script(script_name: str, args: Dict[str, Any]) -> dict:
@@ -1415,7 +1472,7 @@ def preview_tool_result(script_name: str, result: dict, text_limit: int = 12000)
                     "path": d.get("path"),
                     "content": snippet,
                     "truncated": bool(d.get("truncated")),
-                    "totalCharsReturned": d.get("totalCharsReturned"),
+                    "total_chars_returned": d.get("total_chars_returned"),
                 },
             }
             return json.dumps(slim, ensure_ascii=False)
@@ -1424,7 +1481,7 @@ def preview_tool_result(script_name: str, result: dict, text_limit: int = 12000)
             slim = {
                 "ok": True,
                 "data": {
-                    "matchCount": d.get("matchCount"),
+                    "match_count": d.get("match_count"),
                     "truncated": d.get("truncated"),
                     "matches": m,
                 },
@@ -1433,7 +1490,7 @@ def preview_tool_result(script_name: str, result: dict, text_limit: int = 12000)
         if ("run_command" in sn or "python_inline" in sn) and isinstance(d.get("stdout"), str):
             out = d["stdout"]
             snippet = out if len(out) <= text_limit else out[:text_limit] + "\n…"
-            slim = {"ok": True, "data": {"stdout": snippet, "stdoutLen": len(out)}}
+            slim = {"ok": True, "data": {"stdout": snippet, "stdout_len": len(out)}}
             return json.dumps(slim, ensure_ascii=False)
         if "regex_locate" in sn and isinstance(d.get("items"), list):
             items = d["items"]
@@ -1460,8 +1517,8 @@ def preview_tool_result(script_name: str, result: dict, text_limit: int = 12000)
                     "%s [%s,%s) %s:%d:%d %s"
                     % (
                         fp.split("/")[-1] if "/" in fp else fp.split("\\")[-1] if "\\" in fp else fp,
-                        item.get("regionStart", ""),
-                        item.get("regionEnd", ""),
+                        item.get("region_start", ""),
+                        item.get("region_end", ""),
                         fp.split("/")[-1] if "/" in fp else fp.split("\\")[-1] if "\\" in fp else fp,
                         ln,
                         col,
@@ -1478,12 +1535,12 @@ def preview_tool_result(script_name: str, result: dict, text_limit: int = 12000)
             }
             return json.dumps(slim, ensure_ascii=False)
         if "text_diff" in sn and isinstance(d.get("summary"), dict):
-            dm = d.get("diffMarkdown")
+            dm = d.get("diff_markdown")
             sm = d.get("summary")
             slim_dm = dm
             if isinstance(dm, str) and len(dm) > text_limit:
                 slim_dm = dm[:text_limit] + "\n…"
-            slim = {"ok": True, "data": {"summary": sm, "diffMarkdown": slim_dm}}
+            slim = {"ok": True, "data": {"summary": sm, "diff_markdown": slim_dm}}
             return json.dumps(slim, ensure_ascii=False)
     return preview_payload(result)
 
@@ -1506,10 +1563,10 @@ def _chat_diff_markdown_for_tool(script_name: str, result: dict, exec_args: Dict
     if not isinstance(data, dict):
         return None
     if "text_diff" in sn:
-        dm = data.get("diffMarkdown")
+        dm = data.get("diff_markdown")
         return dm if isinstance(dm, str) and dm.strip() else None
     if "replace_in_file" in sn or "write_file" in sn or "apply_patch" in sn:
-        dt = data.get("diffText")
+        dt = data.get("diff_text")
         if isinstance(dt, str) and dt.strip():
             return "```diff\n" + dt + "\n```" if not dt.strip().startswith("```") else dt
         return None
@@ -1540,7 +1597,7 @@ def _truncate_tool_result(result: dict, max_chars: int = MAX_TOOL_RESULT_CHARS) 
             "ok": bool(result.get("ok")),
             "_truncated": True,
             "_notice": f"工具返回超出限额({max_chars}字符)，已截断。需完整内容请自行调用工具分批读取。",
-            "resultLen": len(raw),
+            "result_len": len(raw),
         },
         ensure_ascii=False,
     )
@@ -1573,7 +1630,7 @@ def _truncate_large_values(d: dict, budget: int, level: int = 0) -> None:
     for k, v in list(d.items()):
         if isinstance(v, str):
             eff = limit
-            if level == 0 and k == "diffMarkdown":
+            if level == 0 and k == "diff_markdown":
                 eff = max(200, budget - 800)
             elif extract_text and k == "text":
                 eff = max(200, budget - 800)
@@ -1608,8 +1665,8 @@ def _build_direct_preview_message(script_name: str, result: dict, user_text: str
     if not isinstance(data, dict):
         return None
     sn = (script_name or "").lower()
-    if ("replace_in_file" in sn or "write_file" in sn or "apply_patch" in sn) and isinstance(data.get("diffText"), str):
-        return data["diffText"]
+    if ("replace_in_file" in sn or "write_file" in sn or "apply_patch" in sn) and isinstance(data.get("diff_text"), str):
+        return data["diff_text"]
     return None
 
 
@@ -1820,6 +1877,26 @@ def _build_kb_prompt(cid: str) -> str:
     return "\n\n".join(parts)
 
 
+def _kb_attached_file_count(cid: str) -> int:
+    """与 _build_kb_prompt 中实际参与拼接的文件数量一致（已勾选、存在、未超大小）。"""
+    if not KB_BASE_DIR or not KB_BASE_DIR.is_dir():
+        return 0
+    with _KB_CHECKED_LOCK:
+        checked = _KB_CHECKED_STATE.get(cid, set())
+        if not checked:
+            _kb_load_single_cid_checked(cid)
+            checked = _KB_CHECKED_STATE.get(cid, set())
+    if not checked:
+        return 0
+    n = 0
+    for rel in sorted(checked):
+        fpath = KB_BASE_DIR / rel
+        if not fpath.is_file() or fpath.stat().st_size > _KB_MAX_FILE_SIZE:
+            continue
+        n += 1
+    return n
+
+
 def _extract_dispatch_title(content: Optional[str], max_len: int = 20) -> Optional[str]:
     if not content:
         return None
@@ -1900,14 +1977,242 @@ def _find_first_user_index(messages: List[Dict[str, Any]]) -> Optional[int]:
     return None
 
 
-def _take_last_n_user_rounds(dialogue: List[Dict[str, Any]], n: int) -> List[Dict[str, Any]]:
-    if n <= 0 or not dialogue:
-        return []
+PURE_WINDOW_NO_FINAL_ASSISTANT = "（本轮含工具调用，完整细节见近期完整对话。）"
+
+
+def _split_pure_and_full_dialogue(
+    dialogue: List[Dict[str, Any]],
+    full_n: int,
+    pure_n: int,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """近期：最后 full_n 个 user 回合（含工具）→ full_tail。远期纯：紧挨其前 pure_n 个 user 回合（半开）→ pure_raw。
+
+    即 user 下标区间 [k-full_n-pure_n, k-full_n)（不足则截断），与近期 [k-full_n, k) 无重叠；拼接为 pure_folded + full_tail。
+    """
+    if not dialogue or full_n <= 0:
+        return [], [], list(dialogue)
     user_idxs = [i for i, m in enumerate(dialogue) if m.get("role") == "user"]
-    if len(user_idxs) <= n:
-        return list(dialogue)
-    cut = user_idxs[-n]
-    return list(dialogue[cut:])
+    k = len(user_idxs)
+    if k == 0:
+        return [], [], []
+    fn = max(1, int(full_n))
+    pn = max(0, int(pure_n))
+    full_start = user_idxs[max(0, k - fn)]
+    full_tail = list(dialogue[full_start:])
+    if pn <= 0:
+        return [], [], full_tail
+    u_pure_end = max(0, k - fn)
+    u_pure_start = max(0, k - fn - pn)
+    if u_pure_start >= u_pure_end:
+        return [], [], full_tail
+    pure_lo = user_idxs[u_pure_start]
+    pure_hi = user_idxs[u_pure_end]
+    pure_raw = list(dialogue[pure_lo:pure_hi])
+    return pure_raw, [], full_tail
+
+
+def _count_user_turns_in_messages(msgs: List[Dict[str, Any]]) -> int:
+    """统计消息列表中 role=user 条数（近期/远期「个」与配置回合对齐，不含 assistant/tool）。"""
+    return sum(1 for m in msgs if m.get("role") == "user")
+
+
+def _fold_pure_window_for_api(msgs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """每轮只保留 user + 最后一条 assistant 的纯文本 content（无 tool/reasoning）。"""
+    out: List[Dict[str, Any]] = []
+    i = 0
+    while i < len(msgs):
+        if msgs[i].get("role") != "user":
+            i += 1
+            continue
+        out.append(_strip_internal_message_for_api(msgs[i]))
+        i += 1
+        chunk: List[Dict[str, Any]] = []
+        while i < len(msgs) and msgs[i].get("role") != "user":
+            chunk.append(msgs[i])
+            i += 1
+        last_asst: Optional[Dict[str, Any]] = None
+        for rm in chunk:
+            if rm.get("role") == "assistant":
+                last_asst = rm
+        has_tool = any(rm.get("role") == "tool" for rm in chunk)
+        if last_asst is None:
+            if has_tool:
+                out.append({"role": "assistant", "content": PURE_WINDOW_NO_FINAL_ASSISTANT})
+            continue
+        txt = str(last_asst.get("content") or "").strip()
+        tc = bool(last_asst.get("tool_calls"))
+        if txt:
+            out.append({"role": "assistant", "content": txt})
+        elif has_tool or tc:
+            out.append({"role": "assistant", "content": PURE_WINDOW_NO_FINAL_ASSISTANT})
+        else:
+            out.append({"role": "assistant", "content": ""})
+    return out
+
+
+def _strip_tool_trace_for_summary(msgs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """摘要模型输入：去掉 tool 与 assistant 的 tool_calls / reasoning_content。"""
+    out: List[Dict[str, Any]] = []
+    for m in msgs:
+        r = m.get("role")
+        if r == "tool":
+            continue
+        if r == "user":
+            out.append({"role": "user", "content": str(m.get("content") or "")[:8000]})
+        elif r == "assistant":
+            out.append({"role": "assistant", "content": str(m.get("content") or "")[:6000]})
+        elif r == "system":
+            out.append({"role": "system", "content": str(m.get("content") or "")[:4000]})
+        else:
+            out.append({"role": str(r or "user"), "content": str(m.get("content") or "")[:4000]})
+    return out
+
+
+def _char_token_estimate_weight(ch: str, en: float, zh: float) -> float:
+    """ASCII 用 en；CJK 常用区及全角用 zh；其余拉丁扩展等用 en。"""
+    o = ord(ch)
+    if o <= 0x007F:
+        return en
+    if 0xFF00 <= o <= 0xFFEF:
+        return zh
+    if 0x4E00 <= o <= 0x9FFF or 0x3400 <= o <= 0x4DBF:
+        return zh
+    if 0x3040 <= o <= 0x30FF or 0xAC00 <= o <= 0xD7AF:
+        return zh
+    return en
+
+
+def _estimate_tokens_text_ratio(s: str) -> int:
+    """官方建议的字符比例估算：英文≈0.3、中文等≈0.6 token/字（系数来自 config）。"""
+    if not s:
+        return 0
+    en = TOKEN_ESTIMATE_EN_PER_CHAR
+    zh = TOKEN_ESTIMATE_ZH_PER_CHAR
+    acc = 0.0
+    for ch in s:
+        acc += _char_token_estimate_weight(ch, en, zh)
+    return max(0, int(round(acc)))
+
+
+def _approx_tokens_text(s: str) -> int:
+    """上下文视图条：字符比例估算（系数见 AGENT_TOKEN_ESTIMATE_*）；AGENT_CONTEXT_TOKEN_METHOD 预留。"""
+    if not s:
+        return 0
+    return _estimate_tokens_text_ratio(s)
+
+
+def _approx_tokens_message(m: Dict[str, Any]) -> int:
+    n = _approx_tokens_text(str(m.get("content") or ""))
+    rc = m.get("reasoning_content")
+    if isinstance(rc, str) and rc.strip():
+        n += _approx_tokens_text(rc)
+    tc = m.get("tool_calls")
+    if isinstance(tc, list) and tc:
+        try:
+            n += _approx_tokens_text(json.dumps(tc, ensure_ascii=False))
+        except (TypeError, ValueError):
+            n += 16
+    return n
+
+
+def _build_context_segments(
+    persisted: List[Dict[str, Any]], conversation_id: str
+) -> Tuple[str, str, List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], int, Dict[str, Any]]:
+    """与 _build_api_messages_for_model 相同的语义拆分（未 sanitize），供布局统计。
+    近期为 full_pre_stripped + full_suf_stripped，中间由 pure_folded 插入，见 _split_pure_and_full_dialogue。
+    返回中 int 为远期带内 user 条数（与 pure_user_rounds 对齐，按 pure_raw 统计）。
+    """
+    mode = _stored_mode_for_tail(conversation_id)
+    fu = _find_first_user_index(persisted)
+    kb_part = _build_kb_prompt(conversation_id)
+    summaries: List[Dict[str, Any]] = []
+    if fu is not None and fu > 1:
+        for m in persisted[1:fu]:
+            if m.get("role") == "system" and m.get("_agent_summary"):
+                summaries.append(_strip_internal_message_for_api(m))
+    dialogue = persisted[fu:] if fu is not None else []
+    pure_raw, full_pre_raw, full_suf_raw = _split_pure_and_full_dialogue(
+        dialogue,
+        CONTEXT_FULL_USER_ROUNDS,
+        CONTEXT_PURE_USER_ROUNDS,
+    )
+    pure_user_turns = _count_user_turns_in_messages(pure_raw)
+    pure_folded = _fold_pure_window_for_api(pure_raw)
+    full_pre_stripped = [_strip_internal_message_for_api(m) for m in full_pre_raw]
+    full_suf_stripped = [_strip_internal_message_for_api(m) for m in full_suf_raw]
+    mode_tail = _ephemeral_mode_system_tail(mode)
+    return (
+        TOOL_AGENT_SYSTEM_PROMPT,
+        kb_part or "",
+        summaries,
+        pure_folded,
+        full_pre_stripped,
+        full_suf_stripped,
+        pure_user_turns,
+        mode_tail,
+    )
+
+
+def _compute_context_layout_payload(conversation_id: str, persisted: List[Dict[str, Any]]) -> Dict[str, Any]:
+    sys_base, kb_part, summaries, pure_folded, full_pre, full_suf, pure_user_turns, mode_tail = _build_context_segments(
+        persisted, conversation_id
+    )
+    t_system = _approx_tokens_text(sys_base)
+    t_kb = _approx_tokens_text(kb_part)
+    t_summary = sum(_approx_tokens_message(m) for m in summaries)
+    t_pure = sum(_approx_tokens_message(m) for m in pure_folded)
+    t_full = sum(_approx_tokens_message(m) for m in full_pre) + sum(_approx_tokens_message(m) for m in full_suf)
+    t_mode = _approx_tokens_message(mode_tail)
+    # label 为前端括号标题（与业务含义映射一致）
+    labels = {
+        "system": "系统占用",
+        "knowledge": "知识库",
+        "summary": "记忆文件",
+        "pure": "远期记忆",
+        "full_recent": "近期记忆",
+        "mode": "模式",
+    }
+    keys_tokens = [
+        ("system", t_system),
+        ("knowledge", t_kb),
+        ("summary", t_summary),
+        ("pure", t_pure),
+        ("full_recent", t_full),
+        ("mode", t_mode),
+    ]
+    counts_map: Dict[str, Optional[int]] = {
+        "system": None,
+        "knowledge": _kb_attached_file_count(conversation_id),
+        "summary": len(summaries),
+        "pure": pure_user_turns,
+        "full_recent": _count_user_turns_in_messages(full_pre) + _count_user_turns_in_messages(full_suf),
+    }
+    total_used = sum(t for _, t in keys_tokens)
+    budget = max(CONTEXT_LAYOUT_BUDGET_TOKENS, int(total_used), 1)
+    remainder = max(0, budget - int(total_used))
+    segments: List[Dict[str, Any]] = []
+    for key, tok in keys_tokens:
+        pct = (100.0 * float(tok) / float(budget)) if budget > 0 else 0.0
+        seg_item: Dict[str, Any] = {
+            "key": key,
+            "label": labels.get(key, key),
+            "tokens": int(tok),
+            "pct": round(pct, 6),
+        }
+        cn = counts_map.get(key)
+        if cn is not None:
+            seg_item["count"] = int(cn)
+        segments.append(seg_item)
+    pct_rem = (100.0 * float(remainder) / float(budget)) if budget > 0 else 0.0
+    segments.append(
+        {
+            "key": "remaining",
+            "label": "剩余容量",
+            "tokens": int(remainder),
+            "pct": round(pct_rem, 6),
+        }
+    )
+    return {"segments": segments, "total_tokens": int(total_used), "budget_tokens": int(budget)}
 
 
 def _adjust_excerpt_range_half_open(messages: List[Dict[str, Any]], start: int, end: int) -> Tuple[int, int]:
@@ -1946,6 +2251,32 @@ def _adjust_excerpt_range_half_open(messages: List[Dict[str, Any]], start: int, 
                 end = min(j, n)
         i += 1
     return start, min(end, n)
+
+
+def _dialogue_summary_excerpt_half_open(messages: List[Dict[str, Any]]) -> Optional[Tuple[int, int]]:
+    """摘要截取区间 [start,end)：仅覆盖「首条 user」至「保留尾」起点之前，保留末尾 full+pure 个 user 回合不动。
+
+    与上下文窗口一致：full_user_rounds + pure_user_rounds 个 user 从末尾起不得被本段摘要删除。
+    """
+    fu = _find_first_user_index(messages)
+    if fu is None:
+        return None
+    user_idxs = [i for i, m in enumerate(messages) if m.get("role") == "user" and i >= fu]
+    k = len(user_idxs)
+    fn = max(1, int(CONTEXT_FULL_USER_ROUNDS))
+    pn = max(0, int(CONTEXT_PURE_USER_ROUNDS))
+    reserve = fn + pn
+    if reserve <= 0 or k <= reserve:
+        return None
+    end_cap = user_idxs[k - reserve]
+    start0 = fu
+    if start0 >= end_cap:
+        return None
+    s_adj, e_adj = _adjust_excerpt_range_half_open(messages, start0, end_cap)
+    e_adj = min(e_adj, end_cap)
+    if s_adj >= e_adj:
+        return None
+    return s_adj, e_adj
 
 
 def _parse_excerpt_file(raw: str) -> Tuple[dict, str]:
@@ -2108,47 +2439,58 @@ def _sanitize_tool_pairing_for_api(msgs: List[Dict[str, Any]]) -> List[Dict[str,
 
 
 def _build_api_messages_for_model(persisted: List[Dict[str, Any]], conversation_id: str) -> List[Dict[str, Any]]:
-    mode = _stored_mode_for_tail(conversation_id)
-    fu = _find_first_user_index(persisted)
-    sys_content = TOOL_AGENT_SYSTEM_PROMPT
-    # 注入知识库内容
-    kb_part = _build_kb_prompt(conversation_id)
+    sys_base, kb_part, summaries, pure_folded, full_pre, full_suf, _pure_user_turns, mode_tail = _build_context_segments(
+        persisted, conversation_id
+    )
+    sys_content = sys_base
     if kb_part:
         sys_content += "\n\n" + kb_part
     prefix = [{"role": "system", "content": sys_content}]
-    summaries: List[Dict[str, Any]] = []
-    if fu is not None and fu > 1:
-        for m in persisted[1:fu]:
-            if m.get("role") == "system" and m.get("_agent_summary"):
-                summaries.append(_strip_internal_message_for_api(m))
-    dialogue = persisted[fu:] if fu is not None else []
-    recent = _take_last_n_user_rounds(dialogue, CONTEXT_RECENT_USER_ROUNDS)
-    tail = [_strip_internal_message_for_api(m) for m in recent]
-    built = prefix + summaries + tail + [_ephemeral_mode_system_tail(mode)]
+    tail = list(full_pre) + list(pure_folded) + list(full_suf)
+    built = prefix + summaries + tail + [mode_tail]
     return _sanitize_tool_pairing_for_api(built)
+
+
+_AGENT_SUMMARY_BRIDGE_TAIL = "\n\n【以上为历史摘要，下面继续当前对话】"
+
+
+def _is_degenerate_summary_body(body: str) -> bool:
+    """无实质摘要：空串，或极短且仅含「摘要为空」类占位（避免误伤正文中提及该短语的长摘要）。"""
+    b = str(body or "").strip()
+    if not b:
+        return True
+    if len(b) < 10 and "摘要为空" in b:
+        return True
+    return False
 
 
 def _summarize_messages_slice_with_llm(slice_msgs: List[Dict[str, Any]], cid: str = "") -> str:
     sys_h = (
-        "你是对话整理助手。将下列聊天记录压缩为简明中文摘要，保留关键决定、未完成项、重要路径与工具结论；"
-        "不要编造。输出纯文本。"
+        "你是对话整理助手，任务是对下列「历史聊天记录」做摘要提取，不是续写对话、不是执行工具、不要输出工具调用。\n"
+        "1) 识别对话场景（如开发、排障、写文档、数据分析等），按场景保留高价值信息。\n"
+        "2) 降噪：去掉寒暄与无信息套话；多处矛盾时以用户最终意图与最后澄清为准；重复尝试可合并为一句。\n"
+        "3) 事实粒度：保留可执行信息——路径、命令、版本号、明确数字、用户硬性约束（必须/禁止等）。\n"
+        "4) 未完成：单独列出仍待处理或待用户确认的事项；已放弃的方案一句话带过即可。\n"
+        "5) 输出：纯文本中文；建议分节（背景 / 关键结论 / 约束与约定 / 未完成与待确认 / 风险与注意点）；"
+        "总篇幅控制在约 800～1200 字以内，避免过长反噬后续上下文。\n"
+        "6) 脉络连贯：关注「用户要什么 → 做了什么 → 得到什么结论」的因果链，不要只罗列事实；对每个关键结论尽量保留。\n"
+        "7) 禁止编造：不得引入记录中未出现的文件名、结论或数字；不确定处请写「未在记录中明确」。\n"
+        "8) 若剔除噪声后确实无可保留的实质信息：请仅输出「摘要为空」五个字（不要加标点或换行），"
+        "使全文总字符数少于 10；不要输出其它占位或解释。"
     )
     compact: List[Dict[str, Any]] = []
     for m in slice_msgs:
         r = m.get("role")
+        if r == "tool":
+            continue
         if r == "user":
             compact.append({"role": "user", "content": str(m.get("content") or "")[:8000]})
         elif r == "assistant":
-            compact.append({
-                "role": "assistant",
-                "content": str(m.get("content") or "")[:6000],
-                "tool_calls": m.get("tool_calls"),
-            })
-        elif r == "tool":
-            compact.append({"role": "tool", "content": str(m.get("content") or "")[:6000]})
+            compact.append({"role": "assistant", "content": str(m.get("content") or "")[:6000]})
         elif r == "system":
             compact.append({"role": "system", "content": str(m.get("content") or "")[:4000]})
     reff = _get_reasoning_effort(cid)
+    th_type = "enabled" if SUMMARY_THINKING_ENABLED else "disabled"
     payload = {
         "model": default_model_from_env(),
         "messages": [
@@ -2156,7 +2498,7 @@ def _summarize_messages_slice_with_llm(slice_msgs: List[Dict[str, Any]], cid: st
             {"role": "user", "content": json.dumps(compact, ensure_ascii=False)},
         ],
         "reasoning_effort": reff,
-        "thinking": {"type": "enabled"},
+        "thinking": {"type": th_type},
         "temperature": 0.2,
     }
     data = deepseek_request(payload)
@@ -2164,7 +2506,10 @@ def _summarize_messages_slice_with_llm(slice_msgs: List[Dict[str, Any]], cid: st
     ch0 = choices[0] if choices else {}
     msg = (ch0 or {}).get("message") or {}
     c = msg.get("content")
-    return str(c or "").strip() or "(摘要为空)"
+    body = str(c or "").strip()
+    if _is_degenerate_summary_body(body):
+        return ""
+    return body + _AGENT_SUMMARY_BRIDGE_TAIL
 
 
 def _maybe_schedule_summarization(cid: str, messages: List[Dict[str, Any]]) -> None:
@@ -2173,23 +2518,26 @@ def _maybe_schedule_summarization(cid: str, messages: List[Dict[str, Any]]) -> N
         if alive is not None and time.time() >= alive:
             SUMMARY_IN_PROGRESS.pop(cid, None)
             alive = None
-        if len(messages) <= CONTEXT_HISTORY_MAX_MESSAGES:
+        total_tokens = sum(_approx_tokens_message(m) for m in messages)
+        if total_tokens <= CONTEXT_SUMMARY_TOKEN_THRESHOLD:
             return
         if alive is not None:
             return
-        start = CONTEXT_EXCERPT_START_INDEX
-        end = len(messages)
-        if start >= end:
+        rng = _dialogue_summary_excerpt_half_open(messages)
+        if rng is None:
             return
-        s_adj, e_adj = _adjust_excerpt_range_half_open(messages, start, end)
+        s_adj, e_adj = rng[0], rng[1]
         if s_adj >= e_adj:
             return
         slice_copy = copy.deepcopy(messages[s_adj:e_adj])
+        slice_copy = _strip_tool_trace_for_summary(slice_copy)
         SUMMARY_IN_PROGRESS[cid] = time.time() + SUMMARY_IN_PROGRESS_TTL_SEC
 
     def _run() -> None:
         try:
             text = _summarize_messages_slice_with_llm(slice_copy, cid)
+            if not str(text or "").strip():
+                return
             ts = int(time.time() * 1000)
             EXCERPTS_DIR.mkdir(parents=True, exist_ok=True)
             path = EXCERPTS_DIR / f"{cid}_{ts}.md"
@@ -2341,7 +2689,7 @@ def run_agent_turn(
                             step_title = step_title[:79] + "…"
                 script = script_by_api.get(api_name or "")
                 exec_args = dict(args) if isinstance(args, dict) else {}
-                exec_args.pop("usePreview", None)
+                exec_args.pop("use_preview", None)
                 exec_args = _coerce_tool_arguments_for_agent(exec_args)
                 if script and isinstance(args, dict):
                     sl = script.lower()
@@ -2403,24 +2751,12 @@ def run_agent_turn(
                         result = _execute_todo_list(conversation_id, exec_args)
                         result = attach_tool_help_on_failure(script, _todo_list_mod, result)
                     else:
-                        _WRITE_TOOLS_RUNTYPE = frozenset(
-                            {
-                                "file_ops.py",
-                                "python_inline.py",
-                                "write_file.py",
-                                "read_write.py",
-                                "replace_in_file.py",
-                                "apply_patch.py",
-                                "run_command.py",
-                                "delete_file.py",
-                            }
-                        )
-                        if script in _WRITE_TOOLS_RUNTYPE:
+                        if script in WRITE_TOOL_SCRIPTS:
                             current_mode = CONVERSATION_MODES.get(conversation_id, "")
                             if current_mode == "plan":
-                                # Plan 模式：replace_in_file 仅允许 dryRun 预览；其余写类工具一律拒绝
+                                # Plan 模式：replace_in_file 仅允许 dry_run 预览；其余写类工具一律拒绝
                                 if script == "replace_in_file.py":
-                                    _dr = exec_args.get("--dryRun", True)
+                                    _dr = exec_args.get("dry_run", True)
                                     if _dr is False or _dr == 0:
                                         result = {"ok": False, "data": None, "error": {"type": "ModeConflict", "message": "当前为 Plan 模式，禁止执行写操作。请先切换为 Execute 模式后再执行。"}}
                                         result = attach_tool_help_on_failure(script, None, result)
@@ -2470,7 +2806,7 @@ def run_agent_turn(
                                         _sp = _search_progress.get("scanned")
                                         if _sp is None:
                                             return {}
-                                        _cf = _search_progress.get("currentFile", "")
+                                        _cf = _search_progress.get("current_file", "")
                                         if not isinstance(_cf, str):
                                             _cf = str(_cf) if _cf is not None else ""
                                         return {
@@ -2478,7 +2814,6 @@ def run_agent_turn(
                                             "conversation_id": conversation_id,
                                             "tool_call_id": tc.get("id"),
                                             "scanned": _sp,
-                                            "currentFile": _cf,
                                             "current_file": _cf,
                                         }
 
@@ -2514,6 +2849,11 @@ def run_agent_turn(
                                         _FILE_SEARCH_ALLOWED = False
                             else:
                                 result = execute_tool_script(script, exec_args)
+                    result = maybe_attach_write_tool_host_dry_run_notice(
+                        script,
+                        result,
+                        CONVERSATION_MODES.get(conversation_id, ""),
+                    )
                     if not (isinstance(result, dict) and result.get("ok") is True):
                         _record_tool_debug_failure(
                             conversation_id=conversation_id,
@@ -2572,9 +2912,9 @@ def run_agent_turn(
                                 # 发送独立的 todo_list SSE 事件供前端专属区域渲染
                                 sse_data = {
                                     "type": "todo_list",
-                                    "listId": str(_td.get("listId") or ""),
+                                    "list_id": str(_td.get("list_id") or ""),
                                     "items": _td["items"],
-                                    "allDone": all(it.get("done") for it in _td["items"]),
+                                    "all_done": all(it.get("done") for it in _td["items"]),
                                 }
                                 sse_data["collapsed"] = bool(_td.get("collapsed"))
                                 if _td.get("close"):
@@ -2584,7 +2924,7 @@ def run_agent_turn(
                     
                     if script == "run_type.py" and isinstance(result, dict) and result.get("ok"):
                         _dc = result.get("data") or {}
-                        _rtm = _dc.get("runType")
+                        _rtm = _dc.get("run_type")
                         if _rtm in ("auto", "plan", "execute"):
                             yield {"type": "mode_changed", "mode": _rtm}
                     md_chat = _chat_diff_markdown_for_tool(script, result, exec_args)
@@ -2599,6 +2939,7 @@ def run_agent_turn(
                     "tool_call_id": tc.get("id"),
                     "content": _truncate_tool_result(result),
                 })
+                yield _context_layout_event(conversation_id, messages)
                 if turn_stop_after_this_batch:
                     yield _finish_conversation_stopped(conversation_id, rollback_messages)
                     return
@@ -2612,6 +2953,7 @@ def run_agent_turn(
                 messages.append({"role": "assistant", "content": combined, "reasoning_content": ""})
                 if not content_parts:
                     yield {"type": "assistant", "content": combined}
+                yield _context_layout_event(conversation_id, messages)
             api_messages = _build_api_messages_for_model(messages, conversation_id)
             continue
 
@@ -2705,6 +3047,7 @@ def run_agent_turn(
         _maybe_schedule_summarization(conversation_id, messages)
     CONVERSATIONS[conversation_id] = messages
     _save_conversation(conversation_id, messages)
+    yield _context_layout_event(conversation_id, messages)
     yield {"type": "done"}
 
 
@@ -2826,6 +3169,14 @@ def _conversation_sse_event(cid: str, ev: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _context_layout_event(conversation_id: str, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """SSE：当前 messages 下的上下文视图（供底部比例条 / 悬浮层）。"""
+    return _conversation_sse_event(
+        conversation_id,
+        {"type": "context_layout", **_compute_context_layout_payload(conversation_id, messages)},
+    )
+
+
 def _apply_conversation_request_options(cid: str, mode: str, model: str) -> None:
     mod = str(model or "").strip()
     if mod:
@@ -2935,6 +3286,8 @@ def chat_user_confirm_stream(inp: ChatUserConfirmIn, request: Request):
                 yield f"data: {json.dumps(_se, ensure_ascii=False)}\n\n"
                 return
             _apply_conversation_request_options(cid, mode, mod)
+            _msgs_ctx = list(CONVERSATIONS.get(cid, []))
+            yield f"data: {json.dumps(_context_layout_event(cid, _msgs_ctx), ensure_ascii=False)}\n\n"
             for ev in run_agent_turn(cid, "", client_ip=client_ip, mode_hint=mode, resume_after_user_confirm=True, run_id=_run_id):
                 ev2 = _conversation_sse_event(cid, ev)
                 _log_agent_console_sse(cid, ev2)
@@ -3245,7 +3598,7 @@ def chat_stream(inp: ChatIn, request: Request):
                 return
             yield f"data: {json.dumps({'type': 'run_started', 'conversation_id': cid, 'run_id': _run_id}, ensure_ascii=False)}\n\n"
             if not _chat_api_key_available():
-                _err_ev = {"type": "error", "conversation_id": cid, "where": "config", "detail": "请先在 config.json 中配置 AGENT_MODEL_API_KEY"}
+                _err_ev = {"type": "error", "conversation_id": cid, "where": "config", "detail": "请先在 config.ini 的 [model] 节配置 api_key（或设置环境变量 CHAT_API_KEY）"}
                 yield f"data: {json.dumps(_err_ev, ensure_ascii=False)}\n\n"
                 return
             _ensure_conversation_loaded(cid)
@@ -3370,17 +3723,17 @@ def health():
 
 
 def main():
-    # 加载配置（读取 config.json，设置环境变量 PORT）
+    # 加载配置（读取 config.ini，设置环境变量 PORT 等）
     from util.config_loader import load_config
     load_config(verbose=True)
     port_str = os.environ.get("PORT")
     if not port_str:
-        print("FATAL: PORT 未设置！请在 config.json 中配置 AGENT_SERVER_PORT", flush=True)
+        print("FATAL: PORT 未设置！请在 config.ini 的 [server] 节配置 port", flush=True)
         sys.exit(1)
     
     # ── API Key 检查 ──
     if not _chat_api_key_available():
-        print("⚠️  WARNING: AGENT_MODEL_API_KEY 未配置或为空！请在 config.json 中设置 AGENT_MODEL_API_KEY", file=sys.stderr, flush=True)
+        print("⚠️  WARNING: API Key 未配置或为空！请在 config.ini 的 [model] 节设置 api_key 或环境变量 CHAT_API_KEY", file=sys.stderr, flush=True)
         print("⚠️  或通过环境变量 CHAT_API_KEY 设置", file=sys.stderr, flush=True)
 
     uvicorn.run(app, host="127.0.0.1", port=int(port_str))

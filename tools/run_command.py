@@ -57,18 +57,18 @@ def agent_main(
         )
         ok_sub = cp.returncode == 0
         data = {
-            "exitCode": cp.returncode,
+            "exit_code": cp.returncode,
             "stdout": _decode_output(cp.stdout),
             "stderr": _decode_output(cp.stderr),
             "timeout": False,
-            "selectedShell": selected_shell,
+            "selected_shell": selected_shell,
         }
         return {"ok": ok_sub, "data": data, "error": None if ok_sub else {"type": "CommandFailed", "message": "命令非零退出"}}
     except subprocess.TimeoutExpired as e:
         return {
             "ok": False,
             "data": {
-                "exitCode": -1,
+                "exit_code": -1,
                 "stdout": _decode_output(e.stdout),
                 "stderr": _decode_output(e.stderr),
                 "timeout": True,
@@ -86,26 +86,27 @@ def main() -> None:
     p = argparse.ArgumentParser(description="run_command")
     p.add_argument("--command", required=True)
     p.add_argument("--cwd", default=None)
-    p.add_argument("--timeoutSec", type=int, default=300)
+    p.set_defaults(safe_mode=True)
+    p.add_argument("--timeout_sec", type=int, default=300)
     p.add_argument("--shell", choices=["auto", "cmd", "powershell"], default="auto")
-    p.add_argument("--safeMode", action="store_true", default=True)
-    p.add_argument("--no-safeMode", dest="safeMode", action="store_false")
+    p.add_argument("--safe_mode", dest="safe_mode", action="store_true")
+    p.add_argument("--no_safe_mode", dest="safe_mode", action="store_false")
     p.add_argument(
-        "--restrictToWorkspace",
+        "--restrict_to_workspace",
         action="store_true",
         help="cwd 限定在 WORKSPACE_DIR 内（默认不限制）。",
     )
-    p.add_argument("--runType", default="")
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--run_type", default="")
+    p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
     r = agent_main(
         command=args.command,
         cwd=args.cwd,
-        timeout_sec=args.timeoutSec,
+        timeout_sec=args.timeout_sec,
         shell=args.shell,
-        safe_mode=args.safeMode,
-        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
-        run_type=str(args.runType or ""),
+        safe_mode=bool(args.safe_mode),
+        restrict_to_workspace=bool(args.restrict_to_workspace),
+        run_type=str(args.run_type or ""),
     )
     print(json.dumps(r, ensure_ascii=False))
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""命令执行共用：黑名单、safeMode 字符检查、shell 选择与输出解码。"""
+"""命令执行共用：黑名单、safe_mode 字符检查、shell 选择与输出解码。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Optional, Tuple, Union
 _SAFE_BLOCK_RE = re.compile(r"[;&|`$><]")
 
 # ── 命令黑名单：真删除/毁灭性操作 ──
-# 无论 safeMode=true/false，均拦截。应改用 delete_file（逻辑删除移至回收站）。
+# 无论 safe_mode=true/false，均拦截。应改用 delete_file（逻辑删除移至回收站）。
 _CMD_BLACKLIST: set[str] = {
     # Windows CMD
     "del",
@@ -139,7 +139,7 @@ def _validate_safe_command(command: str) -> None:
     m = _SAFE_BLOCK_RE.search(command)
     if m is None:
         return
-    raise ValueError(f"safeMode：命令包含禁止字符: {m.group(0)}")
+    raise ValueError(f"safe_mode：命令包含禁止字符: {m.group(0)}")
 
 
 def _resolve_shell_executable(shell_mode: str, command: str) -> Tuple[str, Optional[str]]:

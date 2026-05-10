@@ -3,28 +3,29 @@
   "title": "Agent workspace tools",
   "agent_hints": {
     "stdio_utf8": "工具进程与宿主约定 UTF-8；工作区根来自环境变量 WORKSPACE_DIR。",
-    "workspace_safety": "默认可访问 WORKSPACE_DIR 内外的绝对路径；仅当需要沙箱时再传 restrictToWorkspace:true（将路径限定在工作区根下）。",
-    "dry_run": "write_file、read_write、replace_in_file、apply_patch、delete_file、file_ops 默认 dryRun=true（仅预览）；真实写盘/移入回收站须显式 dryRun=false。",
+    "workspace_safety": "默认可访问 WORKSPACE_DIR 内外的绝对路径；仅当需要沙箱时再传 restrict_to_workspace:true（将路径限定在工作区根下）。",
+    "dry_run": "write_file、read_write、replace_in_file、apply_patch、delete_file、file_ops 默认 dry_run=true（仅预览）；真实写盘/移入回收站须显式 dry_run=false。",
     "openapi_tool_name_rule": "catalog 中 name 去掉 .py 即为 function 名。",
-    "param_naming": "相同语义的参数统一命名：目录或仓库根路径用 path（--path）；glob 过滤用 globPattern（--globPattern）；匹配行上下文宽度用 contextLines（--contextLines）；跳过 .gitignore 用 noGitignore（--noGitignore，true=不应用忽略）；超时用 timeoutSec（--timeoutSec）；会话模式用 runType（--runType）。",
-    "text_search_glob": "grep_files、regex_locate、file_search：path 为目录时，省略 globPattern（或空字符串）→ 仅扫描内置「以文本/源码形式编辑」的扩展名（见 agent_common.TEXT_SEARCH_SOURCE_GLOBS）；默认不扫任何非文本类文件（压缩包、图片、音视频、可执行体、通用二进制等）。确需对任意类型做内容检索时须显式传 globPattern=\"*\"（慎用，耗时长）。",
-    "read_write_encoding": "read_write：encoding 为读源编码（默认 utf-8，可 auto）；encodingWrite 为写入 dest 的编码（OpenAPI 参数名 encodingWrite，省略则与读侧相同）。",
-    "archive_plan": "archive：action=list 可读；extract/create 在 Plan 模式会被工具拒绝；传 runType 与当前执行模式一致。",
-    "delete_safe": "delete_file 不落盘 unlink，而是将文件移到 DATA_ROOT/safe_delete 下按日期分桶；默认 dryRun。",
-    "catalog_examples": "各工具的 examples 会并入宿主下发给模型的 function.description（及失败时的 toolHelp）；示例键名与 function schema 完全一致，布尔为 JSON true/false。",
-    "tool_help_on_failure": "凡工具返回 ok=false，宿主在 error.toolHelp 中附带 argparse 等效 --help 全文 + 本清单摘要；模型须据此纠错。",
-    "region_replace_safety": "replace_in_file 提供四种替换方式：① lineStart+lineEnd（行替换，推荐）：按行号替换，坐标永不漂移。② regions 数组：一次传入 [{regionStart,regionEnd,newText},...]，工具自动降序防漂移。③ 单次 regionStart+regionEnd：精确替换。④ rules 数组：字面 oldText→newText 批量替换。",
-    "literal_replace_ambiguity": "⚠️ oldText+newText 字面替换默认 replaceAll=true（替换全部匹配）。若 oldText 内容在文件中有多处相同文本，会全部误伤。安全做法：① 每次设 expectedReplacements=n 校验替换次数；② oldText 尽量带上唯一上下文（如行首空格+前一行特征）；③ 无歧义时也可用 regionStart/regionEnd（注意坐标偏移风险）。"
+    "param_naming": "相同语义的参数统一命名：目录或仓库根路径用 path（--path）；glob 过滤用 glob_pattern（--glob_pattern）；匹配行上下文宽度用 context_lines（--context_lines）；跳过 .gitignore 用 no_gitignore（--no_gitignore，true=不应用忽略）；超时用 timeout_sec（--timeout_sec）；会话模式用 run_type（--run_type）。",
+    "text_search_glob": "grep_files、regex_locate、file_search：path 为目录时，省略 glob_pattern（或空字符串）→ 仅扫描内置「以文本/源码形式编辑」的扩展名（见 agent_common.TEXT_SEARCH_SOURCE_GLOBS）；默认不扫任何非文本类文件（压缩包、图片、音视频、可执行体、通用二进制等）。确需对任意类型做内容检索时须显式传 glob_pattern=\"*\"（慎用，耗时长）。",
+    "read_write_encoding": "read_write：encoding 为读源编码（默认 utf-8，可 auto）；encoding_write 为写入 dest 的编码（OpenAPI 参数名 encoding_write，省略则与读侧相同）。",
+    "archive_plan": "archive：action=list 可读；extract/create 在 Plan 模式会被工具拒绝；传 run_type 与当前执行模式一致。",
+    "delete_safe": "delete_file 不落盘 unlink，而是将文件移到 DATA_ROOT/safe_delete 下按日期分桶；默认 dry_run。",
+    "catalog_examples": "各工具的 examples 会并入宿主下发给模型的 function.description（及失败时的 tool_help）；示例键名与 function schema 完全一致，布尔为 JSON true/false。",
+    "tool_help_on_failure": "凡工具返回 ok=false，宿主在 error.tool_help 中附带 argparse 等效 --help 全文 + 本清单摘要；模型须据此纠错。",
+    "region_replace_safety": "replace_in_file 提供四种替换方式：① line_start+line_end（行替换，推荐）：按行号替换，坐标永不漂移。② regions 数组：一次传入 [{region_start,region_end,new_text},...]，工具自动降序防漂移。③ 单次 region_start+region_end：精确替换。④ rules 数组：字面 old_text→new_text 批量替换。",
+    "literal_replace_ambiguity": "⚠️ old_text+new_text 字面替换默认 replace_all=true（替换全部匹配）。若 old_text 内容在文件中有多处相同文本，会全部误伤。安全做法：① 每次设 expected_replacements=n 校验替换次数；② old_text 尽量带上唯一上下文（如行首空格+前一行特征）；③ 无歧义时也可用 region_start/region_end（注意坐标偏移风险）。",
+    "string_escape": "⚠️ 字符串参数（old_text、new_text、pattern、patch_text、code 等）中的反斜杠 \\ 按 JSON 标准转义。例如：arguments 中 \\n 表示字面反斜杠+n（而非换行符），\\\\ 表示单个反斜杠。不确定时优先用 line_start+line_end 或 region 替换，避免转义问题。"
   },
   "tools": [
     {
       "name": "run_type.py",
       "path": "tools/run_type.py",
-      "purpose": "会话运行模式（Auto / Plan / Execute）：由宿主按会话维护。不传 runType 为查询当前模式；传入则为请求切换。Plan 下多数写盘工具会拒绝；Execute 表示用户已授权真实写盘。",
+      "purpose": "会话运行模式（Auto / Plan / Execute）：由宿主按会话维护。不传 run_type 为查询当前模式；传入则为请求切换。Plan 下多数写盘工具会拒绝；Execute 表示用户已授权真实写盘。",
       "stdout_output": "{ok,data}",
       "args": [
         {
-          "flag": "--runType",
+          "flag": "--run_type",
           "type": "enum",
           "required": false,
           "values": [
@@ -32,10 +33,10 @@
             "plan",
             "execute"
           ],
-          "description": "可选。省略时仅返回当前模式；传 auto/plan/execute 时请求宿主切换。与 agent_hints 中 runType 语义一致；OpenAI 参数名为 runType。"
+          "description": "可选。省略时仅返回当前模式；传 auto/plan/execute 时请求宿主切换。与 agent_hints 中 run_type 语义一致；OpenAI 参数名为 run_type。"
         },
         {
-          "flag": "--jsonOut",
+          "flag": "--json_out",
           "type": "boolean",
           "required": false,
           "description": "CLI 调试：为 true 时 stdout 为统一 JSON 信封；宿主进程内调用通常忽略。"
@@ -44,21 +45,21 @@
       "examples": [
         {
           "title": "查询当前模式",
-          "note": "不传 runType，仅询问宿主。",
+          "note": "不传 run_type，仅询问宿主。",
           "args": {}
         },
         {
           "title": "请求进入 Plan",
           "note": "规划阶段，写盘类工具应拒绝。",
           "args": {
-            "runType": "plan"
+            "run_type": "plan"
           }
         },
         {
           "title": "请求 Execute",
           "note": "用户已确认后进入执行。",
           "args": {
-            "runType": "execute"
+            "run_type": "execute"
           }
         }
       ]
@@ -66,7 +67,7 @@
     {
       "name": "read_file.py",
       "path": "tools/read_file.py",
-      "purpose": "读取单个文本文件全文或局部。支持四种互斥切片（勿混用）：①仅 maxChars 截断全文；②lineStart+lineEnd 行闭区间；③行闭区间 + startColumn+endColumn 行列矩形（endColumn 为开区间，可为负从行末倒推）；④charStart+charEnd 字符半开区间（charEnd 为负表示相对文末）。需与 replace_in_file 对齐的精确区间请用 find_in_file / regex_locate 得到 regionStart/end 再读或替换。",
+      "purpose": "读取单个文本文件全文或局部。支持四种互斥切片（勿混用）：①仅 max_chars 截断全文；②line_start+line_end 行闭区间；③行闭区间 + start_column+end_column 行列矩形（end_column 为开区间，可为负从行末倒推）；④char_start+char_end 字符半开区间（char_end 为负表示相对文末）。需与 replace_in_file 对齐的精确区间请用 find_in_file / regex_locate 得到 region_start/end 再读或替换。",
       "stdout_output": "{ok,data:{content,path,...}}",
       "args": [
         {
@@ -82,55 +83,55 @@
           "description": "utf-8（默认）按该编码解码；auto 依次尝试 utf-8、gb18030、gbk 等，失败则 replace。"
         },
         {
-          "flag": "--lineStart",
+          "flag": "--line_start",
           "type": "integer",
           "required": false,
-          "description": "与 lineEnd 成对：1-based 起始行。与 startColumn/endColumn 组合为矩形读取。"
+          "description": "与 line_end 成对：1-based 起始行。与 start_column/end_column 组合为矩形读取。"
         },
         {
-          "flag": "--lineEnd",
+          "flag": "--line_end",
           "type": "integer",
           "required": false,
           "description": "1-based 结束行（闭区间）。"
         },
         {
-          "flag": "--startColumn",
+          "flag": "--start_column",
           "type": "integer",
           "required": false,
-          "description": "矩形模式：1-based 起始列，须与 lineStart、lineEnd、endColumn 同传。"
+          "description": "矩形模式：1-based 起始列，须与 line_start、line_end、end_column 同传。"
         },
         {
-          "flag": "--endColumn",
+          "flag": "--end_column",
           "type": "integer",
           "required": false,
           "description": "矩形模式：1-based 结束开列；负数从该行最后一个字符向前计数。"
         },
         {
-          "flag": "--charStart",
+          "flag": "--char_start",
           "type": "integer",
           "required": false,
           "description": "字符模式：0-based 起始偏移（含）。勿与行矩形同时使用。"
         },
         {
-          "flag": "--charEnd",
+          "flag": "--char_end",
           "type": "integer",
           "required": false,
           "description": "字符模式：0-based 结束偏移（不含）；-1 表示到文末。"
         },
         {
-          "flag": "--maxChars",
+          "flag": "--max_chars",
           "type": "integer",
           "required": false,
           "description": "返回正文最大字符数，默认 500000；与行/字区间组合时用于二次截断。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         },
         {
-          "flag": "--runType",
+          "flag": "--run_type",
           "type": "enum",
           "required": false,
           "values": [
@@ -144,12 +145,12 @@
       "examples": [
         {
           "title": "整文件",
-          "note": "默认 UTF-8，受 maxChars 保护。",
+          "note": "默认 UTF-8，受 max_chars 保护。",
           "args": {
             "path": "src/app.py",
             "encoding": "utf-8",
-            "maxChars": 500000,
-            "runType": "auto"
+            "max_chars": 500000,
+            "run_type": "auto"
           }
         },
         {
@@ -157,8 +158,8 @@
           "note": "读取第 10–40 行（闭区间）。",
           "args": {
             "path": "README.md",
-            "lineStart": 10,
-            "lineEnd": 40
+            "line_start": 10,
+            "line_end": 40
           }
         },
         {
@@ -166,8 +167,8 @@
           "note": "0-based 半开，常用于与 API 返回的 slice 对齐。",
           "args": {
             "path": "config.json",
-            "charStart": 0,
-            "charEnd": 2048
+            "char_start": 0,
+            "char_end": 2048
           }
         },
         {
@@ -175,20 +176,20 @@
           "note": "多行多列裁剪。",
           "args": {
             "path": "main.py",
-            "lineStart": 5,
-            "lineEnd": 12,
-            "startColumn": 1,
-            "endColumn": 80
+            "line_start": 5,
+            "line_end": 12,
+            "start_column": 1,
+            "end_column": 80
           }
         },
         {
           "title": "编码与越界只读",
-          "note": "auto 编码探测；默认可访问 WORKSPACE_DIR 外路径，需限制时传 restrictToWorkspace:true。",
+          "note": "auto 编码探测；默认可访问 WORKSPACE_DIR 外路径，需限制时传 restrict_to_workspace:true。",
           "args": {
             "path": "D:/refs/notes.txt",
             "encoding": "auto",
-            "maxChars": 100000,
-            "runType": "execute"
+            "max_chars": 100000,
+            "run_type": "execute"
           }
         }
       ]
@@ -196,14 +197,14 @@
     {
       "name": "grep_files.py",
       "path": "tools/grep_files.py",
-      "purpose": "在单个文件或目录根 path 下搜索字面或正则 pattern，返回匹配行列表（含 file、line、column、match、regionStart、regionEnd、上下文）。每条命中的 regionStart/regionEnd 可直接作为 replace_in_file 的区间替换参数。path 为目录时：省略 globPattern 则仅扫内置文本/源码类扩展名，默认排除一切非文本类文件；需纳入任意类型时传 globPattern=\"*\"。recursive 控制子目录；noGitignore=true 可扫被 Git 忽略的路径。大目录时宿主会推送 tool_progress。",
-      "stdout_output": "{ok,data:{matches:[{file,line,column,match,regionStart,regionEnd,text,context?}],...}}",
+      "purpose": "在单个文件或目录根 path 下搜索字面或正则 pattern，返回匹配行列表（含 file、line、column、match、region_start、region_end、上下文）。每条命中的 region_start/region_end 可直接作为 replace_in_file 的区间替换参数。path 为目录时：省略 glob_pattern 则仅扫内置文本/源码类扩展名，默认排除一切非文本类文件；需纳入任意类型时传 glob_pattern=\"*\"。recursive 控制子目录；no_gitignore=true 可扫被 Git 忽略的路径。大目录时宿主会推送 tool_progress。",
+      "stdout_output": "{ok,data:{matches:[{file,line,column,match,region_start,region_end,text,context?}],...}}",
       "args": [
         {
           "flag": "--path",
           "type": "string",
           "required": true,
-          "description": "文件路径或目录根；目录时结合 recursive 与 globPattern。"
+          "description": "文件路径或目录根；目录时结合 recursive 与 glob_pattern。"
         },
         {
           "flag": "--pattern",
@@ -212,7 +213,7 @@
           "description": "搜索模式；regex=false 时为字面（| 为 OR 分隔符，如 \"foo|bar\" 匹配 foo 或 bar）。"
         },
         {
-          "flag": "--globPattern",
+          "flag": "--glob_pattern",
           "type": "string",
           "required": false,
           "description": "目录遍历时文件名 glob（如 *.py、*.tsx）。省略或空=仅内置文本/源码类扩展名，不含非文本类型；传 \"*\" 表示全部文件（含各类非文本/二进制，慎用）。"
@@ -224,7 +225,7 @@
           "description": "true 时 pattern 按 Python 正则解析。"
         },
         {
-          "flag": "--ignoreCase",
+          "flag": "--ignore_case",
           "type": "boolean",
           "required": false,
           "description": "大小写不敏感匹配。"
@@ -236,7 +237,7 @@
           "description": "path 为目录时是否递归子目录；默认 true。"
         },
         {
-          "flag": "--contextLines",
+          "flag": "--context_lines",
           "type": "integer",
           "required": false,
           "description": "命中行上下各扩展多少行上下文写入结果。"
@@ -254,19 +255,19 @@
           "description": "读文件编码，默认 utf-8；可 auto。"
         },
         {
-          "flag": "--noGitignore",
+          "flag": "--no_gitignore",
           "type": "boolean",
           "required": false,
           "description": "true 表示不按 .gitignore 过滤；默认在 Git 仓库内会排除被忽略文件。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         },
         {
-          "flag": "--runType",
+          "flag": "--run_type",
           "type": "enum",
           "required": false,
           "values": [
@@ -280,23 +281,23 @@
       "examples": [
         {
           "title": "单文件字面",
-          "note": "查找 import 字样；返回的 regionStart/regionEnd 可直接交给 replace_in_file。",
+          "note": "查找 import 字样；返回的 region_start/region_end 可直接交给 replace_in_file。",
           "args": {
             "path": "app.py",
             "pattern": "import django",
             "regex": false,
-            "runType": "auto"
+            "run_type": "auto"
           }
         },
         {
           "title": "定位后准备替换",
-          "note": "先拿到精确字符区间，再对同一 file 调 replace_in_file(regionStart, regionEnd, newText)。",
+          "note": "先拿到精确字符区间，再对同一 file 调 replace_in_file(region_start, region_end, new_text)。",
           "args": {
             "path": "README.md",
             "pattern": "https://old.example.com",
             "regex": false,
             "limit": 20,
-            "contextLines": 1
+            "context_lines": 1
           }
         },
         {
@@ -305,24 +306,24 @@
           "args": {
             "path": ".",
             "pattern": "TODO",
-            "globPattern": "*.py",
+            "glob_pattern": "*.py",
             "recursive": true,
             "encoding": "utf-8",
-            "contextLines": 0,
+            "context_lines": 0,
             "limit": 200,
-            "runType": "plan"
+            "run_type": "plan"
           }
         },
         {
           "title": "目录默认文本后缀",
-          "note": "不传 globPattern → 仅内置源码/文本后缀，避免扫 zip。",
+          "note": "不传 glob_pattern → 仅内置源码/文本后缀，避免扫 zip。",
           "args": {
             "path": "src",
             "pattern": "FIXME",
             "recursive": true,
             "limit": 100,
             "encoding": "utf-8",
-            "runType": "plan"
+            "run_type": "plan"
           }
         },
         {
@@ -332,31 +333,31 @@
             "path": "src",
             "pattern": "def\\s+run_",
             "regex": true,
-            "ignoreCase": true,
-            "contextLines": 2,
+            "ignore_case": true,
+            "context_lines": 2,
             "limit": 80,
             "encoding": "utf-8"
           }
         },
         {
           "title": "含被忽略目录",
-          "note": "需要查 venv/build 时打开 noGitignore；仍建议显式 glob（如 *.py）而非 *。",
+          "note": "需要查 venv/build 时打开 no_gitignore；仍建议显式 glob（如 *.py）而非 *。",
           "args": {
             "path": ".",
             "pattern": "SECRET",
-            "noGitignore": true,
+            "no_gitignore": true,
             "limit": 50,
             "recursive": true,
-            "globPattern": "*.py"
+            "glob_pattern": "*.py"
           }
         },
         {
           "title": "任意扩展名",
-          "note": "仅当必须对非文本类或任意扩展名做内容检索时传 globPattern=\"*\"。",
+          "note": "仅当必须对非文本类或任意扩展名做内容检索时传 glob_pattern=\"*\"。",
           "args": {
             "path": "dist",
             "pattern": "sourceMappingURL",
-            "globPattern": "*",
+            "glob_pattern": "*",
             "recursive": true,
             "limit": 30
           }
@@ -366,8 +367,8 @@
     {
       "name": "find_in_file.py",
       "path": "tools/find_in_file.py",
-      "purpose": "在单个文件内定位 pattern 的第 occurrence 次命中，返回与磁盘编码一致的 regionStart/regionEnd（0-based 半开区间），可直接传入 replace_in_file。字面与正则由 regex 控制；多命中时增大 occurrence。",
-      "stdout_output": "{ok,data:{regionStart,regionEnd,matched_text,...}}",
+      "purpose": "在单个文件内定位 pattern 的第 occurrence 次命中，返回与磁盘编码一致的 region_start/region_end（0-based 半开区间），可直接传入 replace_in_file。字面与正则由 regex 控制；多命中时增大 occurrence。",
+      "stdout_output": "{ok,data:{region_start,region_end,matched_text,...}}",
       "args": [
         {
           "flag": "--path",
@@ -388,7 +389,7 @@
           "description": "是否按正则解析 pattern。"
         },
         {
-          "flag": "--ignoreCase",
+          "flag": "--ignore_case",
           "type": "boolean",
           "required": false,
           "description": "忽略大小写。"
@@ -406,13 +407,13 @@
           "description": "读文件编码，默认 utf-8。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         },
         {
-          "flag": "--runType",
+          "flag": "--run_type",
           "type": "enum",
           "required": false,
           "values": [
@@ -433,7 +434,7 @@
             "regex": false,
             "encoding": "utf-8",
             "occurrence": 0,
-            "runType": "auto"
+            "run_type": "auto"
           }
         },
         {
@@ -445,7 +446,7 @@
             "regex": true,
             "occurrence": 1,
             "encoding": "utf-8",
-            "runType": "plan"
+            "run_type": "plan"
           }
         },
         {
@@ -455,10 +456,10 @@
             "path": "Config.ini",
             "pattern": "timeout",
             "regex": false,
-            "ignoreCase": true,
+            "ignore_case": true,
             "encoding": "utf-8",
             "occurrence": 0,
-            "runType": "execute"
+            "run_type": "execute"
           }
         }
       ]
@@ -466,8 +467,8 @@
     {
       "name": "regex_locate.py",
       "path": "tools/regex_locate.py",
-      "purpose": "在单文件或目录下用 Python 正则检索；每条命中含 regionStart/regionEnd（0-based 半开）、line/column、match 文本等。path 为目录时：省略 globPattern 则仅扫内置文本/源码类扩展名，默认排除非文本类文件；需任意类型传 globPattern=\"*\"。recursive+glob 控制范围；multiline=true 等价 re.DOTALL。大目录时宿主会推送 tool_progress。",
-      "stdout_output": "{ok,data:{count,items:[{regionStart,regionEnd,match,...}],...}}",
+      "purpose": "在单文件或目录下用 Python 正则检索；每条命中含 region_start/region_end（0-based 半开）、line/column、match 文本等。path 为目录时：省略 glob_pattern 则仅扫内置文本/源码类扩展名，默认排除非文本类文件；需任意类型传 glob_pattern=\"*\"。recursive+glob 控制范围；multiline=true 等价 re.DOTALL。大目录时宿主会推送 tool_progress。",
+      "stdout_output": "{ok,data:{count,items:[{region_start,region_end,match,...}],...}}",
       "args": [
         {
           "flag": "--path",
@@ -482,7 +483,7 @@
           "description": "Python re 正则表达式字符串。"
         },
         {
-          "flag": "--ignoreCase",
+          "flag": "--ignore_case",
           "type": "boolean",
           "required": false,
           "description": "re.IGNORECASE。"
@@ -500,7 +501,7 @@
           "description": "path 为目录时是否递归；默认 false（仅当前层 glob）。"
         },
         {
-          "flag": "--globPattern",
+          "flag": "--glob_pattern",
           "type": "string",
           "required": false,
           "description": "目录内文件名 glob。省略或空=仅内置文本/源码类扩展名；\"*\"=全部文件（含非文本/二进制，慎用）。"
@@ -518,7 +519,7 @@
           "description": "最多返回命中条数，默认 200。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
@@ -539,7 +540,7 @@
           "args": {
             "path": "scripts",
             "pattern": "^#!",
-            "globPattern": "*.py",
+            "glob_pattern": "*.py",
             "recursive": false
           }
         },
@@ -549,7 +550,7 @@
           "args": {
             "path": "src",
             "pattern": "useEffect\\(",
-            "globPattern": "*.tsx",
+            "glob_pattern": "*.tsx",
             "recursive": true,
             "limit": 80
           }
@@ -569,14 +570,14 @@
     {
       "name": "file_search.py",
       "path": "tools/file_search.py",
-      "purpose": "大目录或长耗时场景下在 path 内搜索文件内容（字面/正则），返回与 grep_files 对齐的命中字段：file、line、column、text、match、regionStart、regionEnd、上下文；regionStart/regionEnd 可直接交给 replace_in_file。宿主可推送进度。轻量搜索优先 grep_files；超大目录或需要 UI 进度时用 file_search。path 为目录时：省略 globPattern 则仅扫内置文本/源码类扩展名；需任意类型全文检索须显式 globPattern=\"*\"（慎用）。单目录默认最多扫 10000 个文件。",
-      "stdout_output": "{ok,data:{matches:[{file,line,column,text,match,regionStart,regionEnd,...}],...}}",
+      "purpose": "大目录或长耗时场景下在 path 内搜索文件内容（字面/正则），返回与 grep_files 对齐的命中字段：file、line、column、text、match、region_start、region_end、上下文；region_start/region_end 可直接交给 replace_in_file。宿主可推送进度。轻量搜索优先 grep_files；超大目录或需要 UI 进度时用 file_search。path 为目录时：省略 glob_pattern 则仅扫内置文本/源码类扩展名；需任意类型全文检索须显式 glob_pattern=\"*\"（慎用）。单目录默认最多扫 10000 个文件。",
+      "stdout_output": "{ok,data:{matches:[{file,line,column,text,match,region_start,region_end,...}],...}}",
       "args": [
         {
           "flag": "--path",
           "type": "string",
           "required": true,
-          "description": "搜索根：目录或单文件；目录时受 recursive、globPattern、noGitignore 影响。"
+          "description": "搜索根：目录或单文件；目录时受 recursive、glob_pattern、no_gitignore 影响。"
         },
         {
           "flag": "--pattern",
@@ -591,7 +592,7 @@
           "description": "true 时按正则解析 pattern。"
         },
         {
-          "flag": "--globPattern",
+          "flag": "--glob_pattern",
           "type": "string",
           "required": false,
           "description": "相对 path 的文件名 glob（如 *.ts、*.vue）。省略或空=仅内置文本/源码类扩展名；\"*\"=全部文件（含非文本/二进制，慎用）。"
@@ -603,19 +604,19 @@
           "description": "path 为目录时是否递归子目录；默认 true；false 时仅当前层。"
         },
         {
-          "flag": "--contextLines",
+          "flag": "--context_lines",
           "type": "integer",
           "required": false,
           "description": "每条命中上下各附带多少行原文，默认 0。"
         },
         {
-          "flag": "--ignoreCase",
+          "flag": "--ignore_case",
           "type": "boolean",
           "required": false,
           "description": "字面或正则均忽略大小写。"
         },
         {
-          "flag": "--noGitignore",
+          "flag": "--no_gitignore",
           "type": "boolean",
           "required": false,
           "description": "true 时不按 .gitignore 排除路径；默认 false 在 Git 仓库内会尊重忽略规则。"
@@ -627,13 +628,13 @@
           "description": "全局最大匹配条数，防止超大输出。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         },
         {
-          "flag": "--runType",
+          "flag": "--run_type",
           "type": "enum",
           "required": false,
           "values": [
@@ -647,7 +648,7 @@
       "examples": [
         {
           "title": "全库字面（默认后缀）",
-          "note": "不传 globPattern → 仅扫文本/源码类后缀，默认不含非文本文件。",
+          "note": "不传 glob_pattern → 仅扫文本/源码类后缀，默认不含非文本文件。",
           "args": {
             "path": ".",
             "pattern": "Copyright",
@@ -657,11 +658,11 @@
         },
         {
           "title": "扫描全部文件",
-          "note": "globPattern=\"*\" 会对任意扩展名与非文本类文件做内容检索，耗时长。",
+          "note": "glob_pattern=\"*\" 会对任意扩展名与非文本类文件做内容检索，耗时长。",
           "args": {
             "path": "downloads",
             "pattern": "Acme",
-            "globPattern": "*",
+            "glob_pattern": "*",
             "recursive": true,
             "limit": 50
           }
@@ -672,8 +673,8 @@
           "args": {
             "path": "packages",
             "pattern": "deprecated",
-            "globPattern": "*.py",
-            "contextLines": 1
+            "glob_pattern": "*.py",
+            "context_lines": 1
           }
         },
         {
@@ -683,7 +684,7 @@
             "path": ".",
             "pattern": "apiKey\\s*=",
             "regex": true,
-            "ignoreCase": true
+            "ignore_case": true
           }
         },
         {
@@ -702,8 +703,8 @@
           "args": {
             "path": "dist",
             "pattern": "sourceMappingURL",
-            "globPattern": "*.js",
-            "noGitignore": true,
+            "glob_pattern": "*.js",
+            "no_gitignore": true,
             "recursive": true,
             "limit": 200
           }
@@ -713,8 +714,8 @@
     {
       "name": "glob_files.py",
       "path": "tools/glob_files.py",
-      "purpose": "在目录 path 下列出路径，不读取文件内容。OpenAI function 名固定为 glob_files（禁止臆造 cli_directory_list 等）。匹配模式用 globPattern；若模型习惯传 pattern，也可传 pattern 作为 globPattern 的别名（若与显式 globPattern 冲突则以 globPattern 为准）。默认 **/* 会包含根目录直下文件。entryType 控制列出文件、目录或二者；可选按 .gitignore 过滤。",
-      "stdout_output": "{ok,data:{path,paths,items:[{path,relative_path,kind}],count,truncated,gitRepoRoot,...}}",
+      "purpose": "在目录 path 下列出路径，不读取文件内容。OpenAI function 名固定为 glob_files（禁止臆造 cli_directory_list 等）。匹配模式用 glob_pattern；若模型习惯传 pattern，也可传 pattern 作为 glob_pattern 的别名（若与显式 glob_pattern 冲突则以 glob_pattern 为准）。默认 **/* 会包含根目录直下文件。entry_type 控制列出文件、目录或二者；可选按 .gitignore 过滤。",
+      "stdout_output": "{ok,data:{path,paths,items:[{path,relative_path,kind}],count,truncated,git_repo_root,...}}",
       "args": [
         {
           "flag": "--path",
@@ -723,7 +724,7 @@
           "description": "必须是目录根路径。"
         },
         {
-          "flag": "--globPattern",
+          "flag": "--glob_pattern",
           "type": "string",
           "required": false,
           "description": "相对 path 的 glob，默认 **/*；如 **/*.test.ts。"
@@ -732,7 +733,7 @@
           "flag": "--pattern",
           "type": "string",
           "required": false,
-          "description": "globPattern 的短别名；可与 globPattern 二选一。"
+          "description": "glob_pattern 的短别名；可与 glob_pattern 二选一。"
         },
         {
           "flag": "--recursive",
@@ -741,7 +742,7 @@
           "description": "是否允许 ** 递归匹配，默认 true。"
         },
         {
-          "flag": "--entryType",
+          "flag": "--entry_type",
           "type": "enum",
           "required": false,
           "values": [
@@ -752,7 +753,7 @@
           "description": "file=仅文件（默认）；dir=仅子目录；all=文件与目录条目。"
         },
         {
-          "flag": "--noGitignore",
+          "flag": "--no_gitignore",
           "type": "boolean",
           "required": false,
           "description": "true 时不调用 git check-ignore 过滤。"
@@ -764,7 +765,7 @@
           "description": "最多返回条数，防超大目录。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
@@ -776,7 +777,7 @@
           "note": "默认仅文件。",
           "args": {
             "path": "src",
-            "globPattern": "**/*.py"
+            "glob_pattern": "**/*.py"
           }
         },
         {
@@ -784,8 +785,8 @@
           "note": "浏览树结构。",
           "args": {
             "path": ".",
-            "globPattern": "*",
-            "entryType": "dir",
+            "glob_pattern": "*",
+            "entry_type": "dir",
             "recursive": false
           }
         },
@@ -794,8 +795,8 @@
           "note": "例如查 node_modules 名。",
           "args": {
             "path": ".",
-            "globPattern": "**/package.json",
-            "noGitignore": true,
+            "glob_pattern": "**/package.json",
+            "no_gitignore": true,
             "limit": 200
           }
         },
@@ -804,7 +805,7 @@
           "note": "不递归。",
           "args": {
             "path": "docs",
-            "globPattern": "*.md",
+            "glob_pattern": "*.md",
             "recursive": false
           }
         }
@@ -832,40 +833,40 @@
             "blame",
             "show"
           ],
-          "description": "worktree：status + diff（受 maxDiffChars 限制）；log：--oneline 风格历史；blame：需 blamePath；show：需 showRef。"
+          "description": "worktree：status + diff（受 max_diff_chars 限制）；log：--oneline 风格历史；blame：需 blame_path；show：需 show_ref。"
         },
         {
-          "flag": "--maxDiffChars",
+          "flag": "--max_diff_chars",
           "type": "integer",
           "required": false,
           "description": "worktree / show 输出补丁或 diff 文本最大字符数，默认 200000。"
         },
         {
-          "flag": "--logMax",
+          "flag": "--log_max",
           "type": "integer",
           "required": false,
           "description": "log 模式下列出的最大提交条数，默认 20。"
         },
         {
-          "flag": "--blamePath",
+          "flag": "--blame_path",
           "type": "string",
           "required": false,
           "description": "blame 模式：相对仓库根的文件路径。"
         },
         {
-          "flag": "--startLine",
+          "flag": "--start_line",
           "type": "integer",
           "required": false,
-          "description": "blame 可选：1-based 起始行，须与 endLine 同传或同省略。"
+          "description": "blame 可选：1-based 起始行，须与 end_line 同传或同省略。"
         },
         {
-          "flag": "--endLine",
+          "flag": "--end_line",
           "type": "integer",
           "required": false,
           "description": "blame 可选：1-based 结束行（闭区间）。"
         },
         {
-          "flag": "--showRef",
+          "flag": "--show_ref",
           "type": "string",
           "required": false,
           "description": "show 模式：提交 hash、HEAD、分支名等，默认 HEAD。"
@@ -886,7 +887,7 @@
           "args": {
             "path": ".",
             "mode": "log",
-            "logMax": 15
+            "log_max": 15
           }
         },
         {
@@ -895,9 +896,9 @@
           "args": {
             "path": ".",
             "mode": "blame",
-            "blamePath": "src/main.py",
-            "startLine": 1,
-            "endLine": 120
+            "blame_path": "src/main.py",
+            "start_line": 1,
+            "end_line": 120
           }
         },
         {
@@ -906,8 +907,8 @@
           "args": {
             "path": ".",
             "mode": "show",
-            "showRef": "abc1234",
-            "maxDiffChars": 80000
+            "show_ref": "abc1234",
+            "max_diff_chars": 80000
           }
         }
       ]
@@ -915,7 +916,7 @@
     {
       "name": "web_fetch.py",
       "path": "tools/web_fetch.py",
-      "purpose": "HTTP(S) GET 抓取网页，抽取正文纯文本。支持超时、最大长度、可选落盘 outFile；minChars / requireKeywords 用于简单验收（防空页或错误页）。仅在确需联网核对时使用。",
+      "purpose": "HTTP(S) GET 抓取网页，抽取正文纯文本。支持超时、最大长度、可选落盘 out_file；min_chars / require_keywords 用于简单验收（防空页或错误页）。仅在确需联网核对时使用。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -925,37 +926,37 @@
           "description": "http 或 https 完整 URL。"
         },
         {
-          "flag": "--timeoutSec",
+          "flag": "--timeout_sec",
           "type": "integer",
           "required": false,
           "description": "连接+读响应总超时秒数，默认 20。"
         },
         {
-          "flag": "--maxChars",
+          "flag": "--max_chars",
           "type": "integer",
           "required": false,
           "description": "抽取正文最大字符数，默认 20000。"
         },
         {
-          "flag": "--userAgent",
+          "flag": "--user_agent",
           "type": "string",
           "required": false,
           "description": "自定义 User-Agent；省略用内置浏览器串。"
         },
         {
-          "flag": "--outFile",
+          "flag": "--out_file",
           "type": "string",
           "required": false,
           "description": "若指定，将正文写入该相对/绝对路径（仍返回元信息）。"
         },
         {
-          "flag": "--minChars",
+          "flag": "--min_chars",
           "type": "integer",
           "required": false,
           "description": "正文长度下限，不足则工具返回失败。"
         },
         {
-          "flag": "--requireKeywords",
+          "flag": "--require_keywords",
           "type": "string",
           "required": false,
           "description": "逗号分隔关键词列表，正文须至少命中其一。"
@@ -967,7 +968,7 @@
           "note": "只要正文。",
           "args": {
             "url": "https://example.com/docs",
-            "timeoutSec": 25
+            "timeout_sec": 25
           }
         },
         {
@@ -975,8 +976,8 @@
           "note": "确保页面含关键字。",
           "args": {
             "url": "https://status.vendor.com",
-            "requireKeywords": "operational,degraded",
-            "minChars": 200
+            "require_keywords": "operational,degraded",
+            "min_chars": 200
           }
         },
         {
@@ -984,8 +985,8 @@
           "note": "保存到工作区文件。",
           "args": {
             "url": "https://example.com/robots.txt",
-            "outFile": "artifacts/robots.txt",
-            "maxChars": 10000
+            "out_file": "artifacts/robots.txt",
+            "max_chars": 10000
           }
         }
       ]
@@ -993,8 +994,8 @@
     {
       "name": "unified_diagnose.py",
       "path": "tools/unified_diagnose.py",
-      "purpose": "对项目 path 下 Python 文件做语法（AST）解析，并可选调用 ruff check。返回 diagnostics 列表与汇总；写盘后建议调用以尽早发现语法/风格问题。--noRuff true 时仅语法扫描。",
-      "stdout_output": "{ok,data:{path,globPattern,filesScanned,diagnostics,summary,...}}",
+      "purpose": "对项目 path 下 Python 文件做语法（AST）解析，并可选调用 ruff check。返回 diagnostics 列表与汇总；写盘后建议调用以尽早发现语法/风格问题。--no_ruff 为 true 时仅语法扫描。",
+      "stdout_output": "{ok,data:{path,glob_pattern,files_scanned,diagnostics,summary,...}}",
       "args": [
         {
           "flag": "--path",
@@ -1003,7 +1004,7 @@
           "description": "项目根；ruff 在此目录执行。"
         },
         {
-          "flag": "--globPattern",
+          "flag": "--glob_pattern",
           "type": "string",
           "required": false,
           "description": "枚举 .py 的 glob，默认 **/*.py。"
@@ -1021,13 +1022,13 @@
           "description": "读源文件编码，默认 utf-8；可 auto。"
         },
         {
-          "flag": "--timeoutSec",
+          "flag": "--timeout_sec",
           "type": "integer",
           "required": false,
           "description": "ruff 子进程超时秒数，默认 120。"
         },
         {
-          "flag": "--noRuff",
+          "flag": "--no_ruff",
           "type": "boolean",
           "required": false,
           "description": "true 跳过 ruff，仅 AST。"
@@ -1046,7 +1047,7 @@
           "note": "无 ruff 环境。",
           "args": {
             "path": "services/api",
-            "noRuff": true,
+            "no_ruff": true,
             "limit": 200
           }
         },
@@ -1055,8 +1056,8 @@
           "note": "只扫包目录。",
           "args": {
             "path": ".",
-            "globPattern": "mylib/**/*.py",
-            "timeoutSec": 60
+            "glob_pattern": "mylib/**/*.py",
+            "timeout_sec": 60
           }
         }
       ]
@@ -1064,29 +1065,29 @@
     {
       "name": "text_diff.py",
       "path": "tools/text_diff.py",
-      "purpose": "对左右两侧文本生成 unified diff（只读、不落盘）。左侧二选一：leftFile 或 leftText；右侧二选一：rightFile 或 rightText。context 控制 diff 上下文行数。",
-      "stdout_output": "{ok,data:{summary,diff[],diffMarkdown}}",
+      "purpose": "对左右两侧文本生成 unified diff（只读、不落盘）。左侧二选一：left_file 或 left_text；右侧二选一：right_file 或 right_text。context 控制 diff 上下文行数。",
+      "stdout_output": "{ok,data:{summary,diff[],diff_markdown}}",
       "args": [
         {
-          "flag": "--leftFile",
+          "flag": "--left_file",
           "type": "string",
           "required": false,
-          "description": "左侧来自磁盘路径；与 leftText 二选一。"
+          "description": "左侧来自磁盘路径；与 left_text 二选一。"
         },
         {
-          "flag": "--leftText",
+          "flag": "--left_text",
           "type": "string",
           "required": false,
           "description": "左侧内联文本。"
         },
         {
-          "flag": "--rightFile",
+          "flag": "--right_file",
           "type": "string",
           "required": false,
-          "description": "右侧文件路径；与 rightText 二选一。"
+          "description": "右侧文件路径；与 right_text 二选一。"
         },
         {
-          "flag": "--rightText",
+          "flag": "--right_text",
           "type": "string",
           "required": false,
           "description": "右侧内联文本。"
@@ -1104,7 +1105,7 @@
           "description": "unified diff 上下文行数，默认 3。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
@@ -1115,16 +1116,16 @@
           "title": "双文件",
           "note": "比较磁盘上两版本。",
           "args": {
-            "leftFile": "a.txt",
-            "rightFile": "b.txt"
+            "left_file": "a.txt",
+            "right_file": "b.txt"
           }
         },
         {
           "title": "文件对字符串",
           "note": "与期望片段比对。",
           "args": {
-            "leftFile": "out.log",
-            "rightText": "OK\n",
+            "left_file": "out.log",
+            "right_text": "OK\n",
             "context": 5
           }
         },
@@ -1132,8 +1133,8 @@
           "title": "双内联",
           "note": "快速看两段配置差异。",
           "args": {
-            "leftText": "x=1\n",
-            "rightText": "x=2\n"
+            "left_text": "x=1\n",
+            "right_text": "x=2\n"
           }
         }
       ]
@@ -1141,8 +1142,8 @@
     {
       "name": "write_file.py",
       "path": "tools/write_file.py",
-      "purpose": "写入或覆盖单个文本文件。默认 dryRun=true 仅校验与预览 diff，不落盘；须 dryRun=false 且非 Plan 才实际写入。createOnly=true 时若目标已存在则失败。",
-      "stdout_output": "{ok,data:{path,existedBefore,changed,diffText,written,...}}",
+      "purpose": "写入或覆盖单个文本文件。默认 dry_run=true 仅校验与预览 diff，不落盘；须 dry_run=false 且非 Plan 才实际写入。create_only=true 时若目标已存在则失败。",
+      "stdout_output": "{ok,data:{path,existed_before,changed,diff_text,written,...}}",
       "args": [
         {
           "flag": "--path",
@@ -1163,25 +1164,25 @@
           "description": "写入编码，默认 utf-8。"
         },
         {
-          "flag": "--dryRun",
+          "flag": "--dry_run",
           "type": "boolean",
           "required": false,
           "description": "true（默认）不落盘；false 执行写入。"
         },
         {
-          "flag": "--createOnly",
+          "flag": "--create_only",
           "type": "boolean",
           "required": false,
           "description": "true 时仅允许新建，已存在则报错。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         },
         {
-          "flag": "--runType",
+          "flag": "--run_type",
           "type": "enum",
           "required": false,
           "values": [
@@ -1195,11 +1196,11 @@
       "examples": [
         {
           "title": "仅预览",
-          "note": "默认 dryRun。",
+          "note": "默认 dry_run。",
           "args": {
             "path": "notes.txt",
             "content": "hello",
-            "dryRun": true
+            "dry_run": true
           }
         },
         {
@@ -1208,8 +1209,8 @@
           "args": {
             "path": "src/new.py",
             "content": "# new\n",
-            "dryRun": false,
-            "runType": "execute"
+            "dry_run": false,
+            "run_type": "execute"
           }
         },
         {
@@ -1218,9 +1219,9 @@
           "args": {
             "path": "config.local.json",
             "content": "{}",
-            "createOnly": true,
-            "dryRun": false,
-            "runType": "execute"
+            "create_only": true,
+            "dry_run": false,
+            "run_type": "execute"
           }
         }
       ]
@@ -1228,17 +1229,17 @@
     {
       "name": "read_write.py",
       "path": "tools/read_write.py",
-      "purpose": "管道式：从 sourcePath 按 read_file 相同语义读取片段，再写入 destPath。用于复制/抽取落盘，减少模型搬运大段正文。支持整文件、行区间、行列矩形、字符区间；这些切片模式互斥。maxChars=0 表示读侧不截断。读编码用 encoding；若目标需不同编码写出，须显式传 encodingWrite。",
+      "purpose": "管道式：从 source_path 按 read_file 相同语义读取片段，再写入 dest_path。用于复制/抽取落盘，减少模型搬运大段正文。支持整文件、行区间、行列矩形、字符区间；这些切片模式互斥。max_chars=0 表示读侧不截断。读编码用 encoding；若目标需不同编码写出，须显式传 encoding_write。",
       "stdout_output": "{ok,data}",
       "args": [
         {
-          "flag": "--sourcePath",
+          "flag": "--source_path",
           "type": "string",
           "required": true,
           "description": "源文件路径。"
         },
         {
-          "flag": "--destPath",
+          "flag": "--dest_path",
           "type": "string",
           "required": true,
           "description": "目标文件路径。"
@@ -1250,73 +1251,73 @@
           "description": "读源所用编码，默认 utf-8，可 auto。"
         },
         {
-          "flag": "--encodingWrite",
+          "flag": "--encoding_write",
           "type": "string",
           "required": false,
           "description": "写目标编码；省略则与 encoding 相同。"
         },
         {
-          "flag": "--lineStart",
+          "flag": "--line_start",
           "type": "integer",
           "required": false,
-          "description": "与 lineEnd：仅复制行闭区间。"
+          "description": "与 line_end：仅复制行闭区间。"
         },
         {
-          "flag": "--lineEnd",
+          "flag": "--line_end",
           "type": "integer",
           "required": false,
           "description": "结束行号（闭区间）。"
         },
         {
-          "flag": "--startColumn",
+          "flag": "--start_column",
           "type": "integer",
           "required": false,
-          "description": "行列矩形读取：1-based 起始列，须与 lineStart、lineEnd、endColumn 同传。"
+          "description": "行列矩形读取：1-based 起始列，须与 line_start、line_end、end_column 同传。"
         },
         {
-          "flag": "--endColumn",
+          "flag": "--end_column",
           "type": "integer",
           "required": false,
           "description": "行列矩形读取：1-based 结束开列；负数从该行末尾倒推。"
         },
         {
-          "flag": "--charStart",
+          "flag": "--char_start",
           "type": "integer",
           "required": false,
           "description": "字符半开区间起点，勿与行区间并用。"
         },
         {
-          "flag": "--charEnd",
+          "flag": "--char_end",
           "type": "integer",
           "required": false,
           "description": "字符半开区间终点（不含）。"
         },
         {
-          "flag": "--maxChars",
+          "flag": "--max_chars",
           "type": "integer",
           "required": false,
           "description": "读侧最大字符；0 表示不截断（默认 0）。"
         },
         {
-          "flag": "--dryRun",
+          "flag": "--dry_run",
           "type": "boolean",
           "required": false,
           "description": "true 仅预览；false 写 dest。"
         },
         {
-          "flag": "--createOnly",
+          "flag": "--create_only",
           "type": "boolean",
           "required": false,
           "description": "目标已存在则失败。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         },
         {
-          "flag": "--runType",
+          "flag": "--run_type",
           "type": "enum",
           "required": false,
           "values": [
@@ -1332,57 +1333,57 @@
           "title": "整文件复制",
           "note": "等同 cp。",
           "args": {
-            "sourcePath": "tpl/README.md",
-            "destPath": "docs/README.md",
-            "dryRun": false,
-            "runType": "execute"
+            "source_path": "tpl/README.md",
+            "dest_path": "docs/README.md",
+            "dry_run": false,
+            "run_type": "execute"
           }
         },
         {
           "title": "抽取行块",
           "note": "只要函数所在行段。",
           "args": {
-            "sourcePath": "big.log",
-            "destPath": "snippet.log",
-            "lineStart": 100,
-            "lineEnd": 140,
-            "dryRun": true
+            "source_path": "big.log",
+            "dest_path": "snippet.log",
+            "line_start": 100,
+            "line_end": 140,
+            "dry_run": true
           }
         },
         {
           "title": "字符切片",
           "note": "导出 JSON 片段。",
           "args": {
-            "sourcePath": "data.json",
-            "destPath": "head.json",
-            "charStart": 0,
-            "charEnd": 4096,
-            "dryRun": false,
-            "runType": "execute"
+            "source_path": "data.json",
+            "dest_path": "head.json",
+            "char_start": 0,
+            "char_end": 4096,
+            "dry_run": false,
+            "run_type": "execute"
           }
         },
         {
           "title": "矩形片段复制",
           "note": "与 read_file 的行列矩形参数一致，适合抽取表格列或固定宽度日志。",
           "args": {
-            "sourcePath": "logs/table.txt",
-            "destPath": "snippets/table-cols.txt",
-            "lineStart": 10,
-            "lineEnd": 30,
-            "startColumn": 5,
-            "endColumn": 60,
-            "dryRun": true
+            "source_path": "logs/table.txt",
+            "dest_path": "snippets/table-cols.txt",
+            "line_start": 10,
+            "line_end": 30,
+            "start_column": 5,
+            "end_column": 60,
+            "dry_run": true
           }
         },
         {
           "title": "换编码写出",
           "note": "读 gbk 写 utf-8。",
           "args": {
-            "sourcePath": "gb18030-notes.txt",
-            "destPath": "utf8-notes.txt",
+            "source_path": "gb18030-notes.txt",
+            "dest_path": "utf8-notes.txt",
             "encoding": "gb18030",
-            "encodingWrite": "utf-8",
-            "dryRun": true
+            "encoding_write": "utf-8",
+            "dry_run": true
           }
         }
       ]
@@ -1390,7 +1391,7 @@
     {
       "name": "delete_file.py",
       "path": "tools/delete_file.py",
-      "purpose": "安全删除：将文件移入宿主回收目录（非 unlink）。默认 dryRun；Plan 拒绝真实移动；Execute 且满足宿主策略时才移动。",
+      "purpose": "安全删除：将文件移入宿主回收目录（非 unlink）。默认 dry_run；Plan 拒绝真实移动；Execute 且满足宿主策略时才移动。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -1400,19 +1401,19 @@
           "description": "待删除文件路径。"
         },
         {
-          "flag": "--dryRun",
+          "flag": "--dry_run",
           "type": "boolean",
           "required": false,
           "description": "true（默认）只返回将移动到何处；false 执行移动。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         },
         {
-          "flag": "--runType",
+          "flag": "--run_type",
           "type": "enum",
           "required": false,
           "values": [
@@ -1429,7 +1430,7 @@
           "note": "查看 would_move_to。",
           "args": {
             "path": "tmp/cache.bin",
-            "dryRun": true
+            "dry_run": true
           }
         },
         {
@@ -1437,8 +1438,8 @@
           "note": "Execute 模式。",
           "args": {
             "path": "tmp/cache.bin",
-            "dryRun": false,
-            "runType": "execute"
+            "dry_run": false,
+            "run_type": "execute"
           }
         },
         {
@@ -1446,7 +1447,7 @@
           "note": "谨慎使用。",
           "args": {
             "path": "D:/outside/junk.txt",
-            "dryRun": true
+            "dry_run": true
           }
         }
       ]
@@ -1454,7 +1455,7 @@
     {
       "name": "file_ops.py",
       "path": "tools/file_ops.py",
-      "purpose": "文件系统操作：delete（至回收站或 purge）、rename、copy、move。source 必填；delete 勿传 dest；delete 目录须 recursive=true。可选 securityRoot 限制 source/dest 均在其下。默认 dryRun=true。",
+      "purpose": "文件系统操作：delete（至回收站或 purge）、rename、copy、move。source 必填；delete 勿传 dest；delete 目录须 recursive=true。可选 security_root 限制 source/dest 均在其下。默认 dry_run=true。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -1482,7 +1483,7 @@
           "description": "目标路径；rename/copy/move 必填；delete 省略。"
         },
         {
-          "flag": "--securityRoot",
+          "flag": "--security_root",
           "type": "string",
           "required": false,
           "description": "若设，解析后的 source 与 dest 必须都在该目录下。"
@@ -1494,19 +1495,19 @@
           "description": "delete 目录时必须 true。"
         },
         {
-          "flag": "--dryRun",
+          "flag": "--dry_run",
           "type": "boolean",
           "required": false,
           "description": "默认 true 预览；false 执行。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         },
         {
-          "flag": "--runType",
+          "flag": "--run_type",
           "type": "enum",
           "required": false,
           "values": [
@@ -1525,7 +1526,7 @@
             "action": "copy",
             "source": "a.txt",
             "dest": "b.txt",
-            "dryRun": true
+            "dry_run": true
           }
         },
         {
@@ -1535,8 +1536,8 @@
             "action": "rename",
             "source": "old_name.py",
             "dest": "new_name.py",
-            "dryRun": false,
-            "runType": "execute"
+            "dry_run": false,
+            "run_type": "execute"
           }
         },
         {
@@ -1546,8 +1547,8 @@
             "action": "move",
             "source": "pkg/old",
             "dest": "pkg/new",
-            "dryRun": false,
-            "runType": "execute"
+            "dry_run": false,
+            "run_type": "execute"
           }
         },
         {
@@ -1557,18 +1558,18 @@
             "action": "delete",
             "source": "build/out",
             "recursive": true,
-            "dryRun": true
+            "dry_run": true
           }
         },
         {
-          "title": "securityRoot 内操作",
+          "title": "security_root 内操作",
           "note": "限制在子沙箱。",
           "args": {
             "action": "copy",
             "source": "sandbox/in.txt",
             "dest": "sandbox/out.txt",
-            "securityRoot": "sandbox",
-            "dryRun": true
+            "security_root": "sandbox",
+            "dry_run": true
           }
         }
       ]
@@ -1576,8 +1577,8 @@
     {
       "name": "replace_in_file.py",
       "path": "tools/replace_in_file.py",
-      "purpose": "【单文件 find-replace】OpenAI function 名固定为 replace_in_file——即本工具完成 URL/文本片段替换；禁止 cli_find_replace、search_replace 等臆造名。find_in_file 仅只读定位，不负责写回。模式 A：oldText+newText 字面替换（可 replaceAll、expectedReplacements）。模式 B：region / 行列矩形替换。模式 C：rules 数组多条顺序替换。EXECUTE 真写须 dryRun=false（或 runType execute）。备份用 backup:true。",
-      "stdout_output": "{ok,data:{diffText,replacements,countsPerRule,...}}",
+      "purpose": "【单文件 find-replace】OpenAI function 名固定为 replace_in_file——即本工具完成 URL/文本片段替换；禁止 cli_find_replace、search_replace 等臆造名。find_in_file 仅只读定位，不负责写回。模式 A：old_text+new_text 字面替换（可 replace_all、expected_replacements）。模式 B：region / 行列矩形替换。模式 C：rules 数组多条顺序替换。EXECUTE 真写须 dry_run=false（或 run_type execute）。备份用 backup:true。",
+      "stdout_output": "{ok,data:{diff_text,replacements,counts_per_rule,...}}",
       "args": [
         {
           "flag": "--path",
@@ -1586,49 +1587,49 @@
           "description": "被修改的单个文件路径。"
         },
         {
-          "flag": "--oldText",
+          "flag": "--old_text",
           "type": "string",
           "required": false,
-          "description": "字面旧片段；与 newText 成对；若仅用 rules 可省略首对。"
+          "description": "字面旧片段；与 new_text 成对；若仅用 rules 可省略首对。"
         },
         {
-          "flag": "--newText",
+          "flag": "--new_text",
           "type": "string",
           "required": false,
           "description": "新文本；区间模式下为插入内容，空串表示删除该区间。"
         },
         {
-          "flag": "--regionStart",
+          "flag": "--region_start",
           "type": "integer",
           "required": false,
-          "description": "0-based 字符起点（含），须与 regionEnd 同传。"
+          "description": "0-based 字符起点（含），须与 region_end 同传。"
         },
         {
-          "flag": "--regionEnd",
+          "flag": "--region_end",
           "type": "integer",
           "required": false,
           "description": "0-based 字符终点（不含）。"
         },
         {
-          "flag": "--lineStart",
+          "flag": "--line_start",
           "type": "integer",
           "required": false,
-          "description": "1-based 起始行。与 lineEnd 成对使用：不传列坐标=纯行替换；传 startColumn+endColumn=矩形替换。"
+          "description": "1-based 起始行。与 line_end 成对使用：不传列坐标=纯行替换；传 start_column+end_column=矩形替换。"
         },
         {
-          "flag": "--lineEnd",
+          "flag": "--line_end",
           "type": "integer",
           "required": false,
-          "description": "1-based 结束行（闭区间）。与 lineStart 成对：不传列坐标=纯行替换；传 startColumn+endColumn=矩形替换。"
+          "description": "1-based 结束行（闭区间）。与 line_start 成对：不传列坐标=纯行替换；传 start_column+end_column=矩形替换。"
         },
         {
-          "flag": "--startColumn",
+          "flag": "--start_column",
           "type": "integer",
           "required": false,
           "description": "矩形左上列 1-based。"
         },
         {
-          "flag": "--endColumn",
+          "flag": "--end_column",
           "type": "integer",
           "required": false,
           "description": "矩形右下开列；负数为从行末倒推。"
@@ -1637,85 +1638,85 @@
           "flag": "--rules",
           "type": "array",
           "required": false,
-          "arrayItems": {
+          "array_items": {
             "type": "object",
             "required": [
-              "oldText",
-              "newText"
+              "old_text",
+              "new_text"
             ],
             "properties": {
-              "oldText": {
+              "old_text": {
                 "type": "string"
               },
-              "newText": {
+              "new_text": {
                 "type": "string"
               }
             }
           },
-          "description": "顺序替换规则列表；每项含 oldText、newText。"
+          "description": "顺序替换规则列表；每项含 old_text、new_text。"
         },
         {
           "flag": "--regions",
           "type": "array",
           "required": false,
-          "arrayItems": {
+          "array_items": {
             "type": "object",
             "required": [
-              "regionStart",
-              "regionEnd"
+              "region_start",
+              "region_end"
             ],
             "properties": {
-              "regionStart": {
+              "region_start": {
                 "type": "integer"
               },
-              "regionEnd": {
+              "region_end": {
                 "type": "integer"
               },
-              "newText": {
+              "new_text": {
                 "type": "string"
               }
             }
           },
-          "description": "多区间替换数组，每项含 regionStart、regionEnd、newText。工具内部按坐标降序处理，杜绝多次单区间替换导致的坐标漂移。"
+          "description": "多区间替换数组，每项含 region_start、region_end、new_text。工具内部按坐标降序处理，杜绝多次单区间替换导致的坐标漂移。"
         },
         {
-          "flag": "--lineRanges",
+          "flag": "--line_ranges",
           "type": "array",
           "required": false,
-          "arrayItems": {
+          "array_items": {
             "type": "object",
             "required": [
-              "lineStart",
-              "lineEnd"
+              "line_start",
+              "line_end"
             ],
             "properties": {
-              "lineStart": {
+              "line_start": {
                 "type": "integer"
               },
-              "lineEnd": {
+              "line_end": {
                 "type": "integer"
               },
-              "newText": {
+              "new_text": {
                 "type": "string"
               }
             }
           },
-          "description": "多行替换数组，每项含 lineStart、lineEnd、newText。工具内部按行号降序处理、检测重叠。"
+          "description": "多行替换数组，每项含 line_start、line_end、new_text。工具内部按行号降序处理、检测重叠。"
         },
         {
-          "flag": "--dryRun",
+          "flag": "--dry_run",
           "type": "boolean",
           "required": false,
           "description": "默认 true 仅 diff；false 落盘。"
         },
         {
-          "flag": "--replaceAll",
+          "flag": "--replace_all",
           "type": "boolean",
           "required": false,
           "description": "每条规则是否替换全部命中，默认 true。"
         },
         {
-          "flag": "--expectedReplacements",
+          "flag": "--expected_replacements",
           "type": "integer",
           "required": false,
           "description": "若指定，须等于所有规则命中次数之和否则失败。"
@@ -1733,13 +1734,13 @@
           "description": "写盘前备份原文件为 .bak。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         },
         {
-          "flag": "--runType",
+          "flag": "--run_type",
           "type": "enum",
           "required": false,
           "values": [
@@ -1756,9 +1757,9 @@
           "note": "唯一子串。",
           "args": {
             "path": "app.py",
-            "oldText": "DEBUG = True",
-            "newText": "DEBUG = False",
-            "dryRun": true
+            "old_text": "DEBUG = True",
+            "new_text": "DEBUG = False",
+            "dry_run": true
           }
         },
         {
@@ -1766,11 +1767,11 @@
           "note": "来自 find_in_file 的 region。",
           "args": {
             "path": "x.py",
-            "regionStart": 120,
-            "regionEnd": 180,
-            "newText": "replacement_block\n",
-            "dryRun": false,
-            "runType": "execute"
+            "region_start": 120,
+            "region_end": 180,
+            "new_text": "replacement_block\n",
+            "dry_run": false,
+            "run_type": "execute"
           }
         },
         {
@@ -1778,12 +1779,12 @@
           "note": "多行列块。",
           "args": {
             "path": "y.css",
-            "lineStart": 10,
-            "lineEnd": 12,
-            "startColumn": 1,
-            "endColumn": 200,
-            "newText": "",
-            "dryRun": true
+            "line_start": 10,
+            "line_end": 12,
+            "start_column": 1,
+            "end_column": 200,
+            "new_text": "",
+            "dry_run": true
           }
         },
         {
@@ -1793,15 +1794,15 @@
             "path": "cfg.toml",
             "rules": [
               {
-                "oldText": "a=1",
-                "newText": "a=2"
+                "old_text": "a=1",
+                "new_text": "a=2"
               },
               {
-                "oldText": "b=2",
-                "newText": "b=3"
+                "old_text": "b=2",
+                "new_text": "b=3"
               }
             ],
-            "dryRun": true
+            "dry_run": true
           }
         },
         {
@@ -1809,29 +1810,29 @@
           "note": "先全局改包名再细调。",
           "args": {
             "path": "__init__.py",
-            "oldText": "pkg_old",
-            "newText": "pkg_new",
+            "old_text": "pkg_old",
+            "new_text": "pkg_new",
             "rules": [
               {
-                "oldText": "from pkg_old",
-                "newText": "from pkg_new"
+                "old_text": "from pkg_old",
+                "new_text": "from pkg_new"
               }
             ],
-            "replaceAll": true,
-            "dryRun": true
+            "replace_all": true,
+            "dry_run": true
           }
         },
         {
-          "title": "expectedReplacements",
+          "title": "expected_replacements",
           "note": "防误改多处。",
           "args": {
             "path": "ver.txt",
-            "oldText": "1.0.0",
-            "newText": "1.0.1",
-            "replaceAll": false,
-            "expectedReplacements": 1,
-            "dryRun": false,
-            "runType": "execute"
+            "old_text": "1.0.0",
+            "new_text": "1.0.1",
+            "replace_all": false,
+            "expected_replacements": 1,
+            "dry_run": false,
+            "run_type": "execute"
           }
         },
         {
@@ -1839,42 +1840,42 @@
           "note": "生产谨慎。",
           "args": {
             "path": "server.json",
-            "oldText": "\"port\": 8000",
-            "newText": "\"port\": 8080",
+            "old_text": "\"port\": 8000",
+            "new_text": "\"port\": 8080",
             "backup": true,
-            "dryRun": false,
-            "runType": "execute"
+            "dry_run": false,
+            "run_type": "execute"
           }
         },
         {
-          "title": "纯行替换（lineStart+lineEnd）",
+          "title": "纯行替换（line_start+line_end）",
           "note": "只传行号不传列坐标，行号永不漂移。",
           "args": {
             "path": "app.py",
-            "lineStart": 10,
-            "lineEnd": 12,
-            "newText": "def new_func():\\n    pass\\n",
-            "dryRun": true
+            "line_start": 10,
+            "line_end": 12,
+            "new_text": "def new_func():\\n    pass\\n",
+            "dry_run": true
           }
         },
         {
-          "title": "lineRanges 多组行替换",
+          "title": "line_ranges 多组行替换",
           "note": "一次传入多组行区间，工具自动按行号降序处理、检测重叠。",
           "args": {
             "path": "app.py",
-            "lineRanges": [
+            "line_ranges": [
               {
-                "lineStart": 10,
-                "lineEnd": 12,
-                "newText": "def f1():\\n    pass\\n"
+                "line_start": 10,
+                "line_end": 12,
+                "new_text": "def f1():\\n    pass\\n"
               },
               {
-                "lineStart": 5,
-                "lineEnd": 6,
-                "newText": "# section 1\\n"
+                "line_start": 5,
+                "line_end": 6,
+                "new_text": "# section 1\\n"
               }
             ],
-            "dryRun": true
+            "dry_run": true
           }
         },
         {
@@ -1884,17 +1885,17 @@
             "path": "app.py",
             "regions": [
               {
-                "regionStart": 800,
-                "regionEnd": 850,
-                "newText": "new_code_here"
+                "region_start": 800,
+                "region_end": 850,
+                "new_text": "new_code_here"
               },
               {
-                "regionStart": 100,
-                "regionEnd": 120,
-                "newText": "x = 1"
+                "region_start": 100,
+                "region_end": 120,
+                "new_text": "x = 1"
               }
             ],
-            "dryRun": true
+            "dry_run": true
           }
         }
       ]
@@ -1902,8 +1903,8 @@
     {
       "name": "apply_patch.py",
       "path": "tools/apply_patch.py",
-      "purpose": "将 unified diff 补丁应用到 path 根下的已有文件（不支持 add/rename 语义，仅更新）。patchText 与 patchFile 二选一。默认 dryRun 校验与列出将变更文件，并返回 diffText 供可视化预览。",
-      "stdout_output": "{ok,data:{path,changedFiles,diffText,...}}",
+      "purpose": "将 unified diff 补丁应用到 path 根下的已有文件（不支持 add/rename 语义，仅更新）。patch_text 与 patch_file 二选一。默认 dry_run 校验与列出将变更文件，并返回 diff_text 供可视化预览。",
+      "stdout_output": "{ok,data:{path,changed_files,diff_text,...}}",
       "args": [
         {
           "flag": "--path",
@@ -1912,31 +1913,31 @@
           "description": "补丁内路径相对的根目录。"
         },
         {
-          "flag": "--patchText",
+          "flag": "--patch_text",
           "type": "string",
           "required": false,
           "description": "补丁全文字符串。"
         },
         {
-          "flag": "--patchFile",
+          "flag": "--patch_file",
           "type": "string",
           "required": false,
           "description": "补丁文件路径。"
         },
         {
-          "flag": "--dryRun",
+          "flag": "--dry_run",
           "type": "boolean",
           "required": false,
           "description": "默认 true；false 应用。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         },
         {
-          "flag": "--runType",
+          "flag": "--run_type",
           "type": "enum",
           "required": false,
           "values": [
@@ -1950,11 +1951,11 @@
       "examples": [
         {
           "title": "内联补丁预览",
-          "note": "dryRun 默认。",
+          "note": "dry_run 默认。",
           "args": {
             "path": ".",
-            "patchText": "--- a/x.py\n+++ b/x.py\n@@ -1,1 +1,1 @@\n-old\n+new\n",
-            "dryRun": true
+            "patch_text": "--- a/x.py\n+++ b/x.py\n@@ -1,1 +1,1 @@\n-old\n+new\n",
+            "dry_run": true
           }
         },
         {
@@ -1962,8 +1963,8 @@
           "note": "大补丁放文件。",
           "args": {
             "path": ".",
-            "patchFile": "fixes/001.diff",
-            "dryRun": true
+            "patch_file": "fixes/001.diff",
+            "dry_run": true
           }
         },
         {
@@ -1971,9 +1972,9 @@
           "note": "Execute 下 false。",
           "args": {
             "path": ".",
-            "patchFile": "fixes/001.diff",
-            "dryRun": false,
-            "runType": "execute"
+            "patch_file": "fixes/001.diff",
+            "dry_run": false,
+            "run_type": "execute"
           }
         }
       ]
@@ -2005,7 +2006,7 @@
           "flag": "--items",
           "type": "array",
           "required": false,
-          "arrayItems": {
+          "array_items": {
             "type": "string"
           },
           "description": "create：步骤标题字符串数组。"
@@ -2014,13 +2015,13 @@
           "flag": "--indices",
           "type": "array",
           "required": false,
-          "arrayItems": {
+          "array_items": {
             "type": "integer"
           },
           "description": "check/uncheck：要切换的条目下标列表，如 [0] 或 [0,2]。"
         },
         {
-          "flag": "--itemIndex",
+          "flag": "--item_index",
           "type": "integer",
           "required": false,
           "description": "remove_item/replace_item 必填；add_item 可选插入位置。"
@@ -2079,7 +2080,7 @@
           "args": {
             "action": "add_item",
             "text": "先备份",
-            "itemIndex": 1
+            "item_index": 1
           }
         },
         {
@@ -2087,7 +2088,7 @@
           "note": "改第 2 条描述。",
           "args": {
             "action": "replace_item",
-            "itemIndex": 2,
+            "item_index": 2,
             "text": "跑 ruff + 单测"
           }
         },
@@ -2096,7 +2097,7 @@
           "note": "去掉索引 3。",
           "args": {
             "action": "remove_item",
-            "itemIndex": 3
+            "item_index": 3
           }
         },
         {
@@ -2111,7 +2112,7 @@
     {
       "name": "user_confirm.py",
       "path": "tools/user_confirm.py",
-      "purpose": "阻塞式用户确认：首次调用传 title + confirms（选项文案数组），返回 needs_confirm；宿主展示 UI 后第二次调用传入用户选择的 confirm 字符串。multi 控制是否多选；customOptionIndex 用于「其他」类选项。",
+      "purpose": "阻塞式用户确认：首次调用传 title + confirms（选项文案数组），返回 needs_confirm；宿主展示 UI 后第二次调用传入用户选择的 confirm 字符串。multi 控制是否多选；custom_option_index 用于「其他」类选项。",
       "stdout_output": "needs_confirm: ok=false 且 error.code=E_USER_CONFIRM_REQUIRED；完成: data.confirm",
       "args": [
         {
@@ -2124,7 +2125,7 @@
           "flag": "--confirms",
           "type": "array",
           "required": true,
-          "arrayItems": {
+          "array_items": {
             "type": "string"
           },
           "description": "非空选项列表。"
@@ -2142,7 +2143,7 @@
           "description": "是否允许多选。"
         },
         {
-          "flag": "--customOptionIndex",
+          "flag": "--custom_option_index",
           "type": "integer",
           "required": false,
           "description": "自定义输入绑定的选项下标。"
@@ -2206,7 +2207,7 @@
           "description": "IPv4/IPv6；省略则自动探测出口。"
         },
         {
-          "flag": "--timeoutSec",
+          "flag": "--timeout_sec",
           "type": "integer",
           "required": false,
           "description": "HTTP 超时，默认 12。"
@@ -2230,7 +2231,7 @@
           "note": "放宽等待。",
           "args": {
             "ip": "2001:4860:4860::8888",
-            "timeoutSec": 20
+            "timeout_sec": 20
           }
         }
       ]
@@ -2242,13 +2243,13 @@
       "stdout_output": "{ok,data}",
       "args": [
         {
-          "flag": "--jsonOut",
+          "flag": "--json_out",
           "type": "boolean",
           "required": false,
           "description": "CLI 下 true 输出 JSON 信封。"
         },
         {
-          "flag": "--runType",
+          "flag": "--run_type",
           "type": "enum",
           "required": false,
           "values": [
@@ -2266,17 +2267,17 @@
           "args": {}
         },
         {
-          "title": "带 runType",
+          "title": "带 run_type",
           "note": "与清单字段一致。",
           "args": {
-            "runType": "auto"
+            "run_type": "auto"
           }
         },
         {
           "title": "JSON CLI",
           "note": "调试脚本用。",
           "args": {
-            "jsonOut": true
+            "json_out": true
           }
         }
       ]
@@ -2284,7 +2285,7 @@
     {
       "name": "open_meteo_weather.py",
       "path": "tools/open_meteo_weather.py",
-      "purpose": "Open-Meteo 天气预报（免 Key）。location 文本 与 latitude+longitude 二选一优先；否则可用 ip 推断地区。forecastDays 1–7。",
+      "purpose": "Open-Meteo 天气预报（免 Key）。location 文本 与 latitude+longitude 二选一优先；否则可用 ip 推断地区。forecast_days 1–7。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -2312,13 +2313,13 @@
           "description": "服务端透传客户端公网 IP；localhost 忽略。"
         },
         {
-          "flag": "--forecastDays",
+          "flag": "--forecast_days",
           "type": "integer",
           "required": false,
           "description": "预报天数 1–7，默认 2。"
         },
         {
-          "flag": "--timeoutSec",
+          "flag": "--timeout_sec",
           "type": "integer",
           "required": false,
           "description": "HTTP 超时秒数，默认 15。"
@@ -2330,7 +2331,7 @@
           "note": "最简单。",
           "args": {
             "location": "Berlin",
-            "forecastDays": 3
+            "forecast_days": 3
           }
         },
         {
@@ -2339,14 +2340,14 @@
           "args": {
             "latitude": "52.52",
             "longitude": "13.405",
-            "forecastDays": 1
+            "forecast_days": 1
           }
         },
         {
           "title": "默认 IP 定位",
           "note": "不传 location 与坐标。",
           "args": {
-            "forecastDays": 2
+            "forecast_days": 2
           }
         },
         {
@@ -2354,8 +2355,8 @@
           "note": "慢网络。",
           "args": {
             "location": "Shanghai",
-            "timeoutSec": 25,
-            "forecastDays": 7
+            "timeout_sec": 25,
+            "forecast_days": 7
           }
         }
       ]
@@ -2390,7 +2391,7 @@
           "description": "extract 解压目标目录；create 输出包路径。"
         },
         {
-          "flag": "--outputFormat",
+          "flag": "--output_format",
           "type": "string",
           "required": false,
           "description": "create 时格式；默认同 dest 后缀。"
@@ -2402,19 +2403,19 @@
           "description": "读加密包密码。"
         },
         {
-          "flag": "--globPattern",
+          "flag": "--glob_pattern",
           "type": "string",
           "required": false,
           "description": "成员过滤 glob。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         },
         {
-          "flag": "--runType",
+          "flag": "--run_type",
           "type": "enum",
           "required": false,
           "values": [
@@ -2432,7 +2433,7 @@
           "args": {
             "action": "list",
             "source": "dist/app.zip",
-            "globPattern": "*.py"
+            "glob_pattern": "*.py"
           }
         },
         {
@@ -2442,7 +2443,7 @@
             "action": "extract",
             "source": "dist/app.zip",
             "dest": "unpack/app",
-            "runType": "execute"
+            "run_type": "execute"
           }
         },
         {
@@ -2452,7 +2453,7 @@
             "action": "create",
             "source": "release/staging",
             "dest": "out/staging.zip",
-            "runType": "execute"
+            "run_type": "execute"
           }
         },
         {
@@ -2462,8 +2463,8 @@
             "action": "create",
             "source": "docs",
             "dest": "docs.tar.gz",
-            "outputFormat": "tar.gz",
-            "runType": "execute"
+            "output_format": "tar.gz",
+            "run_type": "execute"
           }
         },
         {
@@ -2480,8 +2481,8 @@
     {
       "name": "image_ocr.py",
       "path": "tools/image_ocr.py",
-      "purpose": "对图片 source 做 OCR，返回 fullText 等。engine=auto|pytesseract|easyocr；region 可裁剪 x,y,w,h。",
-      "stdout_output": "{ok,data:{fullText,...}}",
+      "purpose": "对图片 source 做 OCR，返回 full_text 等。engine=auto|pytesseract|easyocr；region 可裁剪 x,y,w,h。",
+      "stdout_output": "{ok,data:{full_text,...}}",
       "args": [
         {
           "flag": "--source",
@@ -2513,7 +2514,7 @@
           "description": "OCR 引擎。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
@@ -2557,7 +2558,7 @@
     {
       "name": "data_table.py",
       "path": "tools/data_table.py",
-      "purpose": "读取 .xlsx / .csv / .tsv：preview 看前几行；filter 按列值筛；sort 排序；stats 数值列统计；to_json/to_csv/to_md 导出；sheets 列 Excel 工作表名。filter 需 filterCol+filterVal；sort 需 sortCol。",
+      "purpose": "读取 .xlsx / .csv / .tsv：preview 看前几行；filter 按列值筛；sort 排序；stats 数值列统计；to_json/to_csv/to_md 导出；sheets 列 Excel 工作表名。filter 需 filter_col+filter_val；sort 需 sort_col。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -2595,13 +2596,13 @@
           "description": "preview/to_md 等行数上限，默认 20。"
         },
         {
-          "flag": "--filterCol",
+          "flag": "--filter_col",
           "type": "string",
           "required": false,
           "description": "filter 列名。"
         },
         {
-          "flag": "--filterVal",
+          "flag": "--filter_val",
           "type": "string",
           "required": false,
           "description": "filter 匹配值。"
@@ -2610,16 +2611,16 @@
           "flag": "--regex",
           "type": "boolean",
           "required": false,
-          "description": "filter 时 filterVal 按正则。"
+          "description": "filter 时 filter_val 按正则。"
         },
         {
-          "flag": "--sortCol",
+          "flag": "--sort_col",
           "type": "string",
           "required": false,
           "description": "sort 列名。"
         },
         {
-          "flag": "--sortDesc",
+          "flag": "--sort_desc",
           "type": "boolean",
           "required": false,
           "description": "sort 降序。"
@@ -2631,7 +2632,7 @@
           "description": "stats 数值列名。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
@@ -2671,8 +2672,8 @@
           "args": {
             "action": "filter",
             "source": "tasks.csv",
-            "filterCol": "status",
-            "filterVal": "done",
+            "filter_col": "status",
+            "filter_val": "done",
             "limit": 100
           }
         },
@@ -2682,8 +2683,8 @@
           "args": {
             "action": "filter",
             "source": "users.csv",
-            "filterCol": "email",
-            "filterVal": "@example\\.com$",
+            "filter_col": "email",
+            "filter_val": "@example\\.com$",
             "regex": true
           }
         },
@@ -2693,8 +2694,8 @@
           "args": {
             "action": "sort",
             "source": "events.csv",
-            "sortCol": "date",
-            "sortDesc": true,
+            "sort_col": "date",
+            "sort_desc": true,
             "limit": 30
           }
         },
@@ -2722,8 +2723,8 @@
     {
       "name": "run_command.py",
       "path": "tools/run_command.py",
-      "purpose": "【最低优先级】在 shell 中执行 command，收集 stdout/stderr/exitCode。文件操作用专用工具。safeMode 默认 true 拦截高危元字符；shell 可选 auto/cmd/powershell。Plan 拒绝执行。",
-      "stdout_output": "{ok,data:{stdout,stderr,exitCode}}",
+      "purpose": "【最低优先级】在 shell 中执行 command，收集 stdout/stderr/exit_code。文件操作用专用工具。safe_mode 默认 true 拦截高危元字符；shell 可选 auto/cmd/powershell。Plan 拒绝执行。",
+      "stdout_output": "{ok,data:{stdout,stderr,exit_code}}",
       "args": [
         {
           "flag": "--command",
@@ -2738,7 +2739,7 @@
           "description": "工作目录，默认可为工作区根。"
         },
         {
-          "flag": "--timeoutSec",
+          "flag": "--timeout_sec",
           "type": "integer",
           "required": false,
           "description": "超时秒数，默认 300。"
@@ -2755,19 +2756,19 @@
           "description": "解释器选择。"
         },
         {
-          "flag": "--safeMode",
+          "flag": "--safe_mode",
           "type": "boolean",
           "required": false,
           "description": "默认 true；false 放宽检查（自担风险）。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         },
         {
-          "flag": "--runType",
+          "flag": "--run_type",
           "type": "enum",
           "required": false,
           "values": [
@@ -2785,7 +2786,7 @@
           "args": {
             "command": "git status -sb",
             "cwd": ".",
-            "timeoutSec": 60
+            "timeout_sec": 60
           }
         },
         {
@@ -2794,7 +2795,7 @@
           "args": {
             "command": "npm test --silent",
             "cwd": "frontend",
-            "timeoutSec": 600
+            "timeout_sec": 600
           }
         },
         {
@@ -2821,7 +2822,7 @@
       "name": "python_inline.py",
       "path": "tools/python_inline.py",
       "purpose": "【胶水】exec 执行一段 Python 源码（不经 shell），stdout/stderr 由宿主捕获。复杂编排可用；Plan 拒绝。代码内不要字面调用 file_search/grep_files 工具名字符串代替真实 function call。",
-      "stdout_output": "{ok,data:{stdout,stderr,exitCode,timeout}}",
+      "stdout_output": "{ok,data:{stdout,stderr,exit_code,timeout}}",
       "args": [
         {
           "flag": "--code",
@@ -2836,19 +2837,19 @@
           "description": "执行前 chdir。"
         },
         {
-          "flag": "--timeoutSec",
+          "flag": "--timeout_sec",
           "type": "integer",
           "required": false,
           "description": "名义超时（exec 无法硬中断），默认 300。"
         },
         {
-          "flag": "--restrictToWorkspace",
+          "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
           "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         },
         {
-          "flag": "--runType",
+          "flag": "--run_type",
           "type": "enum",
           "required": false,
           "values": [

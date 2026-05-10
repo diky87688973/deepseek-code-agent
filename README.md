@@ -10,7 +10,7 @@
 # 1. 安装依赖
 pip install -r requirements.txt
 
-# 2. 配置 config.json（填写 API Key 和端口）
+# 2. 配置 config.ini（填写 API Key 和端口）
 
 # 3. 启动
 #    Windows：双击 start.bat
@@ -57,7 +57,7 @@ pip install -r requirements.txt
 
 将常用文档放入知识库目录，对话时勾选即可让 AI 参考：
 
-1. 在 `config.json` 中配置 `AGENT_KNOWLEDGE_BASE_DIR`（如 `D:/AI_DATA_ROOT/knowledge_base`）
+1. 在 `config.ini` 的 `[knowledge_base]` 节中配置 `dir`（如 `D:/AI_DATA_ROOT/knowledge_base`）
 2. 往该目录放入 `.md`、`.txt`、`.py`、`.json` 等文本文件
 3. 在界面右侧「📚 知识库」面板勾选本次对话需要的文件
 4. AI 自动将文件内容作为参考上下文
@@ -92,11 +92,12 @@ pip install -r requirements.txt
 deepseek-code-agent/
 ├── deepseek_code_agent.py      # 服务端主程序（FastAPI）
 ├── main_tray.py                # 系统托盘启动器
-├── config.json                 # 配置文件（API Key / 端口 / 路径）
+├── config.ini                  # 配置文件（API Key / 端口 / 路径）
 ├── requirements.txt            # Python 依赖
 ├── start.bat                   # Windows 一键启动（自动提权 + ACL 防篡改）
 ├── start.sh                    # Linux/macOS 一键启动
 ├── README.md                   # 完整项目指南
+├── 版本日志.md                 # 版本演进历史
 ├── 里程碑计划.md               # 版本演进与路线图
 ├── 项目安全分析报告.md         # 数据安全分析
 │
@@ -126,27 +127,31 @@ deepseek-code-agent/
 
 ## 配置说明
 
-```json
-{
-    "AGENT_MODEL_API_BASE_URL": "https://api.deepseek.com",
-    "AGENT_MODEL_API_KEY": "sk-你的API密钥",
-    "AGENT_SERVER_PORT": 8801,
-    "AGENT_WORKSPACE_DIR": "D:/workspace",
-    "AGENT_DATA_ROOT_DIR": "D:/AI_DATA_ROOT",
-    "AGENT_KNOWLEDGE_BASE_DIR": "D:/AI_DATA_ROOT/knowledge_base"
-}
+```ini
+[model]
+api_base_url = https://api.deepseek.com
+api_key = sk-你的API密钥
+
+[server]
+port = 8801
+
+[workspace]
+dir = D:/workspace
+data_root = D:/AI_DATA_ROOT
+
+[knowledge_base]
+dir = D:/AI_DATA_ROOT/knowledge_base
 ```
 
-| 配置项 | 说明 | 必填 |
-|--------|------|------|
-| `AGENT_MODEL_API_KEY` | API 密钥 | **必填** |
-| `AGENT_SERVER_PORT` | 服务端口 | **必填** |
-| `AGENT_MODEL_API_BASE_URL` | API 地址，默认 DeepSeek | 可选 |
-| `AGENT_WORKSPACE_DIR` | 默认工作目录 | 可选，默认桌面 |
-| `AGENT_DATA_ROOT_DIR` | 数据存储目录 | 可选，默认 `~/AI_DATA_ROOT` |
-| `AGENT_KNOWLEDGE_BASE_DIR` | 知识库目录 | 可选 |
-
-> 优先级：`config.json` > 环境变量 > 代码默认值
+| 配置节 | 键 | 说明 | 必填 |
+|--------|----|------|------|
+| `[model]` | `api_key` | API 密钥 | **必填** |
+| `[server]` | `port` | 服务端口 | **必填** |
+| `[model]` | `api_base_url` | API 地址，默认 DeepSeek | 可选 |
+| `[workspace]` | `dir` | 默认工作目录 | 可选，默认桌面 |
+| `[workspace]` | `data_root` | 数据存储目录 | 可选，默认 `~/AI_DATA_ROOT` |
+| `[knowledge_base]` | `dir` | 知识库目录 | 可选 |
+> 优先级：`config.ini` > 环境变量 > 代码默认值
 
 ---
 
@@ -198,7 +203,7 @@ deepseek-code-agent/
 
 | 问题 | 原因 | 解决 |
 |------|------|------|
-| 启动报错 `PORT 未设置` | config.json 缺少端口 | 配置 `AGENT_SERVER_PORT` |
+| 启动报错 `PORT 未设置` | config.ini 缺少端口 | 在 `[server]` 节配置 `port` |
 | 页面打不开 | 服务未启动或端口被占用 | 检查控制台日志，确认端口未被占用 |
 | API 返回 502 | API Key 无效或网络不通 | 检查 `CHAT_API_KEY` 和网络连接 |
 | Linux 下 `./start.sh` 无法运行 | 文件无执行权限 | 执行 `chmod +x start.sh` |

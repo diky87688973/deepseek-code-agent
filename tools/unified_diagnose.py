@@ -77,8 +77,8 @@ def _syntax_diagnostics(root: Path, files: list[Path], encoding: str) -> list[di
                     "severity": "error",
                     "line": None,
                     "column": None,
-                    "endLine": None,
-                    "endColumn": None,
+                    "end_line": None,
+                    "end_column": None,
                     "message": str(e),
                 }
             )
@@ -99,8 +99,8 @@ def _syntax_diagnostics(root: Path, files: list[Path], encoding: str) -> list[di
                     "severity": "error",
                     "line": lineno,
                     "column": col,
-                    "endLine": end_lineno,
-                    "endColumn": end_offset,
+                    "end_line": end_lineno,
+                    "end_column": end_offset,
                     "message": e.msg or str(e),
                 }
             )
@@ -160,8 +160,8 @@ def _run_ruff_json(root: Path, timeout: int) -> tuple[list[dict] | None, str | N
                 "severity": _severity_for_ruff(code, msg),
                 "line": int(row) if isinstance(row, int) else None,
                 "column": int(col) if isinstance(col, int) else None,
-                "endLine": int(erow) if isinstance(erow, int) else None,
-                "endColumn": int(ecol) if isinstance(ecol, int) else None,
+                "end_line": int(erow) if isinstance(erow, int) else None,
+                "end_column": int(ecol) if isinstance(ecol, int) else None,
                 "message": msg,
             }
         )
@@ -207,7 +207,7 @@ def _run_diagnose(
     if limit <= 0:
         raise ValueError("limit 必须 > 0")
     if timeout_sec <= 0:
-        raise ValueError("timeoutSec 必须 > 0")
+        raise ValueError("timeout_sec 必须 > 0")
 
     root_r = _root_resolve(root)
     files = _collect_py_files(root_r, glob_pattern, limit)
@@ -229,12 +229,12 @@ def _run_diagnose(
 
     data = {
         "path": str(root_r),
-        "globPattern": glob_pattern,
-        "filesScanned": len(files),
+        "glob_pattern": glob_pattern,
+        "files_scanned": len(files),
         "diagnostics": diagnostics,
         "summary": {"errors": error_count, "warnings": warn_count, "total": len(diagnostics)},
-        "ruffAttempted": try_ruff,
-        "ruffIncluded": ruff_diag is not None,
+        "ruff_attempted": try_ruff,
+        "ruff_included": ruff_diag is not None,
         "notes": ruff_notes,
     }
     ok = error_count == 0
@@ -269,9 +269,9 @@ def main() -> None:
     p.add_argument("--glob_pattern", default=BUILTIN_GLOB, dest="glob_pattern")
     p.add_argument("--limit", type=int, default=BUILTIN_LIMIT_FILES)
     p.add_argument("--encoding", default="utf-8")
-    p.add_argument("--timeoutSec", type=int, default=BUILTIN_TIMEOUT_SEC, dest="timeout_sec")
-    p.add_argument("--noRuff", action="store_true", dest="no_ruff")
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--timeout_sec", type=int, default=BUILTIN_TIMEOUT_SEC, dest="timeout_sec")
+    p.add_argument("--no_ruff", action="store_true", dest="no_ruff")
+    p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
     r = agent_main(
         path=args.path,
@@ -281,12 +281,12 @@ def main() -> None:
         timeout_sec=args.timeout_sec,
         no_ruff=args.no_ruff,
     )
-    if args.jsonOut:
+    if args.json_out:
         print(json.dumps(r, ensure_ascii=False))
     elif r.get("ok") and r.get("data"):
         d = r["data"]
         s = d.get("summary", {})
-        print(f"path={d.get('path')} files={d.get('filesScanned')} diagnostics={s.get('total')} errors={s.get('errors')}")
+        print(f"path={d.get('path')} files={d.get('files_scanned')} diagnostics={s.get('total')} errors={s.get('errors')}")
         for diag in d.get("diagnostics", []):
             loc = f"{diag.get('line')}:{diag.get('column')}" if diag.get("line") is not None else "-"
             print(f"[{diag.get('severity')}] {diag.get('file')} {loc} {diag.get('rule')} {diag.get('message')}")

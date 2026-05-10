@@ -50,7 +50,9 @@ def _load(cid: str) -> None:
         if fp.exists():
             raw = fp.read_text(encoding="utf-8")
             lst = json.loads(raw)
-            if isinstance(lst, dict) and "listId" in lst and "items" in lst:
+            if isinstance(lst, dict) and "items" in lst and ("list_id" in lst or "listId" in lst):
+                if "listId" in lst and "list_id" not in lst:
+                    lst["list_id"] = lst.pop("listId")
                 session_lists[cid] = lst
     except Exception:
         pass
@@ -100,9 +102,9 @@ def execute(conversation_id: str, exec_args: Dict[str, Any]) -> dict:
         except ValueError as e:
             return {"ok": False, "data": None, "error": {"type": "ValueError", "message": str(e)}}
         lid = uuid.uuid4().hex[:12]
-        session_lists[cid] = {"listId": lid, "items": items, "collapsed": False}
+        session_lists[cid] = {"list_id": lid, "items": items, "collapsed": False}
         _persist(cid)
-        return {"ok": True, "data": {"listId": lid, "items": items, "collapsed": False}, "error": None}
+        return {"ok": True, "data": {"list_id": lid, "items": items, "collapsed": False}, "error": None}
 
     lst = session_lists.get(cid)
     if lst is None:
@@ -118,7 +120,7 @@ def execute(conversation_id: str, exec_args: Dict[str, Any]) -> dict:
                 return {"ok": False, "data": None, "error": {"type": "IndexError", "message": f"indices 含越界下标 {idx}，共 {len(lst['items'])} 项"}}
             lst["items"][idx]["done"] = True
         _persist(cid)
-        return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"], "checked": indices}, "error": None}
+        return {"ok": True, "data": {"list_id": lst["list_id"], "items": lst["items"], "checked": indices}, "error": None}
 
     if action == "uncheck":
         try:
@@ -130,7 +132,7 @@ def execute(conversation_id: str, exec_args: Dict[str, Any]) -> dict:
                 return {"ok": False, "data": None, "error": {"type": "IndexError", "message": f"indices 含越界下标 {idx}，共 {len(lst['items'])} 项"}}
             lst["items"][idx]["done"] = False
         _persist(cid)
-        return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"], "unchecked": indices}, "error": None}
+        return {"ok": True, "data": {"list_id": lst["list_id"], "items": lst["items"], "unchecked": indices}, "error": None}
 
     if action == "add_item":
         text = str(exec_args.get("text") or "").strip()
@@ -143,7 +145,7 @@ def execute(conversation_id: str, exec_args: Dict[str, Any]) -> dict:
         else:
             lst["items"].append(item)
         _persist(cid)
-        return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"]}, "error": None}
+        return {"ok": True, "data": {"list_id": lst["list_id"], "items": lst["items"]}, "error": None}
 
     if action == "remove_item":
         raw_ix = exec_args.get("item_index")
@@ -157,7 +159,7 @@ def execute(conversation_id: str, exec_args: Dict[str, Any]) -> dict:
             return {"ok": False, "data": None, "error": {"type": "IndexError", "message": f"item_index {ix} 越界，共 {len(lst['items'])} 项"}}
         lst["items"].pop(ix)
         _persist(cid)
-        return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"]}, "error": None}
+        return {"ok": True, "data": {"list_id": lst["list_id"], "items": lst["items"]}, "error": None}
 
     if action == "replace_item":
         raw_ix = exec_args.get("item_index")
@@ -174,12 +176,12 @@ def execute(conversation_id: str, exec_args: Dict[str, Any]) -> dict:
             return {"ok": False, "data": None, "error": {"type": "ValueError", "message": "replace_item 需要 text"}}
         lst["items"][ix]["text"] = text
         _persist(cid)
-        return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"]}, "error": None}
+        return {"ok": True, "data": {"list_id": lst["list_id"], "items": lst["items"]}, "error": None}
 
     if action == "collapse":
         lst["collapsed"] = not lst.get("collapsed", False)
         _persist(cid)
-        return {"ok": True, "data": {"listId": lst["listId"], "items": lst["items"], "collapsed": lst["collapsed"]}, "error": None}
+        return {"ok": True, "data": {"list_id": lst["list_id"], "items": lst["items"], "collapsed": lst["collapsed"]}, "error": None}
 
     if action == "close":
         session_lists.pop(cid, None)
@@ -223,7 +225,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--indices", default=None, help="check/uncheck：JSON 整数数组，如 [0,1]")
     p.add_argument("--item_index", type=int, default=None)
     p.add_argument("--text", default=None)
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--json_out", action="store_true")
     return p
 
 
@@ -233,7 +235,7 @@ def main() -> None:
     p = build_parser()
     args = p.parse_args()
     r = agent_main()
-    if args.jsonOut:
+    if args.json_out:
         import json as _j
         print(_j.dumps(r, ensure_ascii=False))
     else:

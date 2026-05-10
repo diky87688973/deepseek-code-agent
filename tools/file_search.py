@@ -125,10 +125,10 @@ def _search_file(
                 "column": m.start() + 1,
                 "text": line_text,
                 "match": match_text,
-                "regionStart": region_start,
-                "regionEnd": region_end,
-                "contextBefore": ctx_before,
-                "contextAfter": ctx_after,
+                "region_start": region_start,
+                "region_end": region_end,
+                "context_before": ctx_before,
+                "context_after": ctx_after,
             }
         )
 
@@ -165,9 +165,9 @@ def _search_directory(
             return {
                 "path": str(target),
                 "pattern": pattern.pattern,
-                "scannedFiles": scanned,
-                "matchedFiles": matched_files,
-                "totalMatches": len(results),
+                "scanned_files": scanned,
+                "matched_files": matched_files,
+                "total_matches": len(results),
                 "matches": results,
                 "errors": errors if errors else None,
                 "_host_aborted": True,
@@ -184,7 +184,7 @@ def _search_directory(
             _cf_disp = str(entry.relative_to(target))
         except (ValueError, AttributeError):
             _cf_disp = entry.name
-        _prog_data = {"scanned": scanned, "currentFile": _cf_disp, "phase": "search"}
+        _prog_data = {"scanned": scanned, "current_file": _cf_disp, "phase": "search"}
         if _progress_dict is not None:
             _progress_dict.update(_prog_data)
 
@@ -193,9 +193,9 @@ def _search_directory(
             return {
                 "path": str(target),
                 "pattern": pattern.pattern,
-                "scannedFiles": scanned,
-                "matchedFiles": matched_files,
-                "totalMatches": len(results),
+                "scanned_files": scanned,
+                "matched_files": matched_files,
+                "total_matches": len(results),
                 "matches": results,
                 "errors": errors if errors else None,
                 "_host_aborted": True,
@@ -208,7 +208,7 @@ def _search_directory(
                 _cf = str(entry.relative_to(target))
             except (ValueError, AttributeError):
                 _cf = entry.name
-            _prog_data = {"scanned": scanned, "currentFile": _cf, "phase": "search"}
+            _prog_data = {"scanned": scanned, "current_file": _cf, "phase": "search"}
             if _progress_dict is not None:
                 _progress_dict.update(_prog_data)
             _last_report = _now
@@ -231,9 +231,9 @@ def _search_directory(
     return {
         "path": str(target),
         "pattern": pattern.pattern,
-        "scannedFiles": scanned,
-        "matchedFiles": matched_files,
-        "totalMatches": len(results),
+        "scanned_files": scanned,
+        "matched_files": matched_files,
+        "total_matches": len(results),
         "matches": results,
         "errors": errors if errors else None,
     }
@@ -274,24 +274,24 @@ def agent_main(
         if target_path.is_file():
             if _progress_dict is not None:
                 _progress_dict.update(
-                    {"scanned": 0, "currentFile": target_path.name, "phase": "search"}
+                    {"scanned": 0, "current_file": target_path.name, "phase": "search"}
                 )
             results = _search_file(target_path, compiled, context_lines, limit, _progress_dict=_progress_dict)
             if results and isinstance(results[0], dict) and results[0].get("_abort"):
                 return {"ok": False, "data": None, "error": {"type": "Aborted", "message": "用户已停止搜索"}}
             if _progress_dict is not None:
                 _progress_dict.update(
-                    {"scanned": 1, "currentFile": target_path.name, "phase": "search"}
+                    {"scanned": 1, "current_file": target_path.name, "phase": "search"}
                 )
             data = {
                 "path": str(target_path),
                 "pattern": pattern,
-                "scannedFiles": 1,
-                "matchedFiles": 1 if results else 0,
-                "totalMatches": len(results),
+                "scanned_files": 1,
+                "matched_files": 1 if results else 0,
+                "total_matches": len(results),
                 "matches": results,
                 "errors": None,
-                "hint": "matches 中的 regionStart/regionEnd 可直接传给 replace_in_file；大范围只定位时优先 file_search，轻量搜索优先 grep_files。",
+                "hint": "matches 中的 region_start/region_end 可直接传给 replace_in_file；大范围只定位时优先 file_search，轻量搜索优先 grep_files。",
             }
         else:
             data = _search_directory(
@@ -311,7 +311,7 @@ def agent_main(
         if isinstance(data, dict):
             data.setdefault(
                 "hint",
-                "matches 中的 regionStart/regionEnd 可直接传给 replace_in_file；大范围只定位时优先 file_search，轻量搜索优先 grep_files。",
+                "matches 中的 region_start/region_end 可直接传给 replace_in_file；大范围只定位时优先 file_search，轻量搜索优先 grep_files。",
             )
         return {"ok": True, "data": data, "error": None}
     except Exception as e:
@@ -331,13 +331,13 @@ def main() -> None:
     )
     p.add_argument("--recursive", action="store_true", default=True)
     p.add_argument("--no-recursive", action="store_false", dest="recursive")
-    p.add_argument("--contextLines", type=int, default=0, dest="context_lines")
-    p.add_argument("--ignoreCase", action="store_true", dest="ignore_case")
-    p.add_argument("--noGitignore", action="store_true", dest="no_gitignore")
+    p.add_argument("--context_lines", type=int, default=0, dest="context_lines")
+    p.add_argument("--ignore_case", action="store_true", dest="ignore_case")
+    p.add_argument("--no_gitignore", action="store_true", dest="no_gitignore")
     p.add_argument("--limit", type=int, default=None)
-    p.add_argument("--restrictToWorkspace", action="store_true")
-    p.add_argument("--runType", default="")
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--restrict_to_workspace", action="store_true")
+    p.add_argument("--run_type", default="")
+    p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
     r = agent_main(
         path=args.path,
@@ -349,10 +349,10 @@ def main() -> None:
         ignore_case=args.ignore_case,
         no_gitignore=args.no_gitignore,
         limit=args.limit,
-        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
-        run_type=str(getattr(args, "runType", "") or ""),
+        restrict_to_workspace=bool(args.restrict_to_workspace),
+        run_type=str(args.run_type or ""),
     )
-    if args.jsonOut:
+    if args.json_out:
         print(json.dumps(r, ensure_ascii=False))
     elif r.get("ok") and r.get("data"):
         print(json.dumps(r["data"], ensure_ascii=False, indent=2))

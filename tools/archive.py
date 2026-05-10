@@ -97,9 +97,9 @@ def _list_archive(source: Path, password: str | None, glob_pattern: str | None) 
                     {
                         "name": name,
                         "size": info.file_size,
-                        "compressedSize": getattr(info, "compress_size", None),
+                        "compressed_size": getattr(info, "compress_size", None),
                         "modified": datetime(*info.date_time).isoformat() if hasattr(info, "date_time") else None,
-                        "isDir": info.is_dir() if hasattr(info, "is_dir") else name.endswith("/"),
+                        "is_dir": info.is_dir() if hasattr(info, "is_dir") else name.endswith("/"),
                     }
                 )
         else:
@@ -111,9 +111,9 @@ def _list_archive(source: Path, password: str | None, glob_pattern: str | None) 
                     {
                         "name": member.name,
                         "size": member.size,
-                        "compressedSize": None,
+                        "compressed_size": None,
                         "modified": datetime.fromtimestamp(member.mtime).isoformat() if member.mtime else None,
-                        "isDir": member.isdir(),
+                        "is_dir": member.isdir(),
                     }
                 )
         return {
@@ -155,7 +155,7 @@ def _extract_archive(source: Path, dest: Path, password: str | None, glob_patter
             "source": str(source),
             "dest": str(dest),
             "format": fmt,
-            "extractedCount": count,
+            "extracted_count": count,
         }
     finally:
         close_fn()
@@ -228,7 +228,7 @@ def _create_archive(source: Path, dest: Path, fmt: str, glob_pattern: str | None
         "source": str(source),
         "dest": str(dest),
         "format": fmt,
-        "addedCount": count,
+        "added_count": count,
     }
 
 
@@ -291,12 +291,12 @@ def main() -> None:
     p.add_argument("--password", default=None)
     p.add_argument("--glob_pattern", default=None)
     p.add_argument(
-        "--restrictToWorkspace",
+        "--restrict_to_workspace",
         action="store_true",
         help="源/目标路径限定在 WORKSPACE_DIR 内（默认不限制）。",
     )
-    p.add_argument("--runType", default="")
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--run_type", default="")
+    p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
     r = agent_main(
         action=args.action,
@@ -305,10 +305,10 @@ def main() -> None:
         output_format=args.output_format,
         password=args.password,
         glob_pattern=args.glob_pattern,
-        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
-        run_type=str(args.runType or ""),
+        restrict_to_workspace=bool(args.restrict_to_workspace),
+        run_type=str(args.run_type or ""),
     )
-    if args.jsonOut:
+    if args.json_out:
         print(json.dumps(r, ensure_ascii=False))
     else:
         if r.get("ok"):

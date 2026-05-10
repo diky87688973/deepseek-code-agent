@@ -66,9 +66,9 @@ def _load_table(path: Path, sheet: str | None) -> tuple[str, list[dict]]:
 
 def _do_preview(rows: list[dict], limit: int) -> dict:
     if not rows:
-        return {"totalRows": 0, "columns": [], "preview": [], "limit": limit}
+        return {"total_rows": 0, "columns": [], "preview": [], "limit": limit}
     columns = list(rows[0].keys())
-    return {"totalRows": len(rows), "columns": columns, "preview": rows[:limit], "limit": limit}
+    return {"total_rows": len(rows), "columns": columns, "preview": rows[:limit], "limit": limit}
 
 
 def _do_filter(rows: list[dict], col: str, val: str, regex: bool) -> list[dict]:
@@ -95,7 +95,7 @@ def _do_stats(rows: list[dict], col: str) -> dict:
                 values.append(float(v))
             except (ValueError, TypeError):
                 pass
-    stats: dict = {"column": col, "totalRows": len(rows), "nonEmpty": len(values)}
+    stats: dict = {"column": col, "total_rows": len(rows), "non_empty": len(values)}
     if values:
         stats["min"] = min(values)
         stats["max"] = max(values)
@@ -175,7 +175,7 @@ def agent_main(
                 return ac.err(ValueError("filter 需要 filter_col 与 filter_val"))
             filtered = _do_filter(rows, filter_col, str(filter_val), regex)
             data = _do_preview(filtered, limit)
-            data["filteredRows"] = len(filtered)
+            data["filtered_rows"] = len(filtered)
             return ac.ok(data)
         if act == "sort":
             if not sort_col:
@@ -210,11 +210,11 @@ def main() -> None:
     p.add_argument("--sort_desc", action="store_true")
     p.add_argument("--col", default=None)
     p.add_argument(
-        "--restrictToWorkspace",
+        "--restrict_to_workspace",
         action="store_true",
         help="将 source 限定在 WORKSPACE_DIR 内（默认不限制）。",
     )
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
     r = agent_main(
         action=args.action,
@@ -227,9 +227,9 @@ def main() -> None:
         sort_col=args.sort_col,
         sort_desc=bool(args.sort_desc),
         col=args.col,
-        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
+        restrict_to_workspace=bool(args.restrict_to_workspace),
     )
-    if args.jsonOut:
+    if args.json_out:
         print(json.dumps(r, ensure_ascii=False))
     else:
         if r.get("ok"):

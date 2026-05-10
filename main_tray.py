@@ -57,7 +57,7 @@ else:
     BASE_DIR = Path(__file__).resolve().parent
 
 os.chdir(str(BASE_DIR))
-# PORT 由 config.json 或环境变量提供，无默认值
+# PORT 由 config.ini（经 load_config 写入环境变量）或已有环境变量提供
 
 sys.path.insert(0, str(BASE_DIR))
 
@@ -73,7 +73,7 @@ os.environ.setdefault("AGENT_RECYCLE_ROOT", str(DATA_ROOT / "AI_安全删除回�
 HOST = os.environ.get("HOST", "127.0.0.1")
 port_str = os.environ.get("PORT")
 if not port_str:
-    print("FATAL: PORT 未设置！请在 config.json 中配置 AGENT_SERVER_PORT", flush=True)
+    print("FATAL: PORT 未设置！请在 config.ini 的 [server] 节配置 port（映射为环境变量 PORT）", flush=True)
     sys.exit(1)
 PORT = int(port_str)
 SERVER_URL = f"http://{HOST}:{PORT}"
@@ -248,7 +248,7 @@ def main():
     _log(f"AGENT_ROOT: {BASE_DIR}")
     _log(f"DATA_ROOT: {DATA_ROOT}")
     _log(f"UNLOCK_CODE_UPDATE: {_unlock_update}")
-    _log(f"config.json 存在: {(BASE_DIR / 'config.json').exists()}")
+    _log(f"config.ini 存在: {(BASE_DIR / 'config.ini').exists()}")
     _log(f"PORT env: {os.environ.get('PORT', '未设置')}")
     _log(f"CHAT_API_BASE_URL: {os.environ.get('CHAT_API_BASE_URL', '未设置')}")
     print(f"[main_tray] 正在启动 DeepSeek Code Agent v1...", flush=True)

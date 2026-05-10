@@ -292,16 +292,16 @@ def _run_core(
     data = {
         "provider": "Open-Meteo",
         "source": source,
-        "requestedLocation": requested_loc,
-        "resolvedName": name_used,
-        "displayPlain": display_plain,
-        "displayRegionZh": display_region_zh,
+        "requested_location": requested_loc,
+        "resolved_name": name_used,
+        "display_plain": display_plain,
+        "display_region_zh": display_region_zh,
         "latitude": lat,
         "longitude": lon,
         "timezone": fc.get("timezone"),
         "current": cur,
         "daily": daily,
-        "summaryZh": summary,
+        "summary_zh": summary,
     }
     return {"ok": True, "data": data, "error": None}
 
@@ -338,19 +338,19 @@ def main() -> None:
     p.add_argument("--latitude", default="")
     p.add_argument("--longitude", default="")
     p.add_argument("--ip", default="")
-    p.add_argument("--forecastDays", type=int, default=BUILTIN_FORECAST_DAYS)
-    p.add_argument("--timeoutSec", type=int, default=BUILTIN_TIMEOUT_SEC)
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--forecast_days", type=int, default=BUILTIN_FORECAST_DAYS)
+    p.add_argument("--timeout_sec", type=int, default=BUILTIN_TIMEOUT_SEC)
+    p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
     r = agent_main(
         location=str(args.location or ""),
         latitude=str(args.latitude or ""),
         longitude=str(args.longitude or ""),
         ip=str(args.ip or ""),
-        forecast_days=int(args.forecastDays),
-        timeout_sec=int(args.timeoutSec),
+        forecast_days=int(args.forecast_days),
+        timeout_sec=int(args.timeout_sec),
     )
-    if args.jsonOut:
+    if args.json_out:
         print(json.dumps(r, ensure_ascii=False))
     elif r.get("ok"):
         print(json.dumps(r.get("data"), ensure_ascii=False))

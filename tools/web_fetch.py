@@ -89,32 +89,32 @@ def _fetch_url(url: str, timeout_sec: int, max_chars: int, user_agent: str) -> d
 
     return {
         "url": url,
-        "finalUrl": final_url,
+        "final_url": final_url,
         "status": int(status),
-        "contentType": content_type,
+        "content_type": content_type,
         "title": title,
         "text": text,
-        "textLen": len(text),
+        "text_len": len(text),
         "truncated": truncated,
     }
 
 
 def _run_hard_checks(text: str, *, min_chars: int | None, keywords: list[str]) -> tuple[bool, dict]:
-    checks: dict = {"minChars": min_chars, "requireKeywords": keywords, "hitKeywords": []}
+    checks: dict = {"min_chars": min_chars, "require_keywords": keywords, "hit_keywords": []}
     if min_chars is not None:
         if len(text) < min_chars:
-            checks["failed"] = "minChars"
-            checks["actualChars"] = len(text)
+            checks["failed"] = "min_chars"
+            checks["actual_chars"] = len(text)
             return False, checks
     if keywords:
         lower = text.lower()
         hit = [k for k in keywords if k.lower() in lower]
-        checks["hitKeywords"] = hit
+        checks["hit_keywords"] = hit
         if not hit:
-            checks["failed"] = "requireKeywords"
+            checks["failed"] = "require_keywords"
             return False, checks
     checks["failed"] = None
-    checks["actualChars"] = len(text)
+    checks["actual_chars"] = len(text)
     return True, checks
 
 
@@ -134,11 +134,11 @@ def _run_fetch(
     if parsed_u.scheme not in ("http", "https"):
         raise ValueError("只支持 http/https URL")
     if timeout_sec <= 0:
-        raise ValueError("timeoutSec 必须 > 0")
+        raise ValueError("timeout_sec 必须 > 0")
     if max_chars <= 0:
-        raise ValueError("maxChars 必须 > 0")
+        raise ValueError("max_chars 必须 > 0")
     if min_chars is not None and min_chars <= 0:
-        raise ValueError("minChars 必须 > 0")
+        raise ValueError("min_chars 必须 > 0")
 
     data = _fetch_url(u, int(timeout_sec), int(max_chars), str(user_agent))
 
@@ -151,7 +151,7 @@ def _run_fetch(
         fp = Path(out_f)
         fp.parent.mkdir(parents=True, exist_ok=True)
         fp.write_text(str(data.get("text", "")), encoding="utf-8")
-        data["outFile"] = str(fp)
+        data["out_file"] = str(fp)
         data["written"] = True
     else:
         data["written"] = False
@@ -160,7 +160,7 @@ def _run_fetch(
         err = _err(
             code="E_ACCEPTANCE",
             message=f"内容验收失败: {checks.get('failed')}",
-            hint="调整 URL / maxChars 或放宽 minChars/requireKeywords 限制",
+            hint="调整 URL / max_chars 或放宽 min_chars/require_keywords 限制",
             retryable=True,
         )
         return {"ok": False, "data": data, "error": err}
@@ -219,28 +219,28 @@ def agent_main(
 def main() -> None:
     p = argparse.ArgumentParser(description="抓取 URL → 提取纯文本")
     p.add_argument("--url", required=True)
-    p.add_argument("--timeoutSec", type=int, default=BUILTIN_TIMEOUT_SEC)
-    p.add_argument("--maxChars", type=int, default=BUILTIN_MAX_CHARS)
-    p.add_argument("--userAgent", default=BUILTIN_USER_AGENT)
-    p.add_argument("--outFile", default=None)
-    p.add_argument("--minChars", type=int, default=None)
-    p.add_argument("--requireKeywords", default=None)
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--timeout_sec", type=int, default=BUILTIN_TIMEOUT_SEC)
+    p.add_argument("--max_chars", type=int, default=BUILTIN_MAX_CHARS)
+    p.add_argument("--user_agent", default=BUILTIN_USER_AGENT)
+    p.add_argument("--out_file", default=None)
+    p.add_argument("--min_chars", type=int, default=None)
+    p.add_argument("--require_keywords", default=None)
+    p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
     r = agent_main(
         url=args.url,
-        timeout_sec=args.timeoutSec,
-        max_chars=args.maxChars,
-        user_agent=args.userAgent,
-        out_file=args.outFile,
-        min_chars=args.minChars,
-        require_keywords=args.requireKeywords,
+        timeout_sec=args.timeout_sec,
+        max_chars=args.max_chars,
+        user_agent=args.user_agent,
+        out_file=args.out_file,
+        min_chars=args.min_chars,
+        require_keywords=args.require_keywords,
     )
-    if args.jsonOut:
+    if args.json_out:
         print(json.dumps(r, ensure_ascii=False))
     elif r.get("ok") and r.get("data"):
         d = r["data"]
-        if args.outFile:
+        if args.out_file:
             print("ok")
         else:
             print(d.get("text", ""), end="")

@@ -14,7 +14,7 @@ from tool_help_share import HelpfulParser
 
 def build_parser() -> argparse.ArgumentParser:
     p = HelpfulParser(description="探测本机可用命令行模式（cmd/powershell/bash/python 等）")
-    p.add_argument("--jsonOut", action="store_true", help="向 stdout 输出统一 JSON {ok,data,error}")
+    p.add_argument("--json_out", action="store_true", help="向 stdout 输出统一 JSON {ok,data,error}")
     return p
 
 
@@ -49,7 +49,7 @@ def agent_main(*, run_type: str = "") -> dict:
         "python": sys.version.split()[0],
         "cwd": str(Path.cwd()),
         "available": available,
-        "pycharmTerminalNote": "IDE 终端仍调用系统 shell（如 powershell/cmd），常规 pip/命令均可使用。",
+        "pycharm_terminal_note": "IDE 终端仍调用系统 shell（如 powershell/cmd），常规 pip/命令均可使用。",
         "recommendations": recommendations,
     }
     return ac.ok(data)
@@ -59,7 +59,7 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     env = agent_main()
-    if args.jsonOut:
+    if args.json_out:
         print(json.dumps(env, ensure_ascii=False))
     else:
         if env.get("ok") and isinstance(env.get("data"), dict):

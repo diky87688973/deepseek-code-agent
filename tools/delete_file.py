@@ -88,24 +88,25 @@ def agent_main(
 
 def main() -> None:
     p = argparse.ArgumentParser(description="delete_file（调试）")
+    p.set_defaults(dry_run=True)
     p.add_argument("--path", required=True)
-    p.add_argument("--dryRun", action="store_true", default=True)
-    p.add_argument("--commit", action="store_false", dest="dryRun", help="真正移到回收目录（关闭 dryRun）")
+    p.add_argument("--dry_run", dest="dry_run", action="store_true")
+    p.add_argument("--commit", dest="dry_run", action="store_false", help="真正移到回收目录（关闭 dry_run 预览）")
     p.add_argument(
-        "--restrictToWorkspace",
+        "--restrict_to_workspace",
         action="store_true",
         help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
     )
-    p.add_argument("--runType", default="")
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--run_type", default="")
+    p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
     r = agent_main(
         path=args.path,
-        dry_run=bool(args.dryRun),
-        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
-        run_type=str(args.runType or ""),
+        dry_run=bool(args.dry_run),
+        restrict_to_workspace=bool(args.restrict_to_workspace),
+        run_type=str(args.run_type or ""),
     )
-    if args.jsonOut:
+    if args.json_out:
         print(json.dumps(r, ensure_ascii=False))
     else:
         if r.get("ok"):

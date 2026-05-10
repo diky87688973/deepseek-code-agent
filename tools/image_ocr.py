@@ -94,7 +94,7 @@ def _ocr_pytesseract(image_path: Path, lang: str, region: tuple | None) -> dict:
         "ok": True,
         "data": {
             "engine": "pytesseract",
-            "fullText": full_text,
+            "full_text": full_text,
             "lines": text_lines,
             "words": words_with_pos,
         },
@@ -150,7 +150,7 @@ def _ocr_easyocr(image_path: Path, lang: str, region: tuple | None) -> dict:
         )
 
     full_text = "\n".join(w["text"] for w in words)
-    return {"ok": True, "data": {"engine": "easyocr", "fullText": full_text, "words": words}}
+    return {"ok": True, "data": {"engine": "easyocr", "full_text": full_text, "words": words}}
 
 
 def agent_main(
@@ -227,20 +227,20 @@ def main() -> None:
     p.add_argument("--region", default=None)
     p.add_argument("--engine", default="auto")
     p.add_argument(
-        "--restrictToWorkspace",
+        "--restrict_to_workspace",
         action="store_true",
         help="将 source 限定在 WORKSPACE_DIR 内（默认不限制）。",
     )
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
     r = agent_main(
         source=args.source,
         lang=args.lang,
         region=args.region,
         engine=args.engine,
-        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
+        restrict_to_workspace=bool(args.restrict_to_workspace),
     )
-    if args.jsonOut:
+    if args.json_out:
         print(json.dumps(r, ensure_ascii=False))
     else:
         if r.get("ok"):

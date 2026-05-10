@@ -45,7 +45,7 @@ def _error_payload(
         "code": code,
         "type": "GitWorkspaceError",
         "message": message,
-        "exitCode": exit_code,
+        "exit_code": exit_code,
         "hint": hint,
         "retryable": retryable,
     }
@@ -96,21 +96,21 @@ def _mode_worktree(root: Path, max_chars: int) -> dict:
     return {
         "mode": "worktree",
         "path": str(root),
-        "branchLine": branch_line,
+        "branch_line": branch_line,
         "porcelain": porcelain,
-        "porcelainCount": len(porcelain),
-        "diffWorktree": diff_worktree,
-        "diffStaged": diff_staged,
-        "diffTruncated": tw or ts,
-        "rawDiffWorktreeChars": len(du.stdout or ""),
-        "rawDiffStagedChars": len(ds.stdout or ""),
-        "effectiveMaxDiffChars": max_chars,
+        "porcelain_count": len(porcelain),
+        "diff_worktree": diff_worktree,
+        "diff_staged": diff_staged,
+        "diff_truncated": tw or ts,
+        "raw_diff_worktree_chars": len(du.stdout or ""),
+        "raw_diff_staged_chars": len(ds.stdout or ""),
+        "effective_max_diff_chars": max_chars,
     }
 
 
 def _mode_log(root: Path, max_n: int) -> dict:
     if max_n <= 0:
-        raise ValueError("logMax 必须 > 0")
+        raise ValueError("log_max 必须 > 0")
     fmt = "%H%x1f%s%x1f%aN%x1f%ai%x1e"
     cp = _run_git(root, "log", f"-n{max_n}", f"--pretty=format:{fmt}", "--no-color")
     if cp.returncode != 0:
@@ -118,7 +118,7 @@ def _mode_log(root: Path, max_n: int) -> dict:
     entries: list[dict[str, str]] = []
     raw = (cp.stdout or "").strip()
     if not raw:
-        return {"mode": "log", "path": str(root), "logMax": max_n, "entries": entries}
+        return {"mode": "log", "path": str(root), "log_max": max_n, "entries": entries}
     for rec in raw.split("\x1e"):
         rec = rec.strip()
         if not rec:
@@ -127,7 +127,7 @@ def _mode_log(root: Path, max_n: int) -> dict:
         if len(parts) < 4:
             continue
         entries.append({"commit": parts[0], "subject": parts[1], "author": parts[2], "date": parts[3]})
-    return {"mode": "log", "path": str(root), "logMax": max_n, "entries": entries}
+    return {"mode": "log", "path": str(root), "log_max": max_n, "entries": entries}
 
 
 _HEADER_RE = re.compile(r"^([0-9a-f]{7,40}) (\d+) (\d+) (\d+)$")
@@ -159,7 +159,7 @@ def _mode_blame(root: Path, rel_path: str, start_line: int | None, end_line: int
     for line in (cp.stdout or "").splitlines():
         m = _HEADER_RE.match(line)
         if m:
-            cur = {"commit": m.group(1), "origLine": int(m.group(2)), "finalLine": int(m.group(3))}
+            cur = {"commit": m.group(1), "orig_line": int(m.group(2)), "final_line": int(m.group(3))}
             meta = {}
             continue
         if cur is None:
@@ -167,8 +167,8 @@ def _mode_blame(root: Path, rel_path: str, start_line: int | None, end_line: int
         if line.startswith("\t"):
             row = {
                 "commit": str(cur["commit"]),
-                "origLine": int(cur["origLine"]),
-                "finalLine": int(cur["finalLine"]),
+                "orig_line": int(cur["orig_line"]),
+                "final_line": int(cur["final_line"]),
                 "text": line[1:],
                 "author": meta.get("author", ""),
                 "summary": meta.get("summary", ""),
@@ -184,14 +184,14 @@ def _mode_blame(root: Path, rel_path: str, start_line: int | None, end_line: int
     return {
         "mode": "blame",
         "path": str(root),
-        "relativePath": rel_git,
+        "relative_path": rel_git,
         "lines": lines_out,
     }
 
 
 def _mode_show(root: Path, ref: str, max_chars: int) -> dict:
     if not ref or not ref.strip():
-        raise ValueError("showRef 不能为空")
+        raise ValueError("show_ref 不能为空")
     ref = ref.strip()
 
     meta_cp = _run_git(root, "show", "--no-color", "--no-patch", "--format=medium", ref)
@@ -226,13 +226,13 @@ def _mode_show(root: Path, ref: str, max_chars: int) -> dict:
         "mode": "show",
         "path": str(root),
         "ref": ref,
-        "commitMessage": (meta_cp.stdout or "").strip(),
-        "statSummary": stat_text,
-        "changedFiles": files,
+        "commit_message": (meta_cp.stdout or "").strip(),
+        "stat_summary": stat_text,
+        "changed_files": files,
         "patch": patch,
-        "patchTruncated": trunc,
-        "rawPatchChars": len(patch_raw),
-        "effectiveMaxDiffChars": max_chars,
+        "patch_truncated": trunc,
+        "raw_patch_chars": len(patch_raw),
+        "effective_max_diff_chars": max_chars,
     }
 
 
@@ -291,43 +291,43 @@ def main() -> None:
         choices=["worktree", "log", "blame", "show"],
         default="worktree",
     )
-    p.add_argument("--maxDiffChars", type=int, default=BUILTIN_MAX_DIFF_CHARS)
-    p.add_argument("--logMax", type=int, default=BUILTIN_LOG_MAX)
-    p.add_argument("--blamePath", default="")
-    p.add_argument("--startLine", type=int, default=None)
-    p.add_argument("--endLine", type=int, default=None)
-    p.add_argument("--showRef", default="HEAD")
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--max_diff_chars", type=int, default=BUILTIN_MAX_DIFF_CHARS)
+    p.add_argument("--log_max", type=int, default=BUILTIN_LOG_MAX)
+    p.add_argument("--blame_path", default="")
+    p.add_argument("--start_line", type=int, default=None)
+    p.add_argument("--end_line", type=int, default=None)
+    p.add_argument("--show_ref", default="HEAD")
+    p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
     r = agent_main(
         path=args.path,
         mode=args.mode,
-        max_diff_chars=args.maxDiffChars,
-        log_max=args.logMax,
-        blame_path=str(args.blamePath or ""),
-        start_line=args.startLine,
-        end_line=args.endLine,
-        show_ref=str(args.showRef or "HEAD"),
+        max_diff_chars=args.max_diff_chars,
+        log_max=args.log_max,
+        blame_path=str(args.blame_path or ""),
+        start_line=args.start_line,
+        end_line=args.end_line,
+        show_ref=str(args.show_ref or "HEAD"),
     )
-    if args.jsonOut:
+    if args.json_out:
         print(json.dumps(r, ensure_ascii=False))
     elif r.get("ok"):
         d = r.get("data") or {}
         if args.mode == "worktree":
-            print((d.get("branchLine") or ""))
+            print((d.get("branch_line") or ""))
             print("--- diff (worktree) ---")
-            print(d.get("diffWorktree", ""), end="")
+            print(d.get("diff_worktree", ""), end="")
             print("--- diff (staged) ---")
-            print(d.get("diffStaged", ""), end="")
+            print(d.get("diff_staged", ""), end="")
         elif args.mode == "log":
             for e in d.get("entries", []):
                 print(f"{e.get('commit', '')[:8]} {e.get('date', '')} {e.get('author', '')} {e.get('subject', '')}")
         elif args.mode == "blame":
             for row in d.get("lines", []):
-                print(f"{row.get('finalLine')} {row.get('commit', '')[:8]} {row.get('text', '')}")
+                print(f"{row.get('final_line')} {row.get('commit', '')[:8]} {row.get('text', '')}")
         else:
-            print(d.get("commitMessage", ""))
-            for f in d.get("changedFiles", []):
+            print(d.get("commit_message", ""))
+            for f in d.get("changed_files", []):
                 print(f"{f.get('status')}\t{f.get('path')}")
             print(d.get("patch", ""), end="")
     else:

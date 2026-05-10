@@ -58,18 +58,18 @@ def _label_for_side(file_arg: str | None, kind: str) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     p = HelpfulParser(description="文本对比：unified diff + 摘要")
-    p.add_argument("--leftFile", help="左侧文件（与 leftText 二选一）")
-    p.add_argument("--leftText", help="左侧文本")
-    p.add_argument("--rightFile", help="右侧文件（与 rightText 二选一）")
-    p.add_argument("--rightText", help="右侧文本")
+    p.add_argument("--left_file", help="左侧文件（与 left_text 二选一）")
+    p.add_argument("--left_text", help="左侧文本")
+    p.add_argument("--right_file", help="右侧文件（与 right_text 二选一）")
+    p.add_argument("--right_text", help="右侧文本")
     p.add_argument("--encoding", default="utf-8", help="读文件编码，默认 utf-8；可 auto")
     p.add_argument("--context", type=int, default=3, help="unified diff 上下文行数 n")
     p.add_argument(
-        "--restrictToWorkspace",
+        "--restrict_to_workspace",
         action="store_true",
         help="左右侧文件路径均限定在 WORKSPACE_DIR 内（默认不限制）。",
     )
-    p.add_argument("--jsonOut", action="store_true", help="JSON 输出")
+    p.add_argument("--json_out", action="store_true", help="JSON 输出")
     return p
 
 
@@ -84,7 +84,7 @@ def agent_main(
     restrict_to_workspace: bool = False,
     run_type: str = "",
 ) -> dict:
-    """返回 data：summary、diff（行列表）、diffMarkdown。"""
+    """返回 data：summary、diff（行列表）、diff_markdown。"""
     _ = run_type
     try:
         if context < 0:
@@ -99,8 +99,8 @@ def agent_main(
 
         left_lines = left.splitlines()
         right_lines = right.splitlines()
-        from_label = _label_for_side(left_file, "leftText")
-        to_label = _label_for_side(right_file, "rightText")
+        from_label = _label_for_side(left_file, "left_text")
+        to_label = _label_for_side(right_file, "right_text")
         diff_lines = list(
             difflib.unified_diff(
                 left_lines,
@@ -115,10 +115,10 @@ def agent_main(
         del_cnt = sum(1 for x in diff_lines if x.startswith("-") and not x.startswith("---"))
         summary = {
             "same": left == right,
-            "leftChars": len(left),
-            "rightChars": len(right),
-            "addedLines": add_cnt,
-            "deletedLines": del_cnt,
+            "left_chars": len(left),
+            "right_chars": len(right),
+            "added_lines": add_cnt,
+            "deleted_lines": del_cnt,
         }
         diff_body = "\n".join(diff_lines)
         diff_md = "```diff\n" + diff_body + "\n```" if diff_lines else "```diff\n```"
@@ -126,7 +126,7 @@ def agent_main(
             {
                 "summary": summary,
                 "diff": diff_lines,
-                "diffMarkdown": diff_md,
+                "diff_markdown": diff_md,
             }
         )
     except Exception as e:
@@ -136,10 +136,10 @@ def agent_main(
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    lf = getattr(args, "leftFile", None)
-    lt = getattr(args, "leftText", None)
-    rf = getattr(args, "rightFile", None)
-    rt = getattr(args, "rightText", None)
+    lf = getattr(args, "left_file", None)
+    lt = getattr(args, "left_text", None)
+    rf = getattr(args, "right_file", None)
+    rt = getattr(args, "right_text", None)
     res = agent_main(
         left_file=str(lf) if lf is not None else None,
         left_text=str(lt) if lt is not None else None,
@@ -147,12 +147,12 @@ def main() -> None:
         right_text=str(rt) if rt is not None else None,
         encoding=str(getattr(args, "encoding", "utf-8")),
         context=int(getattr(args, "context", 3)),
-        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
+        restrict_to_workspace=bool(args.restrict_to_workspace),
     )
     if res["ok"]:
         data = res["data"]
         assert data is not None
-        if args.jsonOut:
+        if args.json_out:
             print(json.dumps(res, ensure_ascii=False))
         else:
             print(json.dumps(data["summary"], ensure_ascii=False))
@@ -162,7 +162,7 @@ def main() -> None:
     err = res.get("error") or {}
     msg = str(err.get("message", ""))
     full_msg = msg + "\n\n--help:\n" + capture_help(parser)
-    if args.jsonOut:
+    if args.json_out:
         print(
             json.dumps(
                 {"ok": False, "data": None, "error": {**err, "message": full_msg}},

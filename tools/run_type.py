@@ -23,20 +23,20 @@ def agent_main(
     rt = str(run_type).strip().lower()
     if rt not in ("auto", "plan", "execute"):
         return ac.err(ValueError(f"run_type 须为 auto/plan/execute，收到: {run_type!r}"))
-    return ac.ok({"runType": rt, "action": "switch"})
+    return ac.ok({"run_type": rt, "action": "switch"})
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="run_type：人工调试入口；宿主内联执行时走 _execute_run_type")
-    p.add_argument("--runType", default=None)
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--run_type", default=None)
+    p.add_argument("--json_out", action="store_true")
     return p
 
 
 def main() -> None:
     args = build_parser().parse_args()
-    r = agent_main(run_type=args.runType)
-    if args.jsonOut:
+    r = agent_main(run_type=args.run_type)
+    if args.json_out:
         print(json.dumps(r, ensure_ascii=False))
     else:
         if r.get("ok"):

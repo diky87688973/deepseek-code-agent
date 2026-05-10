@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""在单文件或目录下用正则检索，每条命中返回 regionStart/regionEnd（与 replace_in_file 一致）及行列。"""
+"""在单文件或目录下用正则检索，每条命中返回 region_start/region_end（与 replace_in_file 一致）及行列。"""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def agent_main(
 ) -> dict:
     """
     对目标文件或目录下各文件全文做 regex.finditer，每条命中返回：
-    - regionStart / regionEnd：0-based 半开，可直接传入 replace_in_file；
+    - region_start / region_end：0-based 半开，可直接传入 replace_in_file；
     - line / column：起点 1-based；
     - end_line / end_column：终点开区间（与 replace 行列模式一致）；
     - match：匹配的子串。
@@ -50,12 +50,12 @@ def agent_main(
         except re.error as ex:
             raise ValueError(f"正则无效: {ex}") from ex
 
-        files = _collect_files(root, recursive, glob_pattern)
+        files = ac.collect_source_files(root, glob_pattern, recursive=recursive)
         items: list[dict] = []
         scanned = 0
         _last_prog = 0.0
         if _progress_dict is not None:
-            _progress_dict.update({"scanned": 0, "currentFile": "", "phase": "regex"})
+            _progress_dict.update({"scanned": 0, "current_file": "", "phase": "regex"})
 
         for fp in files:
             if ac.progress_abort_requested(_progress_dict):
@@ -66,7 +66,7 @@ def agent_main(
             if _progress_dict is not None:
                 now = time.time()
                 if scanned == 1 or scanned % 50 == 0 or now - _last_prog >= 1.0:
-                    _progress_dict.update({"scanned": scanned, "currentFile": fp.name, "phase": "regex"})
+                    _progress_dict.update({"scanned": scanned, "current_file": fp.name, "phase": "regex"})
                     _last_prog = now
             try:
                 text = ac.read_file_text(fp, encoding)
@@ -85,8 +85,8 @@ def agent_main(
                 items.append(
                     {
                         "file": str(fp),
-                        "regionStart": s,
-                        "regionEnd": e,
+                        "region_start": s,
+                        "region_end": e,
                         "line": sl,
                         "column": sc,
                         "end_line": el,
@@ -100,7 +100,7 @@ def agent_main(
                 "count": len(items),
                 "items": items,
                 "truncated": len(items) >= limit,
-                "hint": "单文件改写给 replace_in_file 时复制对应条目的 regionStart、regionEnd；与 find_in_file 语义一致。",
+                "hint": "单文件改写给 replace_in_file 时复制对应条目的 region_start、region_end；与 find_in_file 语义一致。",
             }
         )
     except Exception as e:
@@ -115,38 +115,38 @@ def main() -> None:
     p = argparse.ArgumentParser(description="regex_locate")
     p.add_argument("--path", required=True, help="文件或目录（相对工作区或绝对路径）")
     p.add_argument("--pattern", required=True, help="正则表达式")
-    p.add_argument("--ignoreCase", action="store_true")
+    p.add_argument("--ignore_case", action="store_true")
     p.add_argument("--multiline", action="store_true")
     p.add_argument("--recursive", action="store_true")
     p.add_argument("--glob_pattern", default="", help="省略=仅常见文本/源码后缀；* 表示全部文件（含各类非文本/二进制）")
     p.add_argument("--encoding", default="utf-8")
     p.add_argument("--limit", type=int, default=200)
     p.add_argument(
-        "--restrictToWorkspace",
+        "--restrict_to_workspace",
         action="store_true",
         help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
     )
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
     r = agent_main(
         path=args.path,
         pattern=args.pattern,
-        ignore_case=bool(args.ignoreCase),
+        ignore_case=bool(args.ignore_case),
         multiline=bool(args.multiline),
         recursive=bool(args.recursive),
         glob_pattern=str(args.glob_pattern if args.glob_pattern is not None else ""),
         encoding=args.encoding,
         limit=args.limit,
-        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
+        restrict_to_workspace=bool(args.restrict_to_workspace),
     )
-    if args.jsonOut:
+    if args.json_out:
         print(json.dumps(r, ensure_ascii=False))
     else:
         if r.get("ok") and isinstance(r.get("data"), dict):
             for it in r["data"].get("items") or []:
                 print(
                     f"{it['file']}:{it['line']}:{it['column']} "
-                    f"[{it['regionStart']},{it['regionEnd']}) {it['match']}"
+                    f"[{it['region_start']},{it['region_end']}) {it['match']}"
                 )
         else:
             print((r.get("error") or {}).get("message", ""), file=sys.stderr)

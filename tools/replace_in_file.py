@@ -187,18 +187,18 @@ def agent_main(
                 original, rule_list, replace_all=replace_all
             )
         elif mode == "regions":
-            # 多区间模式：按 regionStart 降序排序，避免坐标漂移
+            # 多区间模式：按 region_start 降序排序，避免坐标漂移
             validated = []
             for i, item in enumerate(regions or []):
                 if not isinstance(item, dict):
                     raise ValueError(f"regions[{i}] 必须是对象")
-                rs = item.get("regionStart")
-                re_ = item.get("regionEnd")
-                nt = item.get("newText", "")
+                rs = item.get("region_start")
+                re_ = item.get("region_end")
+                nt = item.get("new_text", "")
                 if not isinstance(rs, int) or not isinstance(re_, int):
-                    raise ValueError(f"regions[{i}] 须含整数 regionStart、regionEnd")
+                    raise ValueError(f"regions[{i}] 须含整数 region_start、region_end")
                 if not isinstance(nt, str):
-                    raise ValueError(f"regions[{i}] 的 newText 须为字符串")
+                    raise ValueError(f"regions[{i}] 的 new_text 须为字符串")
                 validated.append((int(rs), int(re_), nt))
             validated.sort(key=lambda x: x[0], reverse=True)  # 降序！防止漂移
             # 检查重叠：降序相邻两项，后一项 end > 前一项 start 即重叠
@@ -220,13 +220,13 @@ def agent_main(
             for i, item in enumerate(line_ranges or []):
                 if not isinstance(item, dict):
                     raise ValueError(f"line_ranges[{i}] 必须是对象")
-                ls = item.get("lineStart")
-                le = item.get("lineEnd")
-                nt = item.get("newText", "")
+                ls = item.get("line_start")
+                le = item.get("line_end")
+                nt = item.get("new_text", "")
                 if not isinstance(ls, int) or not isinstance(le, int):
-                    raise ValueError(f"line_ranges[{i}] 须含整数 lineStart、lineEnd")
+                    raise ValueError(f"line_ranges[{i}] 须含整数 line_start、line_end")
                 if not isinstance(nt, str):
-                    raise ValueError(f"line_ranges[{i}] 的 newText 须为字符串")
+                    raise ValueError(f"line_ranges[{i}] 的 new_text 须为字符串")
                 validated.append((int(ls), int(le), nt))
             validated.sort(key=lambda x: x[0], reverse=True)  # 降序！防止漂移
             # 重叠检测：降序相邻，后一项 end >= 前一项 start 即重叠
@@ -311,15 +311,15 @@ def agent_main(
             return ac.ok(
                 {
                     "path": str(fp),
-                    "replaceMode": mode,
+                    "replace_mode": mode,
                     "replacements": total_repl,
-                    "countsPerRule": counts_per_rule,
-                    "ruleCount": len(rule_list) if mode == "literal" else len(counts_per_rule),
+                    "counts_per_rule": counts_per_rule,
+                    "rule_count": len(rule_list) if mode == "literal" else len(counts_per_rule),
                     "changed": new_body != original,
-                    "dryRun": dry_run,
+                    "dry_run": dry_run,
                     "written": False,
-                    "backupPath": None,
-                    "diffText": diff_text[:16000] + ("…" if len(diff_text) > 16000 else ""),
+                    "backup_path": None,
+                    "diff_text": diff_text[:16000] + ("…" if len(diff_text) > 16000 else ""),
                 }
             )
 
@@ -333,15 +333,15 @@ def agent_main(
         return ac.ok(
             {
                 "path": str(fp),
-                "replaceMode": mode,
+                "replace_mode": mode,
                 "replacements": total_repl,
-                "countsPerRule": counts_per_rule,
-                "ruleCount": len(rule_list) if mode == "literal" else len(counts_per_rule),
+                "counts_per_rule": counts_per_rule,
+                "rule_count": len(rule_list) if mode == "literal" else len(counts_per_rule),
                 "changed": True,
-                "dryRun": False,
+                "dry_run": False,
                 "written": True,
-                "backupPath": bak_path_str,
-                "diffText": diff_text[:16000] + ("…" if len(diff_text) > 16000 else ""),
+                "backup_path": bak_path_str,
+                "diff_text": diff_text[:16000] + ("…" if len(diff_text) > 16000 else ""),
             }
         )
     except Exception as e:
@@ -357,28 +357,29 @@ def main() -> None:
     p.add_argument("--old_text", default=None)
     p.add_argument("--new_text", default=None)
     p.add_argument("--rules_file", default=None, help="JSON 数组：[{old_text,new_text}, ...]")
-    p.add_argument("--regions_file", default=None, help="JSON 数组：[{regionStart,regionEnd,newText}, ...]，工具自动降序处理、检测重叠")
-    p.add_argument("--line_ranges_file", default=None, help="JSON 数组：[{lineStart,lineEnd,newText}, ...]，工具自动行号降序处理、检测重叠")
+    p.add_argument("--regions_file", default=None, help="JSON 数组：[{region_start,region_end,new_text}, ...]，工具自动降序处理、检测重叠")
+    p.add_argument("--line_ranges_file", default=None, help="JSON 数组：[{line_start,line_end,new_text}, ...]，工具自动行号降序处理、检测重叠")
     p.add_argument("--region_start", type=int, default=None)
     p.add_argument("--region_end", type=int, default=None)
     p.add_argument("--line_start", type=int, default=None)
     p.add_argument("--line_end", type=int, default=None)
     p.add_argument("--start_column", type=int, default=None)
     p.add_argument("--end_column", type=int, default=None)
-    p.add_argument("--dryRun", action="store_true", default=True)
-    p.add_argument("--commit", action="store_false", dest="dryRun")
-    p.add_argument("--replaceAll", action="store_true", default=True)
-    p.add_argument("--single", action="store_false", dest="replaceAll")
-    p.add_argument("--expectedReplacements", type=int, default=None)
+    p.set_defaults(dry_run=True, replace_all=True)
+    p.add_argument("--dry_run", dest="dry_run", action="store_true")
+    p.add_argument("--commit", dest="dry_run", action="store_false")
+    p.add_argument("--replace_all", dest="replace_all", action="store_true")
+    p.add_argument("--single", dest="replace_all", action="store_false")
+    p.add_argument("--expected_replacements", type=int, default=None)
     p.add_argument("--encoding", default="utf-8")
     p.add_argument("--backup", action="store_true")
     p.add_argument(
-        "--restrictToWorkspace",
+        "--restrict_to_workspace",
         action="store_true",
         help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
     )
-    p.add_argument("--runType", default="")
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--run_type", default="")
+    p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
 
     rules: list | None = None
@@ -418,13 +419,13 @@ def main() -> None:
         line_end=args.line_end,
         start_column=args.start_column,
         end_column=args.end_column,
-        dry_run=args.dryRun,
-        replace_all=args.replaceAll,
-        expected_replacements=args.expectedReplacements,
+        dry_run=bool(args.dry_run),
+        replace_all=bool(args.replace_all),
+        expected_replacements=args.expected_replacements,
         encoding=args.encoding,
         backup=bool(args.backup),
-        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
-        run_type=str(args.runType or ""),
+        restrict_to_workspace=bool(args.restrict_to_workspace),
+        run_type=str(args.run_type or ""),
     )
     print(json.dumps(r, ensure_ascii=False))
 

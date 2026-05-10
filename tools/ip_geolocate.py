@@ -88,8 +88,8 @@ def agent_main(*, ip: str = "", timeout_sec: int = BUILTIN_TIMEOUT_SEC) -> dict:
             "latitude": lat,
             "longitude": lon,
             "timezone": tz_id,
-            "displayRegionZh": "【IP定位地区】" + display_region,
-            "summaryZh": summary,
+            "display_region_zh": "【IP定位地区】" + display_region,
+            "summary_zh": summary,
             "raw": js,
         }
         return {"ok": True, "data": data, "error": None}
@@ -116,11 +116,11 @@ def agent_main(*, ip: str = "", timeout_sec: int = BUILTIN_TIMEOUT_SEC) -> dict:
 def main() -> None:
     p = argparse.ArgumentParser(description="IP 地理位置查询")
     p.add_argument("--ip", default="")
-    p.add_argument("--timeoutSec", type=int, default=BUILTIN_TIMEOUT_SEC)
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--timeout_sec", type=int, default=BUILTIN_TIMEOUT_SEC)
+    p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
-    r = agent_main(ip=str(args.ip or ""), timeout_sec=int(args.timeoutSec))
-    if args.jsonOut:
+    r = agent_main(ip=str(args.ip or ""), timeout_sec=int(args.timeout_sec))
+    if args.json_out:
         print(json.dumps(r, ensure_ascii=False))
     elif r.get("ok"):
         print(json.dumps(r.get("data"), ensure_ascii=False))

@@ -54,9 +54,9 @@ def agent_main(
         return ac.ok(
             {
                 "path": str(r),
-                "dryRun": dry_run,
-                "changedFiles": changed,
-                "diffText": raw[:16000] + ("…" if len(raw) > 16000 else ""),
+                "dry_run": dry_run,
+                "changed_files": changed,
+                "diff_text": raw[:16000] + ("…" if len(raw) > 16000 else ""),
             }
         )
     except Exception as e:
@@ -68,26 +68,27 @@ def main() -> None:
     import json
 
     p = argparse.ArgumentParser(description="apply_patch")
+    p.set_defaults(dry_run=True)
     p.add_argument("--path", required=True)
-    p.add_argument("--patchText", default=None)
-    p.add_argument("--patchFile", default=None)
-    p.add_argument("--dryRun", action="store_true", default=True)
-    p.add_argument("--commit", action="store_false", dest="dryRun")
+    p.add_argument("--patch_text", default=None)
+    p.add_argument("--patch_file", default=None)
+    p.add_argument("--dry_run", dest="dry_run", action="store_true")
+    p.add_argument("--commit", dest="dry_run", action="store_false")
     p.add_argument(
-        "--restrictToWorkspace",
+        "--restrict_to_workspace",
         action="store_true",
         help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
     )
-    p.add_argument("--runType", default="")
-    p.add_argument("--jsonOut", action="store_true")
+    p.add_argument("--run_type", default="")
+    p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
     r = agent_main(
         path=args.path,
-        patch_text=args.patchText,
-        patch_file=args.patchFile,
-        dry_run=args.dryRun,
-        restrict_to_workspace=bool(getattr(args, "restrictToWorkspace", False)),
-        run_type=str(args.runType or ""),
+        patch_text=args.patch_text,
+        patch_file=args.patch_file,
+        dry_run=bool(args.dry_run),
+        restrict_to_workspace=bool(args.restrict_to_workspace),
+        run_type=str(args.run_type or ""),
     )
     print(json.dumps(r, ensure_ascii=False))
 
