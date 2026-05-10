@@ -180,7 +180,11 @@ def _search_directory(
             except ValueError:
                 pass
 
-        _prog_data = {"scanned": scanned, "currentFile": entry.name, "phase": "search"}
+        try:
+            _cf_disp = str(entry.relative_to(target))
+        except (ValueError, AttributeError):
+            _cf_disp = entry.name
+        _prog_data = {"scanned": scanned, "currentFile": _cf_disp, "phase": "search"}
         if _progress_dict is not None:
             _progress_dict.update(_prog_data)
 
@@ -200,7 +204,11 @@ def _search_directory(
         scanned += 1
         _now = time.time()
         if scanned == 1 or scanned % 500 == 0 or _now - _last_report >= 2.0:
-            _prog_data = {"scanned": scanned, "phase": "search"}
+            try:
+                _cf = str(entry.relative_to(target))
+            except (ValueError, AttributeError):
+                _cf = entry.name
+            _prog_data = {"scanned": scanned, "currentFile": _cf, "phase": "search"}
             if _progress_dict is not None:
                 _progress_dict.update(_prog_data)
             _last_report = _now
@@ -264,9 +272,17 @@ def agent_main(
                 compiled = re.compile(re.escape(pattern), flags)
 
         if target_path.is_file():
+            if _progress_dict is not None:
+                _progress_dict.update(
+                    {"scanned": 0, "currentFile": target_path.name, "phase": "search"}
+                )
             results = _search_file(target_path, compiled, context_lines, limit, _progress_dict=_progress_dict)
             if results and isinstance(results[0], dict) and results[0].get("_abort"):
                 return {"ok": False, "data": None, "error": {"type": "Aborted", "message": "用户已停止搜索"}}
+            if _progress_dict is not None:
+                _progress_dict.update(
+                    {"scanned": 1, "currentFile": target_path.name, "phase": "search"}
+                )
             data = {
                 "path": str(target_path),
                 "pattern": pattern,

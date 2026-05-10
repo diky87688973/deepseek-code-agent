@@ -1095,7 +1095,10 @@ def _execute_tool_agent_main(script_name: str, mod: Any, args: Dict[str, Any]) -
         pn = _agent_main_param_name(k)
         if pn == "json_out":
             continue
+        # 宿主注入的 _progress_dict 必须传入 agent_main，否则 file_search/grep_files 等无法上报进度
         if pn.startswith("_"):
+            if pn in accepted:
+                kwargs[pn] = v
             continue
         if pn in accepted:
             kwargs[pn] = v
@@ -2462,6 +2465,23 @@ def run_agent_turn(
                                 _t = _thr.Thread(target=_run_tool_with_progress, daemon=True)
                                 _t.start()
                                 try:
+
+                                    def _yield_tool_progress_ev() -> Dict[str, Any]:
+                                        _sp = _search_progress.get("scanned")
+                                        if _sp is None:
+                                            return {}
+                                        _cf = _search_progress.get("currentFile", "")
+                                        if not isinstance(_cf, str):
+                                            _cf = str(_cf) if _cf is not None else ""
+                                        return {
+                                            "type": "tool_progress",
+                                            "conversation_id": conversation_id,
+                                            "tool_call_id": tc.get("id"),
+                                            "scanned": _sp,
+                                            "currentFile": _cf,
+                                            "current_file": _cf,
+                                        }
+
                                     while _t.is_alive():
                                         if _peek_conversation_stop_requested(conversation_id, run_id):
                                             _search_progress["_abort"] = True
@@ -2471,16 +2491,13 @@ def run_agent_turn(
                                                     break
                                                 _t.join(timeout=0.25)
                                             break
-                                        _sp_scanned = _search_progress.get("scanned")
-                                        if _sp_scanned is not None:
-                                            yield {
-                                                "type": "tool_progress",
-                                                "conversation_id": conversation_id,
-                                                "tool_call_id": tc.get("id"),
-                                                "scanned": _sp_scanned,
-                                                "currentFile": _search_progress.get("currentFile", ""),
-                                            }
+                                        _tp_ev = _yield_tool_progress_ev()
+                                        if _tp_ev:
+                                            yield _tp_ev
                                         _t.join(timeout=0.5)
+                                    _tp_final = _yield_tool_progress_ev()
+                                    if _tp_final:
+                                        yield _tp_final
                                     if _tool_aborted_by_user:
                                         if _consume_conversation_stop_requested(conversation_id, run_id):
                                             pass
@@ -2799,7 +2816,13 @@ class ChatUiStateIn(BaseModel):
 
 def _conversation_sse_event(cid: str, ev: Dict[str, Any]) -> Dict[str, Any]:
     out = dict(ev or {})
-    out.setdefault("conversation_id", cid)
+    # 必须用当前 HTTP 流绑定的 cid 覆盖：内层 yield 若带空/None 的 conversation_id，
+    # setdefault 不会写入，前端 normalizeConversationId 会丢弃整包 SSE。
+    _cid = str(cid or "").strip()
+    if _cid:
+        out["conversation_id"] = _cid
+    else:
+        out.setdefault("conversation_id", "")
     return out
 
 
