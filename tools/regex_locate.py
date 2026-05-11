@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import time
 from pathlib import Path
+from typing import Optional
 
 import agent_common as ac
 
@@ -22,7 +23,7 @@ def agent_main(
     limit: int = 200,
     restrict_to_workspace: bool = False,
     run_type: str = "",
-    _progress_dict: dict | None = None,
+    _progress_dict: Optional[dict] = None,
 ) -> dict:
     """
     对目标文件或目录下各文件全文做 regex.finditer，每条命中返回：

@@ -10,6 +10,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Optional, Tuple
 
 import agent_common as ac
 
@@ -21,7 +22,7 @@ def _load_csv(path: Path, *, delimiter: str = ",") -> list[dict]:
         return list(reader)
 
 
-def _load_excel(path: Path, sheet: str | None) -> list[dict]:
+def _load_excel(path: Path, sheet: Optional[str]) -> list[dict]:
     import openpyxl
 
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
@@ -54,7 +55,7 @@ def _detect_format(path: Path) -> str:
     return "unknown"
 
 
-def _load_table(path: Path, sheet: str | None) -> tuple[str, list[dict]]:
+def _load_table(path: Path, sheet: Optional[str]) -> Tuple[str, list[dict]]:
     fmt = _detect_format(path)
     if fmt == "xlsx":
         return fmt, _load_excel(path, sheet)
@@ -138,14 +139,14 @@ def agent_main(
     *,
     action: str,
     source: str,
-    sheet: str | None = None,
+    sheet: Optional[str] = None,
     limit: int = 20,
-    filter_col: str | None = None,
-    filter_val: str | None = None,
+    filter_col: Optional[str] = None,
+    filter_val: Optional[str] = None,
     regex: bool = False,
-    sort_col: str | None = None,
+    sort_col: Optional[str] = None,
     sort_desc: bool = False,
-    col: str | None = None,
+    col: Optional[str] = None,
     restrict_to_workspace: bool = False,
 ) -> dict:
     act = str(action or "").strip().lower().replace("-", "_")

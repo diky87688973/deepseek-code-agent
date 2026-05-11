@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 import agent_common as ac
 from read_file import agent_main as _read_main
 from write_file import agent_main as _write_main
@@ -13,13 +15,13 @@ def agent_main(
     source_path: str,
     dest_path: str,
     encoding: str = "utf-8",
-    encoding_write: str | None = None,
-    line_start: int | None = None,
-    line_end: int | None = None,
-    start_column: int | None = None,
-    end_column: int | None = None,
-    char_start: int | None = None,
-    char_end: int | None = None,
+    encoding_write: Optional[str] = None,
+    line_start: Optional[int] = None,
+    line_end: Optional[int] = None,
+    start_column: Optional[int] = None,
+    end_column: Optional[int] = None,
+    char_start: Optional[int] = None,
+    char_end: Optional[int] = None,
     max_chars: int = 0,
     dry_run: bool = True,
     create_only: bool = False,

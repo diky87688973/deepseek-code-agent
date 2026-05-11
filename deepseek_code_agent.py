@@ -1338,7 +1338,7 @@ def _capture_tool_help_from_catalog(script_name: str) -> Optional[str]:
     return None
 
 
-def attach_tool_help_on_failure(script_name: str, mod: Any | None, result: dict) -> dict:
+def attach_tool_help_on_failure(script_name: str, mod: Optional[Any], result: dict) -> dict:
     """工具返回 ok=false 时**必须**附带 tool_help：合并工具自身说明、argparse --help、tool_list_agent.json（与命令行 --help 等效）。"""
     if not isinstance(result, dict) or result.get("ok"):
         return result

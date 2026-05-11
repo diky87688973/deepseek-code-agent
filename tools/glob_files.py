@@ -8,13 +8,14 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Optional
 
 import agent_common as ac
 
 BUILTIN_GITIGNORE_BATCH = 400
 
 
-def _find_git_root(start: Path) -> Path | None:
+def _find_git_root(start: Path) -> Optional[Path]:
     cur = start.resolve()
     for d in [cur, *cur.parents]:
         if (d / ".git").exists():
@@ -118,7 +119,7 @@ def agent_main(
     *,
     path: str,
     glob_pattern: str = "**/*",
-    pattern: str | None = None,
+    pattern: Optional[str] = None,
     recursive: bool = True,
     limit: int = 500,
     restrict_to_workspace: bool = False,

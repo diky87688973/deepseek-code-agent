@@ -10,10 +10,11 @@ import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 import agent_common as ac
 
-_trash_root: Path | None = None
+_trash_root: Optional[Path] = None
 
 
 def configure_trash_root(root: Path) -> None:

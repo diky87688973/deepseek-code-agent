@@ -9,13 +9,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from typing import Optional
 
 import agent_common as ac
 
 
 def agent_main(
     *,
-    run_type: str | None = None,
+    run_type: Optional[str] = None,
 ) -> dict:
     """不传 `run_type` 表示查询意图；传 `auto|plan|execute` 表示切换请求（由宿主落盘）。"""
     if run_type is None or str(run_type).strip() == "":

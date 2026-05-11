@@ -7,6 +7,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Optional, Tuple
 
 import agent_common as ac
 
@@ -35,7 +36,7 @@ except ImportError:
     _HAS_PIL = False
 
 
-def _detect_engine(prefer: str | None) -> str:
+def _detect_engine(prefer: Optional[str]) -> str:
     if prefer == "pytesseract" and _HAS_PYTESSERACT:
         return "pytesseract"
     if prefer == "easyocr" and _HAS_EASYOCR:
@@ -47,7 +48,7 @@ def _detect_engine(prefer: str | None) -> str:
     return "none"
 
 
-def _ocr_pytesseract(image_path: Path, lang: str, region: tuple | None) -> dict:
+def _ocr_pytesseract(image_path: Path, lang: str, region: Optional[Tuple[int, int, int, int]]) -> dict:
     if not _HAS_PIL:
         return {"ok": False, "error": "Pillow 未安装"}
     assert Image is not None
@@ -101,7 +102,7 @@ def _ocr_pytesseract(image_path: Path, lang: str, region: tuple | None) -> dict:
     }
 
 
-def _ocr_easyocr(image_path: Path, lang: str, region: tuple | None) -> dict:
+def _ocr_easyocr(image_path: Path, lang: str, region: Optional[Tuple[int, int, int, int]]) -> dict:
     import easyocr as _eo
 
     _lang_map = {"chi_sim": "ch_sim", "chi_tra": "ch_tra", "eng": "en", "en": "en"}
@@ -157,7 +158,7 @@ def agent_main(
     *,
     source: str,
     lang: str = "chi_sim+eng",
-    region: str | None = None,
+    region: Optional[str] = None,
     engine: str = "auto",
     restrict_to_workspace: bool = False,
 ) -> dict:

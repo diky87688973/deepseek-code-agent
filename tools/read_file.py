@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from typing import List, Optional, Tuple
+
 import agent_common as ac
 
 
@@ -14,12 +16,12 @@ def agent_main(
     *,
     path: str,
     encoding: str = "utf-8",
-    line_start: int | None = None,
-    line_end: int | None = None,
-    start_column: int | None = None,
-    end_column: int | None = None,
-    char_start: int | None = None,
-    char_end: int | None = None,
+    line_start: Optional[int] = None,
+    line_end: Optional[int] = None,
+    start_column: Optional[int] = None,
+    end_column: Optional[int] = None,
+    char_start: Optional[int] = None,
+    char_end: Optional[int] = None,
     max_chars: int = 500_000,
     restrict_to_workspace: bool = False,
     run_type: str = "",
@@ -70,10 +72,10 @@ def agent_main(
         full = ac.read_file_text(fp, encoding)
         lines_keepends = full.splitlines(keepends=True)
 
-        slice_mode: str | None = None
-        resolved_char: tuple[int, int] | None = None
-        out_lines: list[int | None] | None = None
-        out_cols: list[int | None] | None = None
+        slice_mode: Optional[str] = None
+        resolved_char: Optional[Tuple[int, int]] = None
+        out_lines: Optional[List[Optional[int]]] = None
+        out_cols: Optional[List[Optional[int]]] = None
 
         if has_cols:
             slice_mode = "lines_columns"

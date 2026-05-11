@@ -11,7 +11,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any
+from typing import Any, Dict, Optional, Tuple
 
 BUILTIN_FORECAST_DAYS = 2
 BUILTIN_TIMEOUT_SEC = 15
@@ -90,14 +90,14 @@ def _score_geo_result(query: str, hit: dict[str, Any]) -> float:
     return score
 
 
-def _resolve_cn_alias(query: str) -> tuple[float, float, str, str, str] | None:
+def _resolve_cn_alias(query: str) -> Optional[Tuple[float, float, str, str, str]]:
     q = str(query or "").strip()
     if not q:
         return None
     return CN_CITY_ALIAS.get(q)
 
 
-def _pick_geo_result(query: str, js: dict[str, Any]) -> dict[str, Any] | None:
+def _pick_geo_result(query: str, js: dict[str, Any]) -> Optional[Dict[str, Any]]:
     results = js.get("results")
     if not isinstance(results, list) or not results:
         return None
@@ -124,7 +124,7 @@ def _normalize_ip_for_lookup(ip_raw: str) -> str:
         return ""
 
 
-def _lookup_ip_region(ip_for_lookup: str, timeout_sec: int) -> dict[str, Any] | None:
+def _lookup_ip_region(ip_for_lookup: str, timeout_sec: int) -> Optional[Dict[str, Any]]:
     tail = ("/" + urllib.parse.quote(ip_for_lookup, safe="")) if ip_for_lookup else ""
     js = _http_json(IP_GEO_URL + tail, timeout_sec)
     if js.get("success") is False:
@@ -134,7 +134,7 @@ def _lookup_ip_region(ip_for_lookup: str, timeout_sec: int) -> dict[str, Any] | 
     return js
 
 
-def _wmo_zh(code: int | None) -> str:
+def _wmo_zh(code: Optional[int]) -> str:
     if code is None:
         return "未知"
     m = {

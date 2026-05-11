@@ -13,6 +13,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 import agent_common as ac
 
@@ -80,8 +81,8 @@ def _search_file(
     path: Path,
     pattern: re.Pattern,
     context_lines: int,
-    limit: int | None,
-    _progress_dict: dict | None = None,
+    limit: Optional[int],
+    _progress_dict: Optional[dict] = None,
 ) -> list[dict]:
     results = []
     try:
@@ -138,13 +139,13 @@ def _search_file(
 def _search_directory(
     target: Path,
     pattern: re.Pattern,
-    glob_pattern: str | None,
+    glob_pattern: Optional[str],
     recursive: bool,
     context_lines: int,
-    limit: int | None,
+    limit: Optional[int],
     ignore_gitignore: bool,
     max_scanned: int = 10000,
-    _progress_dict: dict | None = None,
+    _progress_dict: Optional[dict] = None,
 ) -> dict:
     ignore_patterns = []
     if ignore_gitignore:
@@ -244,15 +245,15 @@ def agent_main(
     path: str,
     pattern: str,
     regex: bool = False,
-    glob_pattern: str | None = None,
+    glob_pattern: Optional[str] = None,
     recursive: bool = True,
     context_lines: int = 0,
     ignore_case: bool = False,
     no_gitignore: bool = False,
-    limit: int | None = None,
+    limit: Optional[int] = None,
     restrict_to_workspace: bool = False,
     run_type: str = "",
-    _progress_dict: dict | None = None,
+    _progress_dict: Optional[dict] = None,
 ) -> dict:
     _ = run_type
     try:

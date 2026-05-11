@@ -11,6 +11,7 @@ import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Optional, Tuple
 
 import agent_common as ac
 from tool_help_share import HelpfulParser
@@ -55,13 +56,13 @@ def _unique_recycle_bucket(recycle_root: Path) -> Path:
 
 def _resolve_src_dest(
     source: str,
-    dest: str | None,
+    dest: Optional[str],
     *,
-    security_root: str | None,
+    security_root: Optional[str],
     restrict_to_workspace: bool,
-) -> tuple[Path | None, Path, Path | None]:
+) -> Tuple[Optional[Path], Path, Optional[Path]]:
     src = ac.resolve_path(source, allow_outside_workspace=not restrict_to_workspace)
-    dest_p: Path | None = None
+    dest_p: Optional[Path] = None
     if dest is not None and str(dest).strip() != "":
         raw = Path(str(dest).strip())
         if raw.is_absolute():
@@ -77,7 +78,7 @@ def _resolve_src_dest(
                         f"路径越出工作区限制: {combined}（工作区根: {root}）"
                     ) from None
             dest_p = combined
-    root_path: Path | None = None
+    root_path: Optional[Path] = None
     if security_root is not None and str(security_root).strip() != "":
         root_path = Path(str(security_root).strip()).expanduser().resolve()
         _ensure_under_root(root_path, src)
@@ -219,8 +220,8 @@ def agent_main(
     *,
     action: str,
     source: str,
-    dest: str | None = None,
-    security_root: str | None = None,
+    dest: Optional[str] = None,
+    security_root: Optional[str] = None,
     recursive: bool = False,
     dry_run: bool = True,
     restrict_to_workspace: bool = False,

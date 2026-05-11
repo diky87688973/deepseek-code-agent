@@ -11,6 +11,7 @@ import tarfile
 import zipfile
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import agent_common as ac
 
@@ -57,7 +58,7 @@ def _detect_format(source: Path) -> str:
     return "unknown"
 
 
-def _open_archive(source: Path, password: str | None = None):
+def _open_archive(source: Path, password: Optional[str] = None):
     fmt = _detect_format(source)
     if not source.exists():
         raise FileNotFoundError(f"文件不存在: {source}")
@@ -84,7 +85,7 @@ def _open_archive(source: Path, password: str | None = None):
     raise ValueError(f"无法识别的压缩格式: {source.name}（支持 ZIP / tar / tar.gz / tar.bz2 / tar.xz / rar）")
 
 
-def _list_archive(source: Path, password: str | None, glob_pattern: str | None) -> dict:
+def _list_archive(source: Path, password: Optional[str], glob_pattern: Optional[str]) -> dict:
     arc, fmt, close_fn = _open_archive(source, password)
     try:
         if fmt in ("zip", "rar"):
@@ -127,7 +128,7 @@ def _list_archive(source: Path, password: str | None, glob_pattern: str | None) 
         close_fn()
 
 
-def _extract_archive(source: Path, dest: Path, password: str | None, glob_pattern: str | None) -> dict:
+def _extract_archive(source: Path, dest: Path, password: Optional[str], glob_pattern: Optional[str]) -> dict:
     dest.mkdir(parents=True, exist_ok=True)
     arc, fmt, close_fn = _open_archive(source, password)
     try:
@@ -161,7 +162,7 @@ def _extract_archive(source: Path, dest: Path, password: str | None, glob_patter
         close_fn()
 
 
-def _add_to_zip(zf: zipfile.ZipFile, root: Path, current: Path, glob_pattern: str | None) -> int:
+def _add_to_zip(zf: zipfile.ZipFile, root: Path, current: Path, glob_pattern: Optional[str]) -> int:
     count = 0
     if current.is_file():
         if glob_pattern is None or fnmatch.fnmatch(current.name, glob_pattern):
@@ -180,7 +181,7 @@ def _add_to_zip(zf: zipfile.ZipFile, root: Path, current: Path, glob_pattern: st
     return count
 
 
-def _add_to_tar(tf: tarfile.TarFile, root: Path, current: Path, glob_pattern: str | None) -> int:
+def _add_to_tar(tf: tarfile.TarFile, root: Path, current: Path, glob_pattern: Optional[str]) -> int:
     count = 0
     if current.is_file():
         if glob_pattern is None or fnmatch.fnmatch(current.name, glob_pattern):
@@ -199,7 +200,7 @@ def _add_to_tar(tf: tarfile.TarFile, root: Path, current: Path, glob_pattern: st
     return count
 
 
-def _create_archive(source: Path, dest: Path, fmt: str, glob_pattern: str | None) -> dict:
+def _create_archive(source: Path, dest: Path, fmt: str, glob_pattern: Optional[str]) -> dict:
     if not source.exists():
         raise FileNotFoundError(f"源不存在: {source}")
 
@@ -236,10 +237,10 @@ def agent_main(
     *,
     action: str,
     source: str,
-    dest: str | None = None,
-    output_format: str | None = None,
-    password: str | None = None,
-    glob_pattern: str | None = None,
+    dest: Optional[str] = None,
+    output_format: Optional[str] = None,
+    password: Optional[str] = None,
+    glob_pattern: Optional[str] = None,
     restrict_to_workspace: bool = False,
     run_type: str = "",
 ) -> dict:

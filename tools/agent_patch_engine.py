@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 
 def norm_path(raw: str) -> str:
@@ -102,7 +103,7 @@ def apply_file_patch(file_path: Path, hunks: list[dict]) -> str:
     return "\n".join(lines) + ("\n" if original.endswith("\n") and lines else "")
 
 
-def load_patch_text(*, patch_text: str | None, patch_file: str | None) -> str:
+def load_patch_text(*, patch_text: Optional[str], patch_file: Optional[str]) -> str:
     n = int(patch_text is not None) + int(patch_file is not None)
     if n != 1:
         raise ValueError("patch_text 与 patch_file 必须且只能提供一个")

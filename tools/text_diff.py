@@ -7,6 +7,7 @@ import argparse
 import difflib
 import json
 from pathlib import Path
+from typing import Optional
 
 import agent_common as ac
 import stdio_utf8 as _stdio_utf8
@@ -28,8 +29,8 @@ def read_text_auto(path: Path, encoding: str) -> str:
 
 
 def _side_from_file_or_text(
-    file_arg: str | None,
-    text_arg: str | None,
+    file_arg: Optional[str],
+    text_arg: Optional[str],
     *,
     encoding: str,
     restrict_to_workspace: bool,
@@ -47,7 +48,7 @@ def _side_from_file_or_text(
     return text_arg
 
 
-def _label_for_side(file_arg: str | None, kind: str) -> str:
+def _label_for_side(file_arg: Optional[str], kind: str) -> str:
     if file_arg and str(file_arg).strip():
         try:
             return Path(str(file_arg).strip()).name
@@ -75,10 +76,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def agent_main(
     *,
-    left_file: str | None = None,
-    left_text: str | None = None,
-    right_file: str | None = None,
-    right_text: str | None = None,
+    left_file: Optional[str] = None,
+    left_text: Optional[str] = None,
+    right_file: Optional[str] = None,
+    right_text: Optional[str] = None,
     encoding: str = "utf-8",
     context: int = 3,
     restrict_to_workspace: bool = False,

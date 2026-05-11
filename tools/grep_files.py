@@ -7,11 +7,12 @@ agent_main 仅接受 Python 原生类型；main() 仅供人工调试；build_par
 from __future__ import annotations
 
 import time
+from typing import Optional, Tuple
 
 import agent_common as ac
 
 
-def _first_match_span(line: str, pat, *, is_regex: bool, ignore_case: bool) -> tuple[int, int, str] | None:
+def _first_match_span(line: str, pat, *, is_regex: bool, ignore_case: bool) -> Optional[Tuple[int, int, str]]:
     if is_regex:
         m = pat.search(line)
         if not m:
@@ -26,7 +27,7 @@ def _first_match_span(line: str, pat, *, is_regex: bool, ignore_case: bool) -> t
     if "|" in needle:
         parts = [p for p in needle.split("|") if p]
         if parts:
-            best: tuple[int, int, str] | None = None
+            best: Optional[Tuple[int, int, str]] = None
             for sub in parts:
                 idx = haystack.find(sub)
                 if idx >= 0:
@@ -58,7 +59,7 @@ def agent_main(
     no_gitignore: bool = False,
     restrict_to_workspace: bool = False,
     run_type: str = "",
-    _progress_dict: dict | None = None,
+    _progress_dict: Optional[dict] = None,
 ) -> dict:
     _ = run_type
     try:

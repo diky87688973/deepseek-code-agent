@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Dict, List, Optional, Union
 
 BUILTIN_MAX_DIFF_CHARS = 200_000
 BUILTIN_LOG_MAX = 20
@@ -38,7 +39,7 @@ def _error_payload(
     code: str,
     message: str,
     hint: str,
-    exit_code: int | None = None,
+    exit_code: Optional[int] = None,
     retryable: bool = False,
 ) -> dict:
     return {
@@ -133,7 +134,7 @@ def _mode_log(root: Path, max_n: int) -> dict:
 _HEADER_RE = re.compile(r"^([0-9a-f]{7,40}) (\d+) (\d+) (\d+)$")
 
 
-def _mode_blame(root: Path, rel_path: str, start_line: int | None, end_line: int | None) -> dict:
+def _mode_blame(root: Path, rel_path: str, start_line: Optional[int], end_line: Optional[int]) -> dict:
     target = _resolve_under_root(root, rel_path)
     if not target.is_file():
         raise FileNotFoundError(f"blame 目标不是文件: {target}")
@@ -153,8 +154,8 @@ def _mode_blame(root: Path, rel_path: str, start_line: int | None, end_line: int
     if cp.returncode != 0:
         raise RuntimeError(cp.stderr.strip() or cp.stdout.strip() or "git blame 失败")
 
-    lines_out: list[dict[str, str | int]] = []
-    cur: dict[str, int | str] | None = None
+    lines_out: List[Dict[str, Union[str, int]]] = []
+    cur: Optional[Dict[str, Union[int, str]]] = None
     meta: dict[str, str] = {}
     for line in (cp.stdout or "").splitlines():
         m = _HEADER_RE.match(line)
@@ -243,8 +244,8 @@ def agent_main(
     max_diff_chars: int = BUILTIN_MAX_DIFF_CHARS,
     log_max: int = BUILTIN_LOG_MAX,
     blame_path: str = "",
-    start_line: int | None = None,
-    end_line: int | None = None,
+    start_line: Optional[int] = None,
+    end_line: Optional[int] = None,
     show_ref: str = "HEAD",
 ) -> dict:
     max_chars = int(max_diff_chars) if max_diff_chars and max_diff_chars > 0 else BUILTIN_MAX_DIFF_CHARS

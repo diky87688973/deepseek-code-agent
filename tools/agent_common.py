@@ -7,9 +7,10 @@ import fnmatch
 import os
 import re
 from pathlib import Path
+from typing import Optional, Tuple, Union
 
 
-def ok(data: dict | None) -> dict:
+def ok(data: Optional[dict]) -> dict:
     return {"ok": True, "data": data, "error": None}
 
 
@@ -25,10 +26,10 @@ def workspace_root() -> Path:
 
 
 def resolve_path(
-    raw: str | Path,
+    raw: Union[str, Path],
     *,
     allow_outside_workspace: bool = True,
-    workspace: Path | None = None,
+    workspace: Optional[Path] = None,
 ) -> Path:
     """将用户传入路径解析为绝对路径；allow_outside_workspace=False 时将路径限定在 WORKSPACE_DIR 内。"""
 
@@ -163,7 +164,7 @@ TEXT_SEARCH_SOURCE_GLOBS: tuple[str, ...] = (
 )
 
 
-def iter_source_files(root: Path, glob_pattern: str | None, *, recursive: bool):
+def iter_source_files(root: Path, glob_pattern: Optional[str], *, recursive: bool):
     """遍历 path 下待扫文件。glob_pattern 为空/None → TEXT_SEARCH_SOURCE_GLOBS；\"*\" 或 \"**/*\" → 全部文件。"""
     if root.is_file():
         yield root
@@ -206,14 +207,14 @@ def iter_source_files(root: Path, glob_pattern: str | None, *, recursive: bool):
             yield p
 
 
-def progress_abort_requested(progress_dict: dict | None) -> bool:
+def progress_abort_requested(progress_dict: Optional[dict]) -> bool:
     """宿主在 _progress_dict 上置 _abort=true 时，工具内循环应尽快退出。"""
     if not isinstance(progress_dict, dict):
         return False
     return bool(progress_dict.get("_abort"))
 
 
-def collect_source_files(root: Path, glob_pattern: str | None, *, recursive: bool) -> list[Path]:
+def collect_source_files(root: Path, glob_pattern: Optional[str], *, recursive: bool) -> list[Path]:
     """单文件返回 [root]；目录返回按路径排序的文件列表（glob 语义同 iter_source_files）。"""
     if root.is_file():
         return [root]
@@ -222,7 +223,7 @@ def collect_source_files(root: Path, glob_pattern: str | None, *, recursive: boo
     return sorted(iter_source_files(root, glob_pattern, recursive=recursive), key=lambda x: str(x).lower())
 
 
-def filter_by_gitignore(paths: list[Path], repo_root: Path | None) -> list[Path]:
+def filter_by_gitignore(paths: list[Path], repo_root: Optional[Path]) -> list[Path]:
     if repo_root is None:
         return paths
     git_dir = repo_root / ".git"
@@ -251,7 +252,7 @@ def filter_by_gitignore(paths: list[Path], repo_root: Path | None) -> list[Path]
         return paths
 
 
-def compile_pattern(pattern: str, *, regex: bool, ignore_case: bool) -> tuple[re.Pattern[str] | str, bool]:
+def compile_pattern(pattern: str, *, regex: bool, ignore_case: bool) -> Tuple[Union[re.Pattern[str], str], bool]:
     if regex:
         flags = re.MULTILINE
         if ignore_case:
@@ -262,7 +263,7 @@ def compile_pattern(pattern: str, *, regex: bool, ignore_case: bool) -> tuple[re
     return pattern, False
 
 
-def line_matches(line: str, pat: re.Pattern[str] | str, is_regex: bool, ignore_case: bool) -> bool:
+def line_matches(line: str, pat: Union[re.Pattern[str], str], is_regex: bool, ignore_case: bool) -> bool:
     if is_regex:
         assert isinstance(pat, re.Pattern)
         return pat.search(line) is not None

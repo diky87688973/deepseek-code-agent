@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+from typing import Optional
 
 import agent_common as ac
 import stdio_utf8 as _stdio_utf8
@@ -34,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _build_error(*, code: str, message: str, exit_code: int | None, hint: str, retryable: bool) -> dict:
+def _build_error(*, code: str, message: str, exit_code: Optional[int], hint: str, retryable: bool) -> dict:
     return {
         "code": code,
         "type": "PythonInlineError",
@@ -63,11 +64,11 @@ def _forbid_inline_search(code: str) -> bool:
 def agent_main(
     *,
     code: str,
-    cwd: str | None = None,
+    cwd: Optional[str] = None,
     timeout_sec: int = 300,
     restrict_to_workspace: bool = False,
     run_type: str = "",
-    parser_for_help: argparse.ArgumentParser | None = None,
+    parser_for_help: Optional[argparse.ArgumentParser] = None,
 ) -> dict:
     """返回 {ok, data:{ok, stdout, stderr, exit_code, timeout}, error}。"""
     _ = timeout_sec
@@ -88,7 +89,7 @@ def agent_main(
 
         captured_stdout = io.StringIO()
         captured_stderr = io.StringIO()
-        prev_cwd: str | None = None
+        prev_cwd: Optional[str] = None
 
         try:
             if cwd:

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Optional
 
 import difflib
 
@@ -12,9 +13,9 @@ import agent_common as ac
 
 
 def _merge_literal_rules(
-    old_text: str | None,
-    new_text: str | None,
-    rules: list | None,
+    old_text: Optional[str],
+    new_text: Optional[str],
+    rules: Optional[list],
 ) -> list[tuple[str, str]]:
     has_pair = old_text is not None or new_text is not None
     out: list[tuple[str, str]] = []
@@ -62,17 +63,17 @@ def _apply_rules_sequential(
 
 def _detect_replace_modes(
     *,
-    old_text: str | None,
-    new_text: str | None,
-    rules: list | None,
-    regions: list | None,
-    line_ranges: list | None,
-    region_start: int | None,
-    region_end: int | None,
-    line_start: int | None,
-    line_end: int | None,
-    start_column: int | None,
-    end_column: int | None,
+    old_text: Optional[str],
+    new_text: Optional[str],
+    rules: Optional[list],
+    regions: Optional[list],
+    line_ranges: Optional[list],
+    region_start: Optional[int],
+    region_end: Optional[int],
+    line_start: Optional[int],
+    line_end: Optional[int],
+    start_column: Optional[int],
+    end_column: Optional[int],
 ) -> str:
     has_literal = bool(rules) or (old_text is not None and new_text is not None)
     has_regions = bool(regions)
@@ -125,20 +126,20 @@ def _detect_replace_modes(
 def agent_main(
     *,
     path: str,
-    old_text: str | None = None,
-    new_text: str | None = None,
-    rules: list | None = None,
-    regions: list | None = None,
-    line_ranges: list | None = None,
-    region_start: int | None = None,
-    region_end: int | None = None,
-    line_start: int | None = None,
-    line_end: int | None = None,
-    start_column: int | None = None,
-    end_column: int | None = None,
+    old_text: Optional[str] = None,
+    new_text: Optional[str] = None,
+    rules: Optional[list] = None,
+    regions: Optional[list] = None,
+    line_ranges: Optional[list] = None,
+    region_start: Optional[int] = None,
+    region_end: Optional[int] = None,
+    line_start: Optional[int] = None,
+    line_end: Optional[int] = None,
+    start_column: Optional[int] = None,
+    end_column: Optional[int] = None,
     dry_run: bool = True,
     replace_all: bool = True,
-    expected_replacements: int | None = None,
+    expected_replacements: Optional[int] = None,
     encoding: str = "utf-8",
     backup: bool = False,
     restrict_to_workspace: bool = False,
@@ -323,7 +324,7 @@ def agent_main(
                 }
             )
 
-        bak_path_str: str | None = None
+        bak_path_str: Optional[str] = None
         if backup and fp.is_file():
             bak = fp.with_suffix(fp.suffix + ".bak")
             ac.write_unicode_file(bak, original, encoding=encoding)
@@ -382,7 +383,7 @@ def main() -> None:
     p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
 
-    rules: list | None = None
+    rules: Optional[list] = None
     if args.rules_file:
         raw = Path(str(args.rules_file).strip()).expanduser().read_text(encoding="utf-8", errors="strict")
         data = json.loads(raw)
@@ -390,7 +391,7 @@ def main() -> None:
             raise SystemExit("rules_file JSON 顶层须为数组")
         rules = data  # type: ignore[assignment]
 
-    regions: list | None = None
+    regions: Optional[list] = None
     if args.regions_file:
         raw = Path(str(args.regions_file).strip()).expanduser().read_text(encoding="utf-8", errors="strict")
         data = json.loads(raw)
@@ -398,7 +399,7 @@ def main() -> None:
             raise SystemExit("regions_file JSON 顶层须为数组")
         regions = data
 
-    line_ranges: list | None = None
+    line_ranges: Optional[list] = None
     if args.line_ranges_file:
         raw = Path(str(args.line_ranges_file).strip()).expanduser().read_text(encoding="utf-8", errors="strict")
         data = json.loads(raw)

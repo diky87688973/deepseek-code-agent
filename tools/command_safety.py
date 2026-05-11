@@ -103,7 +103,7 @@ def _extract_base_command(command: str) -> str:
     return base
 
 
-def _check_command_blacklist(command: str) -> str | None:
+def _check_command_blacklist(command: str) -> Optional[str]:
     """返回 None 表示通过；否则返回拦截原因（含建议）。"""
     base = _extract_base_command(command)
     if not base:

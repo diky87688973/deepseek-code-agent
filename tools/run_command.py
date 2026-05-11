@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Optional
 
 import agent_common as ac
 
@@ -19,7 +20,7 @@ from command_safety import (
 def agent_main(
     *,
     command: str,
-    cwd: str | None = None,
+    cwd: Optional[str] = None,
     timeout_sec: int = 300,
     shell: str = "auto",
     safe_mode: bool = True,
@@ -38,7 +39,7 @@ def agent_main(
         if safe_mode:
             _validate_safe_command(command)
 
-        cwd_resolved: str | None = None
+        cwd_resolved: Optional[str] = None
         if cwd:
             cp = ac.resolve_path(cwd, allow_outside_workspace=not restrict_to_workspace)
             if not cp.is_dir():

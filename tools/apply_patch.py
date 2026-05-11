@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 import agent_patch_engine as pe
 import agent_common as ac
@@ -12,8 +13,8 @@ import agent_common as ac
 def agent_main(
     *,
     path: str,
-    patch_text: str | None = None,
-    patch_file: str | None = None,
+    patch_text: Optional[str] = None,
+    patch_file: Optional[str] = None,
     dry_run: bool = True,
     restrict_to_workspace: bool = False,
     run_type: str = "",

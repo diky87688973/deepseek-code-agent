@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import List, Optional, Tuple
 
 BUILTIN_GLOB = "**/*.py"
 BUILTIN_LIMIT_FILES = 500
@@ -107,7 +108,7 @@ def _syntax_diagnostics(root: Path, files: list[Path], encoding: str) -> list[di
     return diag
 
 
-def _run_ruff_json(root: Path, timeout: int) -> tuple[list[dict] | None, str | None]:
+def _run_ruff_json(root: Path, timeout: int) -> Tuple[Optional[List[dict]], Optional[str]]:
     exe = shutil.which("ruff")
     if not exe:
         return None, "ruff 不在 PATH 中，已跳过"
@@ -214,7 +215,7 @@ def _run_diagnose(
     diagnostics = _syntax_diagnostics(root_r, files, encoding)
 
     ruff_notes: list[str] = []
-    ruff_diag: list[dict] | None = None
+    ruff_diag: Optional[List[dict]] = None
     try_ruff = BUILTIN_TRY_RUFF and not no_ruff
     if try_ruff:
         ruff_diag, ruff_err = _run_ruff_json(root_r, timeout_sec)

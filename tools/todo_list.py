@@ -9,12 +9,12 @@ from __future__ import annotations
 import json
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import agent_common as ac
 
 session_lists: Dict[str, Dict[str, Any]] = {}
-_storage_dir: Path | None = None
+_storage_dir: Optional[Path] = None
 
 
 def configure_storage(directory: Path) -> None:

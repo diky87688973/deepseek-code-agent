@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from typing import List, Optional
 
 import agent_common as ac
 
@@ -50,10 +51,10 @@ def _normalize_confirms(raw: object) -> list[str]:
 def agent_main(
     *,
     title: str = "",
-    confirms: list[str] | None = None,
-    confirm: str | None = None,
+    confirms: Optional[List[str]] = None,
+    confirm: Optional[str] = None,
     multi: bool = False,
-    custom_option_index: int | None = None,
+    custom_option_index: Optional[int] = None,
     interactive: bool = False,
 ) -> dict:
     try:

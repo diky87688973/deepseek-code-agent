@@ -12,6 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import Optional, Tuple
 
 BUILTIN_TIMEOUT_SEC = 20
 BUILTIN_MAX_CHARS = 20000
@@ -46,7 +47,7 @@ def _strip_html_to_text(raw_html: str) -> str:
     return s.strip()
 
 
-def _parse_keywords(raw: str | None) -> list[str]:
+def _parse_keywords(raw: Optional[str]) -> list[str]:
     if not raw:
         return []
     out: list[str] = []
@@ -99,7 +100,7 @@ def _fetch_url(url: str, timeout_sec: int, max_chars: int, user_agent: str) -> d
     }
 
 
-def _run_hard_checks(text: str, *, min_chars: int | None, keywords: list[str]) -> tuple[bool, dict]:
+def _run_hard_checks(text: str, *, min_chars: Optional[int], keywords: list[str]) -> Tuple[bool, dict]:
     checks: dict = {"min_chars": min_chars, "require_keywords": keywords, "hit_keywords": []}
     if min_chars is not None:
         if len(text) < min_chars:
@@ -123,9 +124,9 @@ def _run_fetch(
     timeout_sec: int,
     max_chars: int,
     user_agent: str,
-    out_file: str | None,
-    min_chars: int | None,
-    require_keywords: str | None,
+    out_file: Optional[str],
+    min_chars: Optional[int],
+    require_keywords: Optional[str],
 ) -> dict:
     u = str(url).strip()
     if not u:
@@ -174,9 +175,9 @@ def agent_main(
     timeout_sec: int = BUILTIN_TIMEOUT_SEC,
     max_chars: int = BUILTIN_MAX_CHARS,
     user_agent: str = BUILTIN_USER_AGENT,
-    out_file: str | None = None,
-    min_chars: int | None = None,
-    require_keywords: str | None = None,
+    out_file: Optional[str] = None,
+    min_chars: Optional[int] = None,
+    require_keywords: Optional[str] = None,
 ) -> dict:
     ua = (user_agent or "").strip() or BUILTIN_USER_AGENT
     try:
