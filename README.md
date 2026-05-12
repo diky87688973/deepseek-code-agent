@@ -1,6 +1,6 @@
-# DeepSeek Code Agent v1
+# DeepSeek Code Agent v1.1
 
-> 基于 WEB 浏览器的 AI 桌面助手，内嵌 20+ 工具，通过对话完成文件编辑、代码诊断、Git 查询、Web 抓取等复杂任务。
+> 基于 WEB 浏览器的 AI 桌面助手，内嵌丰富工具，通过对话完成文件编辑、代码诊断、Git 查询、Web 抓取等复杂任务。
 
 ---
 
@@ -18,9 +18,19 @@ pip install -r requirements.txt
 #    或直接： python deepseek_code_agent.py
 ```
 
-启动后浏览器访问 `http://127.0.0.1:8801` 即可开始对话。
-![主截图](res/img/界面预览.png)
-![知识库截图](res/img/知识库.png)
+启动后浏览器访问 `http://127.0.0.1:8801` 打开主界面；多列沉浸布局访问 `http://127.0.0.1:8801/immersive`。
+
+### 界面截图
+
+![主界面](res/img/界面预览.png)
+
+![知识库](res/img/知识库.png)
+
+![浅色主题](res/img/白天模式风格.png)
+
+![沉浸模式 · 多会话分栏](res/img/沉浸模式_多会话分栏.png)
+
+![输入区 · 上下文容量条](res/img/上下文容量视图.png)
 
 ---
 
@@ -58,11 +68,11 @@ pip install -r requirements.txt
 将常用文档放入知识库目录，对话时勾选即可让 AI 参考：
 
 1. 在 `config.ini` 的 `[knowledge_base]` 节中配置 `dir`（如 `D:/AI_DATA_ROOT/knowledge_base`）
-2. 往该目录放入 `.md`、`.txt`、`.py`、`.json` 等文本文件
-3. 在界面右侧「📚 知识库」面板勾选本次对话需要的文件
-4. AI 自动将文件内容作为参考上下文
+2. 往该目录放入待参考的文件（如 `.md`、`.txt`、`.py`、`.json`、表格类等）
+3. 在界面右侧「📚 知识库」面板勾选本次对话需要的文件（勾选时校验单文件大小等，见 `config.ini` 中 `max_file_size`）
+4. AI 自动将可读内容作为参考上下文
 
-> 支持 40+ 种文件格式，单文件限制 100KB。
+> 知识库目录下列出所有普通文件；勾选时再做是否可用等校验。
 
 ### 📋 Todo-List（执行清单）
 
@@ -102,10 +112,8 @@ deepseek-code-agent/
 ├── 项目安全分析报告.md         # 数据安全分析
 │
 ├── res/
-│   ├── html/agent-ui.html
-│   ├── css/agent-ui.css
-│   ├── js/agent-ui.js
-│   └── img/
+│   ├── html/agent-ui.html / agent-immersive.html
+│   ├── css/、js/、img/
 │       ├── app_icon_128x128.png
 │       └── app_icon_16x16.png
 │
@@ -167,6 +175,9 @@ dir = D:/AI_DATA_ROOT/knowledge_base
 | 🔄 模式切换 | Auto / Plan / Execute 三种模式 |
 | 📊 用量统计 | Token 消耗与费用统计 |
 | 📑 多标签页 | 同时管理多个会话 |
+| 🌓 主题 | 浅色 / 深色切换 |
+| 🪟 沉浸模式 | 访问 `/immersive` 多列并排会话 |
+| 📈 上下文条 | 输入区旁展示上下文占用概览 |
 
 ---
 
@@ -212,4 +223,4 @@ dir = D:/AI_DATA_ROOT/knowledge_base
 
 ---
 
-> 文档版本：v1  |  更新于：2026 年  |  作者：Fan
+> 文档版本：v1.1  |  更新于：2026 年  |  作者：Fan
