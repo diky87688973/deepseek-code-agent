@@ -2051,30 +2051,42 @@ def _split_pure_and_full_dialogue(
     dialogue: List[Dict[str, Any]],
     full_n: int,
     pure_n: int,
+    has_compressed: bool = False,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """近期：最后 full_n 个 user 回合（含工具）→ full_tail。远期纯：紧挨其前 pure_n 个 user 回合（半开）→ pure_raw。
+    """远期：仅当已触发过摘要压缩后才存在——取对话前 pure_n 个 user 回合并锚定不动，
+    保障 KV 缓存前缀稳定。未压缩时远期恒为空，新对话全归近期（铁律）。
 
-    即 user 下标区间 [k-full_n-pure_n, k-full_n)（不足则截断），与近期 [k-full_n, k) 无重叠；拼接为 pure_folded + full_tail。
+    近期：未压缩时 = 全部对话；已压缩后 = 远期锚定区之后的所有 user 回合（含工具），
+    随对话自然增长。
     """
-    if not dialogue or full_n <= 0:
-        return [], [], list(dialogue)
+    if not dialogue:
+        return [], [], []
+
     user_idxs = [i for i, m in enumerate(dialogue) if m.get("role") == "user"]
     k = len(user_idxs)
     if k == 0:
         return [], [], []
+
     fn = max(1, int(full_n))
     pn = max(0, int(pure_n))
-    full_start = user_idxs[max(0, k - fn)]
-    full_tail = list(dialogue[full_start:])
-    if pn <= 0:
-        return [], [], full_tail
-    u_pure_end = max(0, k - fn)
-    u_pure_start = max(0, k - fn - pn)
-    if u_pure_start >= u_pure_end:
-        return [], [], full_tail
-    pure_lo = user_idxs[u_pure_start]
-    pure_hi = user_idxs[u_pure_end]
-    pure_raw = list(dialogue[pure_lo:pure_hi])
+
+    # ── 铁律：未压缩过 → 远期恒空，全部归近期 ──
+    if not has_compressed or pn <= 0:
+        return [], [], list(dialogue)
+
+    # ── 已压缩过：远期锚定 ──
+    if k <= fn + pn:
+        # 压缩后初始态（k 不超过 fn+pn）：优先满足近期 fn 轮，余量归远期
+        pure_count = max(0, k - fn)
+        if pure_count == 0:
+            return [], [], list(dialogue)
+        pure_end = user_idxs[pure_count]               # 第 pure_count 个 user = 前 k-fn 轮 → 远期
+    else:
+        # 远期锚定为前 pn 轮，近期自然增长
+        pure_end = user_idxs[pn]                        # 第 pn 个 user = 前 pn 轮 → 远期（锚定！）
+
+    pure_raw = list(dialogue[:pure_end])
+    full_tail = list(dialogue[pure_end:])
     return pure_raw, [], full_tail
 
 
@@ -2198,10 +2210,12 @@ def _build_context_segments(
             if m.get("role") == "system" and m.get("_agent_summary"):
                 summaries.append(_strip_internal_message_for_api(m))
     dialogue = persisted[fu:] if fu is not None else []
+    has_compressed = len(summaries) > 0
     pure_raw, full_pre_raw, full_suf_raw = _split_pure_and_full_dialogue(
         dialogue,
         CONTEXT_FULL_USER_ROUNDS,
         CONTEXT_PURE_USER_ROUNDS,
+        has_compressed,
     )
     pure_user_turns = _count_user_turns_in_messages(pure_raw)
     pure_folded = _fold_pure_window_for_api(pure_raw)
