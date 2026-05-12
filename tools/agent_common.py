@@ -18,8 +18,15 @@ def err(exc: Exception) -> dict:
     return {"ok": False, "data": None, "error": {"type": exc.__class__.__name__, "message": str(exc)}}
 
 
+def _strip_outer_quotes(s: str) -> str:
+    s = (s or "").strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+        return s[1:-1].strip()
+    return s
+
+
 def workspace_root() -> Path:
-    w = (os.environ.get("WORKSPACE_DIR") or "").strip()
+    w = _strip_outer_quotes(os.environ.get("WORKSPACE_DIR") or "")
     if w:
         return Path(w).expanduser().resolve()
     return Path.cwd().resolve()

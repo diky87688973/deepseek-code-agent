@@ -72,7 +72,8 @@ from util.agent_model_dispatch import ALLOWED_MODELS, default_model_from_env, ef
 from util.agent_deepseek_pricing import get_model_pricing_snapshot
 from util.agent_openai_compatible_client import chat_completion_request, chat_completion_stream
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import uvicorn
 
@@ -83,54 +84,81 @@ else:
     _base = Path(__file__).resolve().parent
 AGENT_ROOT = _base
 
+
+def _strip_config_path_value(value: object) -> str:
+    """Trim and strip a single pair of surrounding quotes from config/env path strings."""
+    raw = str(value or "").strip()
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ("'", '"'):
+        raw = raw[1:-1].strip()
+    return raw
+
+
 # 可写运行时数据目录：默认 ~/AI_DATA_ROOT（用户目录下），可通过 config.ini 修改
-_dr = str(AGENT_CONFIG.get("AGENT_DATA_ROOT_DIR") or "").strip()
+_dr = _strip_config_path_value(AGENT_CONFIG.get("AGENT_DATA_ROOT_DIR"))
 if _dr:
-    DATA_ROOT = Path(_dr).resolve()
+    DATA_ROOT = Path(_dr).expanduser().resolve()
 else:
     DATA_ROOT = Path.home() / "AI_DATA_ROOT"
 
 # ── 知识库配置 ──
-_KB_DIR_STR = str(AGENT_CONFIG.get("AGENT_KNOWLEDGE_BASE_DIR") or "").strip()
-KB_BASE_DIR: Optional[Path] = Path(_KB_DIR_STR).resolve() if _KB_DIR_STR else None
+_KB_DIR_STR = _strip_config_path_value(AGENT_CONFIG.get("AGENT_KNOWLEDGE_BASE_DIR"))
+KB_BASE_DIR: Optional[Path] = Path(_KB_DIR_STR).expanduser().resolve() if _KB_DIR_STR else None
 _KB_CHECKED_STATE: Dict[str, Set[str]] = {}
 _KB_CHECKED_LOCK = threading.Lock()
+
+
+def _kb_checked_state_file() -> Optional[Path]:
+    """知识库勾选状态：放在知识库根目录的上一级，避免与资料文件同目录。"""
+    if not KB_BASE_DIR:
+        return None
+    return KB_BASE_DIR.resolve().parent / ".checked_state.json"
+
 
 def _kb_persist_checked():
     if not KB_BASE_DIR:
         return
+    state_file = _kb_checked_state_file()
+    if not state_file:
+        return
     try:
-        state_file = KB_BASE_DIR / ".checked_state.json"
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    try:
         ser = {k: sorted(v) for k, v in _KB_CHECKED_STATE.items()}
         state_file.write_text(json.dumps(ser, ensure_ascii=False), encoding="utf-8")
     except Exception:
         pass
 
+
 def _kb_load_single_cid_checked(cid: str):
     """从磁盘文件恢复指定会话的勾选状态"""
     if not KB_BASE_DIR:
         return
-    state_file = KB_BASE_DIR / ".checked_state.json"
-    if state_file.is_file():
-        try:
-            data = json.loads(state_file.read_text(encoding="utf-8"))
-            if cid in data:
-                _KB_CHECKED_STATE[cid] = set(data[cid])
-        except Exception:
-            pass
+    state_file = _kb_checked_state_file()
+    if not state_file or not state_file.is_file():
+        return
+    try:
+        data = json.loads(state_file.read_text(encoding="utf-8"))
+        if cid in data:
+            _KB_CHECKED_STATE[cid] = set(data[cid])
+    except Exception:
+        pass
 
 
 def _kb_load_checked():
     if not KB_BASE_DIR:
         return
-    state_file = KB_BASE_DIR / ".checked_state.json"
-    if state_file.is_file():
-        try:
-            data = json.loads(state_file.read_text(encoding="utf-8"))
-            for cid, paths in data.items():
+    state_file = _kb_checked_state_file()
+    if not state_file or not state_file.is_file():
+        return
+    try:
+        data = json.loads(state_file.read_text(encoding="utf-8"))
+        for cid, paths in data.items():
+            if isinstance(paths, list):
                 _KB_CHECKED_STATE[cid] = set(paths)
-        except Exception:
-            pass
+    except Exception:
+        pass
 
 # 启动时恢复勾选状态
 _kb_load_checked()
@@ -1831,6 +1859,45 @@ def _resolve_conversation_mode(conversation_id: str, user_text: str, mode_hint: 
 
 # KB max file size (from config, default 200KB)
 _KB_MAX_FILE_SIZE = int(AGENT_CONFIG.get("AGENT_KB_MAX_FILE_SIZE", 200000))
+
+
+def _kb_safe_resolve_rel(rel: str) -> Optional[Path]:
+    """将相对路径解析为 KB 根下的真实文件路径；禁止 .. 与越界。"""
+    if not KB_BASE_DIR:
+        return None
+    raw = str(rel or "").strip().replace("\\", "/")
+    if not raw or raw.startswith("/"):
+        return None
+    parts = [p for p in raw.split("/") if p and p != "."]
+    if any(p == ".." for p in parts):
+        return None
+    try:
+        root = KB_BASE_DIR.resolve()
+        candidate = (KB_BASE_DIR.joinpath(*parts)).resolve()
+        candidate.relative_to(root)
+    except (ValueError, OSError):
+        return None
+    if not candidate.is_file():
+        return None
+    return candidate
+
+
+def _kb_file_allowed_when_checked(fpath: Path) -> bool:
+    """勾选时校验：存在、大小上限；表格类需已安装 openpyxl。"""
+    try:
+        if fpath.stat().st_size > _KB_MAX_FILE_SIZE:
+            return False
+    except OSError:
+        return False
+    ext = fpath.suffix.lower()
+    if ext in (".xlsx", ".xls"):
+        try:
+            import openpyxl  # noqa: F401
+        except ImportError:
+            return False
+    return True
+
+
 def _build_kb_prompt(cid: str) -> str:
     """读取当前会话勾选的知识库文件，拼接为提示词片段"""
     if not KB_BASE_DIR or not KB_BASE_DIR.is_dir():
@@ -1845,8 +1912,8 @@ def _build_kb_prompt(cid: str) -> str:
         return ""
     parts = ["【知识库参考内容】"]
     for rel in sorted(checked):
-        fpath = KB_BASE_DIR / rel
-        if not fpath.is_file() or fpath.stat().st_size > _KB_MAX_FILE_SIZE:
+        fpath = _kb_safe_resolve_rel(rel)
+        if not fpath or not _kb_file_allowed_when_checked(fpath):
             continue
         ext = fpath.suffix.lower()
         try:
@@ -1890,8 +1957,8 @@ def _kb_attached_file_count(cid: str) -> int:
         return 0
     n = 0
     for rel in sorted(checked):
-        fpath = KB_BASE_DIR / rel
-        if not fpath.is_file() or fpath.stat().st_size > _KB_MAX_FILE_SIZE:
+        fpath = _kb_safe_resolve_rel(rel)
+        if not fpath or not _kb_file_allowed_when_checked(fpath):
             continue
         n += 1
     return n
@@ -3054,10 +3121,15 @@ def run_agent_turn(
 # Embedded UI (VS Code-like dark theme, chat + steps). Served from / without external static files.
 # ---- UI HTML loaded from external file ----
 UI_HTML_FILE = AGENT_ROOT / "res" / "html" / "agent-ui.html"
+RESET_CSS_FILE = AGENT_ROOT / "res" / "css" / "reset.css"
 UI_CSS_FILE = AGENT_ROOT / "res" / "css" / "agent-ui.css"
 UI_JS_FILE = AGENT_ROOT / "res" / "js" / "agent-ui.js"
 
-_INLINE_CSS = UI_CSS_FILE.read_text(encoding="utf-8")
+_INLINE_CSS = (
+    RESET_CSS_FILE.read_text(encoding="utf-8").rstrip()
+    + "\n\n"
+    + UI_CSS_FILE.read_text(encoding="utf-8")
+)
 _INLINE_JS = UI_JS_FILE.read_text(encoding="utf-8")
 _INLINE_HTML_TMPL = UI_HTML_FILE.read_text(encoding="utf-8")
 INLINE_UI_HTML = _INLINE_HTML_TMPL.replace("{{CSS}}", _INLINE_CSS).replace("{{JS}}", _INLINE_JS)
@@ -3119,6 +3191,16 @@ async def _agent_lifespan(app):
 
 app = FastAPI(title="Code Web agent", lifespan=_agent_lifespan)
 
+# 沉浸模式 v1.1：模块化 UI 静态资源 + 独立入口（经典 `/` 仍为内联 HTML，不变）
+_IMMERSIVE_HTML = AGENT_ROOT / "res" / "html" / "agent-immersive.html"
+app.mount("/assets", StaticFiles(directory=str(AGENT_ROOT / "res")), name="assets")
+
+
+@app.get("/immersive", include_in_schema=False)
+def immersive_index():
+    if not _IMMERSIVE_HTML.is_file():
+        raise HTTPException(404, "immersive UI not found")
+    return FileResponse(str(_IMMERSIVE_HTML), media_type="text/html; charset=utf-8")
 
 
 class UsageAccumIn(BaseModel):
@@ -3466,7 +3548,7 @@ async def reasoning_effort_set(request: Request):
 
 @app.get("/api/kb/files")
 def kb_files():
-    """列出知识库目录下所有可读文件（目录不存在时自动创建）"""
+    """列出知识库目录下文件（不按后缀过滤；勾选时再校验是否可用）。"""
     if not KB_BASE_DIR:
         return {"ok": True, "enabled": False, "files": []}
     if not KB_BASE_DIR.is_dir():
@@ -3478,16 +3560,7 @@ def kb_files():
     for p in sorted(KB_BASE_DIR.rglob("*")):
         if not p.is_file():
             continue
-        ext = p.suffix.lower()
-        if ext not in {".md", ".txt", ".py", ".js", ".json", ".yaml", ".yml",
-                        ".css", ".html", ".xml", ".toml", ".ini", ".cfg", ".conf",
-                        ".sh", ".bat", ".ps1", ".sql", ".r", ".rs", ".go", ".java",
-                        ".ts", ".jsx", ".tsx", ".vue", ".svelte", ".rb", ".php",
-                        ".pl", ".lua", ".zig", ".swift", ".kt", ".gradle", ".env",
-                        ".gitignore", ".dockerignore", ".editorconfig", ".mdx",
-                        ".xlsx", ".xls", ".csv"}:
-            continue
-        if p.name.startswith(".") or "__pycache__" in p.parts:
+        if "__pycache__" in p.parts:
             continue
         rel = str(p.relative_to(KB_BASE_DIR)).replace("\\", "/")
         result.append({"path": rel, "name": p.name, "mtime": p.stat().st_mtime})
@@ -3514,14 +3587,23 @@ def kb_checked_put(body: KbCheckedIn):
     cid = str(body.conversation_id or "").strip()
     if not cid:
         raise HTTPException(400, "empty conversation_id")
-    paths = set(body.checked or [])
+    raw_paths = set(body.checked or [])
+    accepted: Set[str] = set()
+    for rel in raw_paths:
+        fp = _kb_safe_resolve_rel(rel)
+        if fp and _kb_file_allowed_when_checked(fp):
+            try:
+                norm = str(fp.relative_to(KB_BASE_DIR.resolve())).replace("\\", "/")
+            except ValueError:
+                continue
+            accepted.add(norm)
     with _KB_CHECKED_LOCK:
-        if paths:
-            _KB_CHECKED_STATE[cid] = paths
+        if accepted:
+            _KB_CHECKED_STATE[cid] = accepted
         else:
             _KB_CHECKED_STATE.pop(cid, None)
         _kb_persist_checked()
-    return {"ok": True}
+    return {"ok": True, "checked": sorted(accepted)}
 
 
 @app.post("/api/chat/stop")
@@ -3539,15 +3621,27 @@ def chat_stream(inp: ChatIn, request: Request):
     if not text:
         raise HTTPException(400, "empty message")
     if AT_MESSAGE_FILE_PREFETCH:
-        # @文件引用解析：自动读取 @路径 引用的文件并注入到消息中
-        import re as _re, os as _os
-        _at_files = _re.findall(r'@((?:[A-Za-z]:[\\/][^\s]+|"[^"]+"))', text)
+        # @路径预读：仅对「普通文件」注入全文；目录不预读（模型可据路径用工具浏览）
+        import re as _re
+        _at_files = _re.findall(
+            r'@((?:"[^"]+")|(?:[A-Za-z]:[\\/][^\s]+)|(?:~[^\s]+)|(?:/[^\s]+))',
+            text,
+        )
         _injected = []
         for _fp in _at_files:
-            _fp = _fp.strip('"')
+            _fp = _strip_config_path_value(_fp.strip('"').strip("'"))
+            if not _fp:
+                continue
             try:
-                if _os.path.isfile(_fp):
-                    with open(_fp, 'r', encoding='utf-8', errors='replace') as _f:
+                _p = Path(_fp).expanduser()
+                try:
+                    _p = _p.resolve()
+                except OSError:
+                    pass
+                if _p.is_dir():
+                    continue
+                if _p.is_file():
+                    with open(_p, "r", encoding="utf-8", errors="replace") as _f:
                         _fc = _f.read()
                     if len(_fc) > 500_000:
                         _fc = _fc[:500_000] + "\n...(文件过大，已截断)"
@@ -3640,9 +3734,9 @@ def dir_browse(path: str = ""):
     import os as _os
     import string as _string
 
-    _workspace = os.environ.get("WORKSPACE_DIR", "").strip()
+    _workspace = _strip_config_path_value(os.environ.get("WORKSPACE_DIR", ""))
     if _workspace:
-        _default = Path(_workspace).resolve()
+        _default = Path(_workspace).expanduser().resolve()
     else:
         _default = Path.home() / "Desktop"
     if not _default.is_dir():
@@ -3685,7 +3779,8 @@ def dir_browse(path: str = ""):
     if not path or not str(path).strip():
         target = _default
     else:
-        raw = Path(str(path).strip()).expanduser()
+        raw_s = _strip_config_path_value(str(path).strip())
+        raw = Path(raw_s).expanduser()
         if raw.is_absolute():
             cand = raw.resolve()
         else:

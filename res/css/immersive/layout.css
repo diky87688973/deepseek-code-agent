@@ -1,0 +1,156 @@
+/* 滚动条：更细、更淡；颜色随 tokens --imm-sb-* */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--imm-sb-thumb) transparent;
+}
+*::-webkit-scrollbar {
+  width: var(--imm-sb-width);
+  height: var(--imm-sb-width);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--imm-sb-thumb);
+  border-radius: var(--imm-sb-radius);
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--imm-sb-thumb-hover);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+html, body.imm-body {
+  margin: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--imm-bg);
+  color: var(--imm-text);
+  font-family: system-ui, Segoe UI, "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 13px;
+}
+/* 顶栏：默认上收，仅露出底边一条触发区；悬停滑出（全屏/经典链接） */
+.imm-header-dock {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  height: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+/* 收起 1s；悬停展开 0.3s（展开快、收起慢） */
+.imm-header-slide {
+  transform: translateY(calc(-100% + 8px));
+  transition: transform 1s ease;
+  pointer-events: auto;
+}
+/* 首屏完全展开；由 bootstrap 在 1s 后移除本类，再以 1s 过渡到上收态 */
+.imm-header-slide.imm-header-slide-init {
+  transform: translateY(0);
+  transition: none;
+}
+.imm-header-dock:hover .imm-header-slide {
+  transform: translateY(0);
+  transition: transform 0.3s ease;
+}
+.imm-header-slide .imm-header {
+  flex: 0 0 40px;
+  height: 40px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--imm-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  gap: 12px;
+  background: var(--imm-bg);
+}
+.imm-header-left, .imm-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.imm-muted { color: var(--imm-muted); font-size: 12px; }
+.imm-link { color: var(--imm-accent); text-decoration: none; font-size: 12px; }
+.imm-link:hover { text-decoration: underline; }
+/* 顶栏返回经典：与经典页「沉浸模式」一致的暗金胶囊，不用默认链接蓝 */
+.imm-classic-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--imm-gold);
+  background: var(--imm-gold-fill);
+  border: 1px solid var(--imm-gold-border);
+  text-decoration: none;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+.imm-classic-pill:hover {
+  color: var(--imm-gold-bright);
+  border-color: var(--imm-gold-border-hover);
+  background: var(--imm-gold-fill-hover);
+  text-decoration: none;
+}
+.imm-btn {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--imm-btn-text);
+  font-weight: 600;
+  font-size: 12px;
+  border: 1px solid var(--imm-btn-border);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.imm-btn:hover { background: var(--imm-btn-hover); }
+.imm-main {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.imm-columns-wrap {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 1px;
+}
+.imm-columns-row {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: auto;
+}
+.imm-composer-dock {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--imm-border);
+  background: var(--imm-composer-dock-bg);
+}
+html[data-ui-theme="light"] .imm-composer-dock {
+  border-top-color: #e6ebf4;
+}
+.imm-composer-inner { padding: 8px 10px 10px; }
+.imm-row { max-width: 100%; }
+html:fullscreen .imm-header-slide .imm-header,
+html:-webkit-full-screen .imm-header-slide .imm-header,
+html:fullscreen .imm-composer-dock,
+html:-webkit-full-screen .imm-composer-dock {
+  padding-left: 4px;
+  padding-right: 4px;
+}

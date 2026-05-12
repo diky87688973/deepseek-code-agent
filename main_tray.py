@@ -63,8 +63,10 @@ sys.path.insert(0, str(BASE_DIR))
 
 # ── DATA_ROOT：可写数据目录，默认 ~/AI_DATA_ROOT（用户目录下）──
 _dr = os.environ.get("AGENT_DATA_ROOT_DIR", "").strip()
+if len(_dr) >= 2 and _dr[0] == _dr[-1] and _dr[0] in ("'", '"'):
+    _dr = _dr[1:-1].strip()
 if _dr:
-    DATA_ROOT = Path(_dr).resolve()
+    DATA_ROOT = Path(_dr).expanduser().resolve()
 else:
     DATA_ROOT = Path.home() / "AI_DATA_ROOT"
 # 向环境变量写入回收站路径（供 file_ops 等工具读取 AGENT_RECYCLE_ROOT）

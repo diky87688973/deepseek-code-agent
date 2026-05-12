@@ -1,0 +1,451 @@
+/* SSE：按 conversation_id 写入对应分栏；丢弃用量/上下文/步骤 UI；保留 user_confirm */
+(function (w) {
+  "use strict";
+  var IMM = (w.IMM = w.IMM || {});
+
+  function scrollMsgs(msgsEl) {
+    if (!msgsEl) return;
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+  }
+
+  function showChatLoading(msgsEl, s) {
+    if (s.chatLoadingEl || !msgsEl) return;
+    var el = document.createElement("div");
+    el.className = "b a imm-loading";
+    el.innerHTML =
+      '<span class="imm-spinner"></span> <span style="color:#888;font-size:12px">正在思考中…</span>';
+    msgsEl.appendChild(el);
+    s.chatLoadingEl = el;
+    scrollMsgs(msgsEl);
+  }
+
+  function hideChatLoading(s) {
+    if (s.chatLoadingEl) {
+      try {
+        s.chatLoadingEl.remove();
+      } catch (e) {}
+      s.chatLoadingEl = null;
+    }
+  }
+
+  function addUser(msgsEl, text) {
+    if (!msgsEl) return;
+    var e = document.createElement("div");
+    e.className = "b u";
+    e.textContent = text;
+    msgsEl.appendChild(e);
+    scrollMsgs(msgsEl);
+  }
+
+  function addAssistantMarkdown(msgsEl, md) {
+    if (!msgsEl) return;
+    var e = document.createElement("div");
+    e.className = "b a";
+    e.innerHTML = IMM.renderMarkdown(md || "");
+    msgsEl.appendChild(e);
+    scrollMsgs(msgsEl);
+  }
+
+  function ensureStreamBubble(col) {
+    var s = col.s;
+    var msgsEl = col.msgsEl;
+    if (s.streamAssistantEl) return s.streamAssistantEl;
+    if (!msgsEl) return null;
+    var e = document.createElement("div");
+    e.className = "b a";
+    e.innerHTML = "";
+    msgsEl.appendChild(e);
+    scrollMsgs(msgsEl);
+    s.streamAssistantEl = e;
+    s.streamAssistantText = "";
+    return e;
+  }
+
+  function appendDelta(col, text) {
+    if (typeof text !== "string" || !text) return;
+    var s = col.s;
+    var e = ensureStreamBubble(col);
+    if (!e) return;
+    if (s.pendingDeltaSeparator && s.streamAssistantText) s.streamAssistantText += "\n\n";
+    s.pendingDeltaSeparator = false;
+    s.streamAssistantText += text;
+    e.innerHTML = IMM.renderMarkdown(s.streamAssistantText);
+    scrollMsgs(col.msgsEl);
+  }
+
+  function finalizeStream(col, content) {
+    var s = col.s;
+    if (s.streamAssistantEl) {
+      if (typeof content === "string" && content) {
+        s.streamAssistantText = String(content);
+        s.streamAssistantEl.innerHTML = IMM.renderMarkdown(s.streamAssistantText);
+      }
+      s.streamAssistantEl = null;
+      s.streamAssistantText = "";
+      s.pendingDeltaSeparator = false;
+      scrollMsgs(col.msgsEl);
+      return true;
+    }
+    return false;
+  }
+
+  function resetTurnState(col) {
+    var s = col.s;
+    hideChatLoading(s);
+    s.streamAssistantEl = null;
+    s.streamAssistantText = "";
+    s.pendingDeltaSeparator = false;
+    s.anyToolThisTurn = false;
+    IMM.userConfirmBlocking = false;
+  }
+
+  function renderTodoInColumn(col, ev) {
+    var items = Array.isArray(ev.items) ? ev.items : [];
+    if (!items.length) return;
+    var host = document.createElement("div");
+    host.className = "imm-todo-inline";
+    var hdr = document.createElement("div");
+    hdr.className = "imm-todo-hdr";
+    var done = 0;
+    for (var i = 0; i < items.length; i++) if (items[i].done) done++;
+    hdr.textContent = "Todo " + done + "/" + items.length;
+    host.appendChild(hdr);
+    var ul = document.createElement("ul");
+    ul.className = "imm-todo-ul";
+    for (var j = 0; j < items.length; j++) {
+      var li = document.createElement("li");
+      li.textContent = (items[j].done ? "☑ " : "☐ ") + String(items[j].text || "");
+      ul.appendChild(li);
+    }
+    host.appendChild(ul);
+    col.msgsEl.appendChild(host);
+    scrollMsgs(col.msgsEl);
+  }
+
+  function openUserConfirm(ev, col, CM, drainFn) {
+    if (IMM.userConfirmCardHost || !ev.user_confirm_required) return;
+    IMM.userConfirmBlocking = true;
+    hideChatLoading(col.s);
+    var opts = Array.isArray(ev.user_confirm_options) ? ev.user_confirm_options : [];
+    var title = String(ev.user_confirm_title || "请确认");
+    var multi = !!ev.user_confirm_multi;
+    var tailIdx = opts.length;
+    var msgsEl = col.msgsEl;
+    var wrap = document.createElement("div");
+    wrap.className = "b a user-confirm-card-outer";
+    var card = document.createElement("div");
+    card.className = "chat-diff-card user-confirm-card";
+    var cap = document.createElement("div");
+    cap.className = "chat-diff-cap user-confirm-cap user-confirm-cap";
+    var capLine = document.createElement("div");
+    capLine.className = "user-confirm-cap-line";
+    var h = document.createElement("span");
+    h.className = "uc-title";
+    h.textContent = title;
+    var badge = document.createElement("span");
+    badge.className = "user-confirm-badge";
+    badge.textContent = multi ? "待确认·多选" : "待确认·单选";
+    capLine.appendChild(h);
+    capLine.appendChild(badge);
+    cap.appendChild(capLine);
+    card.appendChild(cap);
+    var body = document.createElement("div");
+    body.className = "user-confirm-body";
+    var btns = document.createElement("div");
+    btns.className = "user-confirm-opts";
+    var pickSingle = -1;
+    var pickMulti = {};
+    var rows = [];
+    var customInputEl = null;
+    function syncRows() {
+      for (var si = 0; si < rows.length; si++) {
+        var R = rows[si];
+        var on = multi ? !!pickMulti[R.idx] : pickSingle === R.idx;
+        R.icon.classList.toggle("uc-on", on);
+        R.row.classList.toggle("uc-row-picked", on);
+      }
+    }
+    function toggleIdx(idx) {
+      if (multi) {
+        if (pickMulti[idx]) delete pickMulti[idx];
+        else pickMulti[idx] = 1;
+        syncRows();
+      } else {
+        pickSingle = pickSingle === idx ? -1 : idx;
+        syncRows();
+      }
+    }
+    function buildFinal() {
+      var pref = "自定义说明：";
+      if (multi) {
+        var keys = Object.keys(pickMulti)
+          .map(function (x) {
+            return parseInt(x, 10);
+          })
+          .filter(function (x) {
+            return !isNaN(x) && x >= 0 && x <= tailIdx;
+          });
+        keys.sort(function (a, b) {
+          return a - b;
+        });
+        if (!keys.length) return "";
+        var parts = [];
+        for (var k = 0; k < keys.length; k++) {
+          var j = keys[k];
+          if (j === tailIdx) {
+            var ex2 = customInputEl ? String(customInputEl.value || "").trim() : "";
+            if (ex2) parts.push(pref + ex2);
+          } else parts.push(String(opts[j] || ""));
+        }
+        return parts.join("\n");
+      }
+      if (pickSingle < 0 || pickSingle > tailIdx) return "";
+      if (pickSingle === tailIdx) {
+        var ex = customInputEl ? String(customInputEl.value || "").trim() : "";
+        return ex ? pref + ex : "";
+      }
+      return String(opts[pickSingle] || "");
+    }
+    function addRow(idx, label, isTail) {
+      var row = document.createElement("div");
+      row.className =
+        "uc-opt-row" +
+        (multi ? " uc-multi" : " uc-single") +
+        (isTail ? " uc-has-custom" : "");
+      var icon = document.createElement("span");
+      icon.className = multi ? "uc-check" : "uc-radio";
+      icon.setAttribute("aria-hidden", "true");
+      row.appendChild(icon);
+      if (isTail) {
+        var inp = document.createElement("input");
+        inp.type = "text";
+        inp.className = "uc-opt-input";
+        inp.placeholder = "自定义说明";
+        inp.autocomplete = "off";
+        customInputEl = inp;
+        inp.addEventListener("focus", function () {
+          if (multi) pickMulti[idx] = 1;
+          else pickSingle = idx;
+          syncRows();
+        });
+        row.appendChild(inp);
+      } else {
+        var lab = document.createElement("span");
+        lab.className = "uc-opt-label";
+        lab.textContent = label;
+        row.appendChild(lab);
+      }
+      row.addEventListener("click", function (e) {
+        if (e.target && e.target.closest && e.target.closest(".uc-opt-input")) return;
+        toggleIdx(idx);
+      });
+      btns.appendChild(row);
+      rows.push({ row: row, icon: icon, idx: idx });
+    }
+    for (var oi = 0; oi < opts.length; oi++) addRow(oi, String(opts[oi]), false);
+    addRow(tailIdx, "", true);
+    syncRows();
+    body.appendChild(btns);
+    var act = document.createElement("div");
+    act.className = "user-confirm-actions";
+    var cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "mode-plus";
+    cancel.textContent = "取消";
+    var ok = document.createElement("button");
+    ok.type = "button";
+    ok.className = "mode-plus";
+    ok.textContent = "确认";
+    act.appendChild(cancel);
+    act.appendChild(ok);
+    body.appendChild(act);
+    card.appendChild(body);
+    wrap.appendChild(card);
+    msgsEl.appendChild(wrap);
+    IMM.userConfirmCardHost = wrap;
+    scrollMsgs(msgsEl);
+    function cleanup() {
+      if (IMM.userConfirmCardHost) {
+        try {
+          IMM.userConfirmCardHost.remove();
+        } catch (e) {}
+        IMM.userConfirmCardHost = null;
+      }
+      IMM.userConfirmBlocking = false;
+      if (typeof IMM.updateComposerBusy === "function") IMM.updateComposerBusy();
+    }
+    var submit = async function (finalTxt) {
+      var confirmCid = col.id;
+      cleanup();
+      showChatLoading(msgsEl, col.s);
+      var controller = new AbortController();
+      col.s.abortController = controller;
+      try {
+        var r = await fetch("/api/chat/user-confirm/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversation_id: confirmCid,
+            confirm: finalTxt,
+            mode: col.s.selectedMode || IMM.selectedMode || "auto",
+            model: col.s.selectedModel || IMM.selectedModel || "deepseek-v4-flash",
+          }),
+          signal: controller.signal,
+        });
+        if (!r.ok) {
+          var bt = "";
+          try {
+            bt = await r.text();
+          } catch (e) {}
+          addAssistantMarkdown(msgsEl, "确认请求 HTTP " + r.status + " " + String(bt || "").slice(0, 200));
+          return;
+        }
+        await drainFn(r, confirmCid, CM);
+      } catch (err) {
+        if (err && err.name === "AbortError") return;
+        addAssistantMarkdown(msgsEl, "确认请求失败: " + (err && err.message ? err.message : String(err)));
+      } finally {
+        col.s.abortController = null;
+        hideChatLoading(col.s);
+        if (typeof IMM.updateComposerBusy === "function") IMM.updateComposerBusy();
+      }
+    };
+    cancel.onclick = function () {
+      void submit("");
+    };
+    ok.onclick = function () {
+      void submit(buildFinal());
+    };
+  }
+
+  async function drainChatSseFromResponse(r, streamCid, CM) {
+    if (!r || !r.body) return;
+    var rd = r.body.getReader();
+    var de = new TextDecoder();
+    var buf = "";
+    var endedAwaitingUserConfirm = false;
+    for (;;) {
+      var x = await rd.read();
+      if (x.done) {
+        var sseCloseCid = IMM.normalizeConversationId(streamCid || "");
+        if (sseCloseCid) {
+          var col0 = CM.byId(sseCloseCid);
+          if (col0) {
+            if (endedAwaitingUserConfirm) {
+              hideChatLoading(col0.s);
+            } else if (!col0.s.streamAssistantEl) {
+              hideChatLoading(col0.s);
+            }
+          }
+        }
+        break;
+      }
+      buf += de.decode(x.value, { stream: true });
+      var i0;
+      while ((i0 = buf.indexOf("\n\n")) >= 0) {
+        var blk = buf.slice(0, i0);
+        buf = buf.slice(i0 + 2);
+        var lines = blk.split("\n");
+        for (var li = 0; li < lines.length; li++) {
+          var line = lines[li];
+          if (line.indexOf("data:") !== 0) continue;
+          var raw = line.slice(5).trim();
+          var ev;
+          try {
+            ev = JSON.parse(raw);
+          } catch (je) {
+            continue;
+          }
+          var packetCid = IMM.normalizeConversationId(ev.conversation_id);
+          if (!packetCid) continue;
+          var col = CM.byId(packetCid);
+          if (!col) continue;
+          var msgsEl = col.msgsEl;
+          var s = col.s;
+          if (ev.type === "conversation") {
+            if (ev.mode) s.selectedMode = String(ev.mode).toLowerCase();
+            if (ev.model) s.selectedModel = String(ev.model || "");
+            if (col.id === CM.activeId && typeof IMM.applyModeModelUi === "function")
+              IMM.applyModeModelUi(s.selectedMode, s.selectedModel);
+          } else if (ev.type === "run_started") {
+            s.activeRunId = String(ev.run_id || "");
+          } else if (ev.type === "mode_changed" && ev.mode) {
+            s.selectedMode = String(ev.mode).toLowerCase();
+            if (col.id === CM.activeId && typeof IMM.applyModeModelUi === "function")
+              IMM.applyModeModelUi(s.selectedMode, s.selectedModel);
+          } else if (ev.type === "usage") {
+            /* 用量条在 1.1 可另接；当前仅上下文条 */
+          } else if (ev.type === "context_layout") {
+            col.s.lastContextLayout = ev;
+            if (col.id === CM.activeId && typeof IMM.updateImmersiveContextBar === "function")
+              IMM.updateImmersiveContextBar();
+          } else if (
+            ev.type === "dispatch_title" ||
+            ev.type === "llm_round" ||
+            ev.type === "llm_request" ||
+            ev.type === "llm_response" ||
+            ev.type === "llm_done" ||
+            ev.type === "tool_start" ||
+            ev.type === "tool_progress" ||
+            ev.type === "tool_preview_update"
+          ) {
+            /* 步骤 / LLM 卡片：不渲染 */
+          } else if (ev.type === "tool_end") {
+            if (ev.user_confirm_required) openUserConfirm(ev, col, CM, drainChatSseFromResponse);
+            if (ev.todo_list && ev.todo_list_data) {
+              var td = ev.todo_list_data;
+              renderTodoInColumn(col, {
+                items: td.items || [],
+                all_done: Array.isArray(td.items) && td.items.every(function (it) {
+                  return !!it.done;
+                }),
+              });
+            }
+          } else if (ev.type === "assistant_delta") {
+            if (s.anyToolThisTurn) s.anyToolThisTurn = false;
+            appendDelta(col, ev.delta || "");
+          } else if (ev.type === "assistant_markdown") {
+            if (s.anyToolThisTurn) s.anyToolThisTurn = false;
+            var md = ev.markdown;
+            if (typeof md === "string" && md.trim()) {
+              var e2 = ensureStreamBubble(col);
+              if (e2) {
+                if (s.streamAssistantText && !s.streamAssistantText.endsWith("\n")) s.streamAssistantText += "\n";
+                s.streamAssistantText += md.trim() + "\n";
+                e2.innerHTML = IMM.renderMarkdown(s.streamAssistantText);
+                scrollMsgs(msgsEl);
+              }
+            }
+          } else if (ev.type === "assistant") {
+            if (s.anyToolThisTurn) s.anyToolThisTurn = false;
+            if (!finalizeStream(col, ev.content || "")) addAssistantMarkdown(msgsEl, ev.content || "");
+          } else if (ev.type === "done") {
+            finalizeStream(col, "");
+          } else if (ev.type === "stopped") {
+            resetTurnState(col);
+            if (ev.message) addAssistantMarkdown(msgsEl, ev.message);
+          } else if (ev.type === "paused_for_user_confirm") {
+            hideChatLoading(s);
+            endedAwaitingUserConfirm = true;
+          } else if (ev.type === "todo_list") {
+            renderTodoInColumn(col, ev);
+          } else if (ev.type === "reasoning_delta" || ev.type === "reasoning_sync") {
+            /* 无 lastLlm 卡片时跳过推理块（1.1） */
+          } else if (ev.type === "error") {
+            hideChatLoading(s);
+            resetTurnState(col);
+            addAssistantMarkdown(msgsEl, "错误: " + JSON.stringify(ev.detail || ev));
+          }
+        }
+      }
+    }
+  }
+
+  IMM.drainChatSseFromResponse = drainChatSseFromResponse;
+  IMM.immShowChatLoading = showChatLoading;
+  IMM.immHideChatLoading = hideChatLoading;
+  IMM.immAddUser = addUser;
+  IMM.immAddAssistantMarkdown = addAssistantMarkdown;
+  IMM.userConfirmBlocking = false;
+  IMM.userConfirmCardHost = null;
+})(window);
