@@ -156,9 +156,9 @@ pre{margin:0;padding:8px;max-height:220px;overflow:auto;white-space:pre-wrap;wor
 .step-dots{display:inline-block;min-width:1.35em;color:#888;letter-spacing:0}
 .preview-slot{margin:0 0 8px 0}
 .diff-unified{font-family:Consolas,ui-monospace,monospace;font-size:10px;line-height:1.35;background:#0d0d0d;border:1px solid #2a2a2a;border-radius:4px;padding:6px;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word}
-.diff-unified .d-del{color:#f48771;background:rgba(244,135,113,.26);border-left:3px solid #f85149;padding-left:6px}
-.diff-unified .d-add{color:#89d185;background:rgba(137,209,133,.32);border-left:3px solid #3daf3f;padding-left:6px}
-.diff-unified .d-eq,.diff-unified .d-meta{color:#c9d3dd;background:rgba(255,255,255,.045);border-left:3px solid rgba(148,164,182,.28);padding-left:6px}
+.diff-unified .d-del{color:#f48771;background:#2d1b1e;border-left:3px solid #f85149;padding-left:6px}
+.diff-unified .d-add{color:#89d185;background:#1b2d1e;border-left:3px solid #3daf3f;padding-left:6px}
+.diff-unified .d-eq,.diff-unified .d-meta{color:#c9d3dd;background:#222426;border-left:3px solid rgba(148,164,182,.28);padding-left:6px}
 .llm-merge-block{margin:10px 0 0 0;padding:10px 0 0 0;border-top:1px dashed #3d4450}
 .chat-diff-card{margin:0 0 10px 0;border:1px solid #3a3d41;border-radius:6px;background:#121416;overflow:hidden;max-width:100%}
 .chat-diff-cap{padding:6px 8px;font-size:11px;color:#c9d1d9;border-bottom:1px solid #2a2a2a;background:#1a1d21;line-height:1.35}
@@ -288,7 +288,7 @@ html[data-ui-theme="light"] .user-confirm-opts .uc-check.uc-on {
 .todo-collapse-icon{font-size:8px;color:#9aa0a6;margin-left:6px;transition:transform .2s ease;flex-shrink:0;line-height:1}
 
 .todo-list-area.collapsed .todo-collapse-icon{transform:rotate(-90deg)}
-.todo-list-area.collapsed{max-height:22px}
+.todo-list-area.collapsed{max-height:27px}
 
 .todo-list-body{flex:1}
 .todo-list-scroll{height:auto;max-height:130px;overflow-y:auto}
@@ -546,4 +546,70 @@ html[data-ui-theme="light"] .chat-session-row {
 }
 html[data-ui-theme="light"] .chat-session-row:hover {
   background: #eef2fa;
+}
+html[data-ui-theme="light"] .todo-list-area {
+  border-top-color: #d8e0ea;
+  border-bottom-color: #d8e0ea;
+  background: #f7f8fa;
+}
+html[data-ui-theme="light"] .todo-list-header {
+  border-bottom-color: #d8e0ea;
+  background: #f0f2f5;
+}
+html[data-ui-theme="light"] .todo-list-title {
+  color: #1a2233;
+}
+html[data-ui-theme="light"] .todo-list-count {
+  color: #5a6474;
+  background: #e4e9f2;
+}
+html[data-ui-theme="light"] .todo-collapse-icon {
+  color: #8a96a8;
+}
+html[data-ui-theme="light"] .todo-item {
+  color: #2c3545;
+}
+html[data-ui-theme="light"] .todo-item:hover {
+  background: rgba(0,0,0,.03);
+}
+html[data-ui-theme="light"] .todo-text.done {
+  color: #9aa6b8;
+}
+html[data-ui-theme="light"] .chat-diff-card {
+  background: #ffffff;
+  border-color: #d0dae8;
+}
+html[data-ui-theme="light"] .chat-diff-cap {
+  background: #f5f7f9;
+  border-bottom-color: #d0dae8;
+  color: #1a2233;
+}
+html[data-ui-theme="light"] .chat-diff-neg {
+  color: #d73a49;
+}
+html[data-ui-theme="light"] .chat-diff-pos {
+  color: #2ea043;
+}
+html[data-ui-theme="light"] .diff-unified {
+  background: #f8f9fa;
+  border-color: #d0dae8;
+}
+html[data-ui-theme="light"] .diff-unified .d-del {
+  color: #cb2431;
+  background: #ffeef0;
+  border-left-color: #f85149;
+}
+html[data-ui-theme="light"] .diff-unified .d-add {
+  color: #22863a;
+  background: #e6ffed;
+  border-left-color: #34d058;
+}
+html[data-ui-theme="light"] .diff-unified .d-eq,
+html[data-ui-theme="light"] .diff-unified .d-meta {
+  color: #5a6474;
+  background: #f0f2f4;
+  border-left-color: #c8d4e8;
+}
+html[data-ui-theme="light"] .b.a .chat-diff-card .diff-unified {
+  background: #f8f9fa;
 }

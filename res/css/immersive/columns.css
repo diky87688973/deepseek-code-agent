@@ -197,3 +197,58 @@
 .imm-todo-cb.done::after { content: "✓"; font-size: 11px; line-height: 1; }
 .imm-todo-text { flex: 1; min-width: 0; word-break: break-word; }
 .imm-todo-text.done { color: var(--imm-muted); text-decoration: line-through; }
+
+/* ── diff 卡片行背景（夜间） ── */
+.diff-unified {
+  padding: 6px;
+  border: 1px solid var(--imm-diff-card-border);
+  border-radius: 4px;
+  background: var(--imm-diff-card-bg);
+}
+.diff-unified .d-del {
+  color: #f48771;
+  background: #2d1b1e;
+  border-left: 3px solid #f85149;
+  padding-left: 6px;
+}
+.diff-unified .d-add {
+  color: #89d185;
+  background: #1b2d1e;
+  border-left: 3px solid #3daf3f;
+  padding-left: 6px;
+}
+.diff-unified .d-eq,
+.diff-unified .d-meta {
+  color: #8b949e;
+  background: #222426;
+  border-left: 3px solid rgba(148,164,182,.28);
+  padding-left: 6px;
+}
+
+/* ── diff 卡片白天 ── */
+html[data-ui-theme="light"] .chat-diff-neg {
+  color: #d73a49;
+}
+html[data-ui-theme="light"] .chat-diff-pos {
+  color: #2ea043;
+}
+html[data-ui-theme="light"] .diff-unified {
+  background: #f8f9fa;
+  border-color: #d0dae8;
+}
+html[data-ui-theme="light"] .diff-unified .d-del {
+  color: #cb2431;
+  background: #ffeef0;
+  border-left-color: #f85149;
+}
+html[data-ui-theme="light"] .diff-unified .d-add {
+  color: #22863a;
+  background: #e6ffed;
+  border-left-color: #34d058;
+}
+html[data-ui-theme="light"] .diff-unified .d-eq,
+html[data-ui-theme="light"] .diff-unified .d-meta {
+  color: #5a6474;
+  background: #f0f2f4;
+  border-left-color: #c8d4e8;
+}

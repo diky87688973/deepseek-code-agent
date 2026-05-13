@@ -14,7 +14,7 @@
     "catalog_examples": "各工具的 examples 会并入宿主下发给模型的 function.description（及失败时的 tool_help）；示例键名与 function schema 完全一致，布尔为 JSON true/false。",
     "tool_help_on_failure": "凡工具返回 ok=false，宿主在 error.tool_help 中附带 argparse 等效 --help 全文 + 本清单摘要；模型须据此纠错。",
     "region_replace_safety": "replace_in_file 提供四种替换方式：① line_start+line_end（行替换，推荐）：按行号替换，坐标永不漂移。② regions 数组：一次传入 [{region_start,region_end,new_text},...]，工具自动降序防漂移。③ 单次 region_start+region_end：精确替换。④ rules 数组：字面 old_text→new_text 批量替换。",
-    "literal_replace_ambiguity": "⚠️ old_text+new_text 字面替换默认 replace_all=true（替换全部匹配）。若 old_text 内容在文件中有多处相同文本，会全部误伤。安全做法：① 每次设 expected_replacements=n 校验替换次数；② old_text 尽量带上唯一上下文（如行首空格+前一行特征）；③ 无歧义时也可用 region_start/region_end（注意坐标偏移风险）。",
+    "literal_replace_ambiguity": "⚠️ old_text+new_text 字面替换默认 replace_all=true。若某文件中有多处相同匹配会全部误伤。安全铁律：① 每次必须设 expected_replacements=n 校验替换次数（等于提供「唯一性断言」，匹配数不符则拒绝）；② old_text 包含足够长的唯一上下文；③ 可改用 line_start+line_end 或 region_start/region_end 精确区间；④ 不确定匹配数时先用 find_in_file 看匹配位置。",
     "string_escape": "⚠️ 字符串参数（old_text、new_text、pattern、patch_text、code 等）中的反斜杠 \\ 按 JSON 标准转义。例如：arguments 中 \\n 表示字面反斜杠+n（而非换行符），\\\\ 表示单个反斜杠。不确定时优先用 line_start+line_end 或 region 替换，避免转义问题。"
   },
   "tools": [
@@ -1001,7 +1001,7 @@
           "flag": "--path",
           "type": "string",
           "required": true,
-          "description": "项目根；ruff 在此目录执行。"
+          "description": "项目根目录（必须是目录，不接受单文件路径；搭配 glob_pattern 限定文件）。"
         },
         {
           "flag": "--glob_pattern",
