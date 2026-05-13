@@ -186,6 +186,14 @@
           IMM.immAddAssistantMarkdown(msgsEl, String(it.content || ""));
       }
       msgsEl.scrollTop = msgsEl.scrollHeight;
+      if (Array.isArray(j.todo_list) && j.todo_list.length && typeof IMM.renderTodoInColumn === "function") {
+        IMM.renderTodoInColumn(col, {
+          items: j.todo_list,
+          all_done: j.todo_list.every(function (it) { return !!it.done; }),
+          collapsed: false,
+        });
+      }
+      msgsEl.scrollTop = msgsEl.scrollHeight;
     } catch (e) {}
   }
 

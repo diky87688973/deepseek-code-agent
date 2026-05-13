@@ -102,26 +102,48 @@
   function renderTodoInColumn(col, ev) {
     var items = Array.isArray(ev.items) ? ev.items : [];
     if (!items.length) return;
-    var host = document.createElement("div");
-    host.className = "imm-todo-inline";
-    var hdr = document.createElement("div");
-    hdr.className = "imm-todo-hdr";
-    var done = 0;
-    for (var i = 0; i < items.length; i++) if (items[i].done) done++;
-    hdr.textContent = "Todo " + done + "/" + items.length;
-    host.appendChild(hdr);
-    var ul = document.createElement("ul");
-    ul.className = "imm-todo-ul";
-    for (var j = 0; j < items.length; j++) {
-      var li = document.createElement("li");
-      li.textContent = (items[j].done ? "☑ " : "☐ ") + String(items[j].text || "");
-      ul.appendChild(li);
+    if (!col || !col.wrapEl) return;
+    var wrap = col.wrapEl;
+    var host = wrap.querySelector(".imm-col-todo");
+    if (!host) {
+      host = document.createElement("div");
+      host.className = "imm-col-todo";
+      var msgs = wrap.querySelector(".imm-msgs");
+      if (msgs && msgs.nextSibling) wrap.insertBefore(host, msgs.nextSibling);
+      else wrap.appendChild(host);
+      host.addEventListener("click", function (e) {
+        var hdr = e.target.closest(".imm-todo-hdr");
+        if (!hdr) return;
+        if (e.target.closest(".imm-todo-hdr-count")) return;
+        host.classList.toggle("collapsed");
+      });
     }
-    host.appendChild(ul);
-    col.msgsEl.appendChild(host);
-    scrollMsgs(col.msgsEl);
+    var needCollapse = !!(ev.collapsed);
+    if (needCollapse) {
+      host.classList.remove("collapsed");
+    } else {
+      host.classList.add("collapsed");
+    }
+    var done = 0, html = '<div class="imm-todo-hdr"><span class="imm-todo-hdr-title">📋 Todo List</span><span class="imm-todo-hdr-count">0/0</span><span class="imm-todo-collapse-icon">▼</span></div><div class="imm-todo-body"><div class="imm-todo-scroll"><div class="imm-todo-items">';
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].done) done++;
+      var cls = "imm-todo-row" + (items[i].done ? " done" : "");
+      html += '<div class="'+cls+'"><span class="imm-todo-cb'+(items[i].done?" done":"")+'"></span><span class="imm-todo-text'+(items[i].done?" done":"")+'">'+String(items[i].text||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</span></div>';
+    }
+    html += '</div></div></div>';
+    host.innerHTML = html;
+    var cnt = host.querySelector(".imm-todo-hdr-count");
+    if (cnt) cnt.textContent = done+"/"+items.length;
+    if (ev.all_done) host.classList.add("imm-todo-all-done");
+    else host.classList.remove("imm-todo-all-done");
+    void host.offsetHeight;
+    if (needCollapse) {
+      host.classList.add("collapsed");
+    } else {
+      host.classList.remove("collapsed");
+    }
   }
-
+  IMM.renderTodoInColumn = renderTodoInColumn;
   function openUserConfirm(ev, col, CM, drainFn) {
     if (IMM.userConfirmCardHost || !ev.user_confirm_required) return;
     IMM.userConfirmBlocking = true;

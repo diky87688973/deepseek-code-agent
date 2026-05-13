@@ -2347,9 +2347,16 @@ def _dialogue_summary_excerpt_half_open(messages: List[Dict[str, Any]]) -> Optio
     fn = max(1, int(CONTEXT_FULL_USER_ROUNDS))
     pn = max(0, int(CONTEXT_PURE_USER_ROUNDS))
     reserve = fn + pn
-    if reserve <= 0 or k <= reserve:
+    if reserve <= 0:
         return None
-    end_cap = user_idxs[k - reserve]
+    if k <= reserve:
+        # 轮次在保留窗口内，但 token 量可能远超阈值（如单轮大文件读取）。
+        # 动态缩小保留窗口至 fn 轮近期，把更早轮次（远期区域）纳入摘取范围。
+        if k <= fn:
+            return None  # 全在近期，无旧轮可摘
+        end_cap = user_idxs[k - fn]  # 保留最后 fn 轮，摘取更早的 k-fn 轮
+    else:
+        end_cap = user_idxs[k - reserve]
     start0 = fu
     if start0 >= end_cap:
         return None
@@ -2976,19 +2983,13 @@ def run_agent_turn(
                         _td = result.get("data")
                         if _td is None:
                             # 无活跃清单 → 发送关闭信号
-                            _te_tool_end["todo_list"] = True
-                            _te_tool_end["todo_list_data"] = {"close": True}
                             sse_data = {"type": "todo_list", "conversation_id": conversation_id, "close": True}
                             yield sse_data
                         elif isinstance(_td, dict):
                             if _td.get("close") is True:
-                                _te_tool_end["todo_list"] = True
-                                _te_tool_end["todo_list_data"] = _td
                                 sse_data = {"type": "todo_list", "conversation_id": conversation_id, "close": True}
                                 yield sse_data
                             elif isinstance(_td.get("items"), list):
-                                _te_tool_end["todo_list"] = True
-                                _te_tool_end["todo_list_data"] = _td
                                 _todo_list_mod.session_lists[conversation_id] = _td
                                 # 发送独立的 todo_list SSE 事件供前端专属区域渲染
                                 sse_data = {

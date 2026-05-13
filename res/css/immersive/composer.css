@@ -689,11 +689,23 @@ html[data-ui-theme="light"] .user-confirm-opts .uc-check.uc-on {
   border-top: 1px solid var(--imm-border);
 }
 .user-confirm-actions .mode-plus {
-  border-color: var(--imm-btn-border);
-  color: var(--imm-btn-text);
+  background: transparent;
+  border: 1px solid #4a525e;
+  color: #c9d1d9;
+  cursor: pointer;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
 }
 .user-confirm-actions .mode-plus:hover {
-  background: var(--imm-btn-hover);
+  background: rgba(120,130,145,.10);
+}
+html[data-ui-theme="light"] .user-confirm-actions .mode-plus {
+  border-color: #b0c2da;
+  color: #3a4a5f;
+}
+html[data-ui-theme="light"] .user-confirm-actions .mode-plus:hover {
+  background: rgba(9,105,218,.08);
 }
 .user-confirm-actions button {
   padding: 6px 12px;
