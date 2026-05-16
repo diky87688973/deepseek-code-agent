@@ -3555,7 +3555,12 @@ def chat_history(conversation_id: str = ""):
     if not cid:
         raise HTTPException(400, "empty conversation_id")
     _ensure_conversation_loaded(cid)
-    messages = list(CONVERSATIONS.get(cid, []))
+    messages = CONVERSATIONS.get(cid)
+    if not messages:
+        messages = []
+    # 与发 LLM 前一致：先合并 pending 摘要，再算上下文视图（与 agent_v2 /api/chat/history 对齐）
+    _merge_pending_excerpts_for_conversation(cid, messages)
+    context_layout = _context_layout_event(cid, messages)
     # 附带当前待办清单，供前端刷新页面后恢复 Todo 显示
     todo_list = None
     try:
@@ -3564,7 +3569,13 @@ def chat_history(conversation_id: str = ""):
             todo_list = todo_r["data"]
     except Exception:
         pass
-    return {"ok": True, "conversation_id": cid, "items": _chat_history_from_messages(messages), "todo_list": todo_list}
+    return {
+        "ok": True,
+        "conversation_id": cid,
+        "items": _chat_history_from_messages(messages),
+        "todo_list": todo_list,
+        "context_layout": context_layout,
+    }
 
 
 @app.get("/api/chat/sessions")
