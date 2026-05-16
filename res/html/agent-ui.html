@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <script>try{var _t=localStorage.getItem("codeWebAgent.uiTheme");document.documentElement.setAttribute("data-ui-theme",_t==="light"?"light":"dark");}catch(e){document.documentElement.setAttribute("data-ui-theme","dark");}</script>
-<title>DeepSeek Code Agent v1.1</title>
+<title>DeepSeek Code Agent v1.2</title>
 <style>
 {{CSS}}
 </style>
 </head>
 <body>
-<header><b>DeepSeek Code Agent v1.1</b>·<span class="muted" id="hdrModel">模型加载中…</span><span class="muted" id="cid"></span><span class="hdr-actions"><button type="button" id="hdrThemeBtn" class="hdr-theme-btn" title="切换为白天界面">白天模式</button><a class="hdr-immersive-btn" id="hdrImmersiveBtn" href="/immersive" title="多栏并行会话">进入沉浸模式</a></span></header>
+<header><b>DeepSeek Code Agent v1.2</b>·<span class="muted" id="hdrModel">模型加载中…</span><span class="muted" id="cid"></span><span class="hdr-actions"><button type="button" id="hdrThemeBtn" class="hdr-theme-btn" title="切换为白天界面">白天模式</button><a class="hdr-immersive-btn" id="hdrImmersiveBtn" href="/immersive" title="多栏并行会话">进入沉浸模式</a></span></header>
 <main>
 <section class="chat">
 <div class="p-title chat-title-row"><button id="chatMoreBtn" class="chat-more-btn" title="会话列表">⋮</button><div id="chatSessionMenu" class="chat-session-menu hidden"></div><div id="chatTabs" class="chat-tabs" role="tablist"></div><button id="nwTop" class="mode-plus">新会话 +</button></div>
@@ -53,7 +53,7 @@
 </div>
 <div id="atPop" class="at-pop" style="visibility:hidden;top:-99999px" aria-hidden="true">
 <div class="at-pop-head">
-<button type="button" id="atUpBtn" class="at-up-btn" title="上级目录">&#8593; 向上</button>
+<button type="button" id="atUpBtn" class="at-up-btn" title="上级目录">← 向上</button>
 <span id="atCurPath" class="at-cur-path"></span>
 </div>
 <div id="atList" class="at-list"></div>
@@ -62,7 +62,8 @@
 </div>
 </div>
 </section>
-<aside class="side">
+<div id="classicSplitResizer" class="classic-split-resizer" role="separator" aria-orientation="vertical" aria-label="调整对话区与步骤区宽度" tabindex="0"></div>
+<aside class="side" id="classicSidePane">
 <div class="side-tabbar" id="sideTabbar">
 <button type="button" class="side-tab active pinned" data-pane="steps" id="tabSteps" title="不可关闭">步骤</button>
 </div>

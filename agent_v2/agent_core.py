@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""DeepSeek Code Agent: OpenAI-compatible Chat Completions + 工具库（tool_list_agent.json）。
-
-Configure via config.ini [model] api_key / api_base_url, or env CHAT_API_KEY / CHAT_API_BASE_URL.
-Typical body: messages, tools, stream with SSE data: lines — see provider docs for JSON mode, tools, and errors.
-- 本仓库工具库与 Agent 落盘文本（JSON 等）默认 UTF-8。
-- 工具调用失败时（ok 非 true）可向 DATA_ROOT 下 debug 目录写入 JSON 记录；AGENT_TOOL_DEBUG=0 关闭。
-- 工具返回 ok=false 时 error **必定**含 tool_help：合并 argparse 等效 `--help` 与 tool_list_agent.json 摘要（未知工具亦有兜底说明），供模型纠正调用；**仅**通过各脚本 `agent_main` 进程内执行（原生 Python 类型），不向 `main()`/模拟 argv 降级。
-"""
+"""从 deepseek_code_agent2 拆出的核心逻辑：工具、会话、上下文、run_agent_turn、内联 UI 等。"""
 from __future__ import annotations
 
 # ── 配置加载器（必须在其他 import 前执行，确保 env var 就绪）──
@@ -52,14 +45,70 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-
-# 加载配置（静默模式，避免重复输出）
-try:
-    from util.config_loader import load_config
-    AGENT_CONFIG = load_config(verbose=False)
-except ImportError:
-    AGENT_CONFIG = {}
 from typing import Any, Dict, List, Optional, Set, Tuple
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
+# ── 配置/路径/KB/工具调试（bootstrap）与进程内会话状态（live_state）：显式导入，禁止 globals() 灌入 ──
+from agent_v2.bootstrap import (
+    AGENT_CONFIG,
+    AGENT_ROOT,
+    AT_MESSAGE_FILE_PREFETCH,
+    CONTEXT_FULL_USER_ROUNDS,
+    CONTEXT_LAYOUT_BUDGET_TOKENS,
+    CONTEXT_PURE_USER_ROUNDS,
+    CONTEXT_SUMMARY_TOKEN_THRESHOLD,
+    DATA_ROOT,
+    EXCERPTS_DIR,
+    KB_BASE_DIR,
+    LAST_OPEN_SESSION_STATE_FILE,
+    MAX_TOOL_ROUNDS,
+    PREVIEW_INTENT_KEYS,
+    SESSION_APP_ENTROPY,
+    SESSION_DIR,
+    SESSION_ENCRYPTION_MAGIC,
+    SESSION_KEY_FILE,
+    SUMMARY_IN_PROGRESS_TTL_SEC,
+    SUMMARY_THINKING_ENABLED,
+    TOKEN_ESTIMATE_EN_PER_CHAR,
+    TOKEN_ESTIMATE_ZH_PER_CHAR,
+    TOOLS_DIR,
+    TOOL_LIST_JSON,
+    UI_RESTORE_MAX_CHAT_ITEMS,
+    UI_RESTORE_MAX_TABS,
+    USAGE_ACCUM_FILE,
+    _KB_CHECKED_LOCK,
+    _KB_CHECKED_STATE,
+    _ensure_tools_sys_path,
+    _execute_todo_list,
+    _kb_load_single_cid_checked,
+    _kb_persist_checked,
+    _log_agent_console_sse,
+    _log_agent_console_tool,
+    _record_tool_debug_failure,
+    _resolve_tool_script_path,
+    _strip_config_path_value,
+    _todo_list_mod,
+)
+from agent_v2.live_state import (
+    CONVERSATIONS,
+    CONVERSATION_MODES,
+    PENDING_EXCERPT_PATHS,
+    PENDING_USER_CONFIRM,
+    SUMMARY_IN_PROGRESS,
+    _SUMMARY_STATE_LOCK,
+    _TOOL_EXEC_LOCK,
+    _begin_conversation_run,
+    _consume_conversation_stop_requested,
+    _end_conversation_run,
+    _peek_conversation_stop_requested,
+    _request_conversation_stop,
+    kling_create_confirm_id,
+    kling_consume_confirm_id,
+)
 
 from util.agent_prompt_constants import (
     AGENT_MAX_TOOL_ROUNDS_USER_HINT,
@@ -71,354 +120,10 @@ from util.agent_prompt_constants import (
 from util.agent_model_dispatch import ALLOWED_MODELS, default_model_from_env, effective_model, set_conversation_model
 from util.agent_deepseek_pricing import get_model_pricing_snapshot
 from util.agent_openai_compatible_client import chat_completion_request, chat_completion_stream
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
-import uvicorn
 
-# PyInstaller 打包后 __file__ 指向 sys._MEIPASS，源码模式正常
-if getattr(sys, 'frozen', False):
-    _base = Path(sys._MEIPASS)
-else:
-    _base = Path(__file__).resolve().parent
-AGENT_ROOT = _base
-
-
-def _strip_config_path_value(value: object) -> str:
-    """Trim and strip a single pair of surrounding quotes from config/env path strings."""
-    raw = str(value or "").strip()
-    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ("'", '"'):
-        raw = raw[1:-1].strip()
-    return raw
-
-
-# 可写运行时数据目录，从配置读取
-_dr = _strip_config_path_value(AGENT_CONFIG.get("AGENT_DATA_ROOT_DIR"))
-if not _dr:
-    print("FATAL: AGENT_DATA_ROOT_DIR 未设置！请在 config.ini 的 [workspace] 节配置 data_root", flush=True)
-    sys.exit(1)
-DATA_ROOT = Path(_dr).expanduser().resolve()
-
-# ── 知识库配置 ──
-_KB_DIR_STR = _strip_config_path_value(AGENT_CONFIG.get("AGENT_KNOWLEDGE_BASE_DIR"))
-KB_BASE_DIR: Optional[Path] = Path(_KB_DIR_STR).expanduser().resolve() if _KB_DIR_STR else None
-_KB_CHECKED_STATE: Dict[str, Set[str]] = {}
-_KB_CHECKED_LOCK = threading.Lock()
-
-
-def _kb_checked_state_file() -> Optional[Path]:
-    """知识库勾选状态：放在知识库根目录的上一级，避免与资料文件同目录。"""
-    if not KB_BASE_DIR:
-        return None
-    return KB_BASE_DIR.resolve().parent / ".checked_state.json"
-
-
-def _kb_persist_checked():
-    if not KB_BASE_DIR:
-        return
-    state_file = _kb_checked_state_file()
-    if not state_file:
-        return
-    try:
-        state_file.parent.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-    try:
-        ser = {k: sorted(v) for k, v in _KB_CHECKED_STATE.items()}
-        state_file.write_text(json.dumps(ser, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
-
-
-def _kb_load_single_cid_checked(cid: str):
-    """从磁盘文件恢复指定会话的勾选状态"""
-    if not KB_BASE_DIR:
-        return
-    state_file = _kb_checked_state_file()
-    if not state_file or not state_file.is_file():
-        return
-    try:
-        data = json.loads(state_file.read_text(encoding="utf-8"))
-        if cid in data:
-            _KB_CHECKED_STATE[cid] = set(data[cid])
-    except Exception:
-        pass
-
-
-def _kb_load_checked():
-    if not KB_BASE_DIR:
-        return
-    state_file = _kb_checked_state_file()
-    if not state_file or not state_file.is_file():
-        return
-    try:
-        data = json.loads(state_file.read_text(encoding="utf-8"))
-        for cid, paths in data.items():
-            if isinstance(paths, list):
-                _KB_CHECKED_STATE[cid] = set(paths)
-    except Exception:
-        pass
-
-# 启动时恢复勾选状态
-_kb_load_checked()
-
-TOOLS_DIR = AGENT_ROOT / "tools"
-TOOL_LIST_JSON = TOOLS_DIR / "tool_list_agent.json"
-
-
-def _resolve_tool_script_path(script_name: str) -> Optional[Path]:
-    """工具脚本位于 tools/。"""
-    if not script_name:
-        return None
-    p = TOOLS_DIR / script_name
-    if p.is_file():
-        return p
-    return None
-
-
-def _ensure_tools_sys_path() -> None:
-    """将 tools/ 置于 sys.path 以便 importlib 加载各工具模块。"""
-    sd = str(TOOLS_DIR)
-    try:
-        if TOOLS_DIR.is_dir() and sd not in sys.path:
-            sys.path.insert(0, sd)
-    except Exception:
-        pass
-
-
-_ensure_tools_sys_path()
-import delete_file as _delete_file_mod
-import todo_list as _todo_list_mod
-
-_todo_list_mod.configure_storage(DATA_ROOT / "cache" / "todo_lists")
-_delete_file_mod.configure_trash_root(DATA_ROOT / "safe_delete")
-
-
-def _execute_todo_list(conversation_id: str, exec_args: Dict[str, Any]) -> dict:
-    return _todo_list_mod.execute(conversation_id, exec_args)
-
-
-USAGE_ACCUM_FILE = DATA_ROOT / "model_usage_accumulator.json"
-SESSION_DIR = DATA_ROOT / "cache" / "sessions"
-EXCERPTS_DIR = DATA_ROOT / "cache" / "excerpts"
-TOOL_DEBUG_DIR = DATA_ROOT / "debug"
-LAST_OPEN_SESSION_STATE_FILE = DATA_ROOT / "cache" / "last_open_session_state.json"
-_skf = str(AGENT_CONFIG.get("AGENT_SESSION_KEY_FILE") or "").strip()
-SESSION_KEY_FILE = Path(_skf).expanduser().resolve() if _skf else (DATA_ROOT / "cache" / "session_encryption.key")
-SESSION_ENCRYPTION_MAGIC = "__code_web_agent_session_encrypted__"
-SESSION_APP_ENTROPY = hashlib.sha256((str(AGENT_ROOT) + "|code-web-agent-session-v1").encode("utf-8")).digest()
-
-
-# ── Agent 运行参数：从 AGENT_CONFIG 读取（无默认值，缺失报错）──
-_CONTEXT_CFG = AGENT_CONFIG
-# full：保留末尾 full_user_rounds 个 user 回合为近期完整对话（含工具）；pure：紧挨其前 pure_user_rounds 个 user 回合为远期纯对话（折叠）。
-CONTEXT_FULL_USER_ROUNDS = int(_CONTEXT_CFG["AGENT_CONTEXT_FULL_USER_ROUNDS"])
-CONTEXT_PURE_USER_ROUNDS = int(_CONTEXT_CFG["AGENT_CONTEXT_PURE_USER_ROUNDS"])
-_SUMMARY_THINK_RAW = str(_CONTEXT_CFG["AGENT_SUMMARY_THINKING"]).strip().lower()
-SUMMARY_THINKING_ENABLED = _SUMMARY_THINK_RAW not in ("", "0", "false", "no", "off", "disabled")
-# AGENT_CONTEXT_TOKEN_METHOD：config.ini 预留，当前未参与分支（仅 estimate）
-TOKEN_ESTIMATE_EN_PER_CHAR = float(_CONTEXT_CFG["AGENT_TOKEN_ESTIMATE_EN_PER_CHAR"])
-TOKEN_ESTIMATE_ZH_PER_CHAR = float(_CONTEXT_CFG["AGENT_TOKEN_ESTIMATE_ZH_PER_CHAR"])
-# 上下文比例条：与「已用 token 估算」对比的总预算（用于末尾剩余容量条）
-CONTEXT_LAYOUT_BUDGET_TOKENS = int(_CONTEXT_CFG["AGENT_CONTEXT_LAYOUT_BUDGET_TOKENS"])
-CONTEXT_SUMMARY_TOKEN_THRESHOLD = int(_CONTEXT_CFG["AGENT_CONTEXT_SUMMARY_TOKEN_THRESHOLD"])
-SUMMARY_IN_PROGRESS_TTL_SEC = float(_CONTEXT_CFG["AGENT_SUMMARY_IN_PROGRESS_TTL_SEC"])
-MAX_TOOL_ROUNDS = int(_CONTEXT_CFG["AGENT_MAX_TOOL_ROUNDS"])
-UI_RESTORE_MAX_TABS = int(_CONTEXT_CFG["AGENT_UI_RESTORE_MAX_TABS"])
-UI_RESTORE_MAX_CHAT_ITEMS = int(_CONTEXT_CFG["AGENT_UI_RESTORE_MAX_CHAT_ITEMS"])
-_PREVIEW_RAW = _CONTEXT_CFG["AGENT_PREVIEW_INTENT_KEYS"]
-PREVIEW_INTENT_KEYS = tuple(_PREVIEW_RAW) if isinstance(_PREVIEW_RAW, (list, tuple)) else tuple(_PREVIEW_RAW)
-
-# @路径：是否在进模型前由服务端预读并注入全文。False=由模型按需用工具读取；True=恢复预注入。
-AT_MESSAGE_FILE_PREFETCH = bool(_CONTEXT_CFG["AGENT_AT_MESSAGE_FILE_PREFETCH"])
-
-# ---------- 控制台调试：stderr 输出 JSON 行（SSE 事件、工具完整入参/出参）。AGENT_CONSOLE_LOG=0 关闭 ----------
-def _agent_console_log_enabled() -> bool:
-    v = str(AGENT_CONFIG.get("AGENT_CONSOLE_LOG") or "").strip().lower()
-    return v not in ("", "0", "false", "no", "off")
-
-
-def _sse_event_console_repr(ev: Dict[str, Any]) -> Dict[str, Any]:
-    """避免 assistant_delta / reasoning_* 长文本刷屏；其余事件原样记录。"""
-    t = ev.get("type")
-    if t == "assistant_delta":
-        d = ev.get("delta")
-        if not isinstance(d, str) or len(d) <= 800:
-            return ev
-        return {**ev, "delta": d[:800] + f"... ({len(d)} chars total)"}
-    if t == "reasoning_delta":
-        d = ev.get("delta")
-        if not isinstance(d, str) or len(d) <= 800:
-            return ev
-        return {**ev, "delta": d[:800] + f"... ({len(d)} chars total)"}
-    if t == "reasoning_sync":
-        txt = ev.get("text")
-        if not isinstance(txt, str) or len(txt) <= 800:
-            return ev
-        return {**ev, "text": txt[:800] + f"... ({len(txt)} chars total)"}
-    return ev
-
-
-def _log_agent_console_sse(conversation_id: str, ev: Dict[str, Any]) -> None:
-    if not _agent_console_log_enabled():
-        return
-    row = {"channel": "sse", "conversation_id": conversation_id, "sse": _sse_event_console_repr(ev)}
-    print(json.dumps(row, ensure_ascii=False), file=sys.stderr, flush=True)
-
-
-def _log_agent_console_tool(
-    conversation_id: str,
-    api_name: Any,
-    script: Any,
-    args: Any,
-    result: dict,
-) -> None:
-    if not _agent_console_log_enabled():
-        return
-    row = {
-        "channel": "tool",
-        "conversation_id": conversation_id,
-        "api_name": api_name,
-        "script": script,
-        "args": args,
-        "result": result,
-    }
-    print(json.dumps(row, ensure_ascii=False), file=sys.stderr, flush=True)
-
-
-def _tool_debug_file_enabled() -> bool:
-    v = str(AGENT_CONFIG.get("AGENT_TOOL_DEBUG") or "").strip().lower()
-    return v not in ("", "0", "false", "no", "off")
-
-
-def _safe_debug_filename_segment(name: str, max_len: int = 48) -> str:
-    s = str(name or "tool")[:max_len]
-    out = []
-    for c in s:
-        if c.isalnum() or c in "._-":
-            out.append(c)
-        else:
-            out.append("_")
-    return "".join(out) or "tool"
-
-
-def _record_tool_debug_failure(
-    *,
-    conversation_id: str,
-    api_name: Any,
-    script: Any,
-    tool_call_id: Any,
-    request: Any,
-    response: Any,
-    source: str,
-) -> None:
-    """工具返回 ok≠true 时，将请求与响应写入 DATA_ROOT/debug 下的 JSON，供离线分析。"""
-    if not _tool_debug_file_enabled():
-        return
-    try:
-        TOOL_DEBUG_DIR.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-        uid = uuid.uuid4().hex[:10]
-        seg = _safe_debug_filename_segment(str(script))
-        cid_part = _safe_debug_filename_segment(str(conversation_id)[:16], 24)
-        fn = f"{ts}_{seg}_{cid_part}_{uid}.json"
-        out_path = TOOL_DEBUG_DIR / fn
-    except Exception as exc:
-        print(f"WARN: tool debug path prepare failed: {exc}", file=sys.stderr, flush=True)
-        return
-    payload: Dict[str, Any] = {
-        "recordedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "source": str(source or ""),
-        "conversationId": str(conversation_id or ""),
-        "apiName": api_name,
-        "script": script,
-        "toolCallId": str(tool_call_id or ""),
-        "request": request,
-        "response": response,
-    }
-    try:
-        out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception as exc:
-        print(f"WARN: tool debug write failed {out_path}: {exc}", file=sys.stderr, flush=True)
-
-
-# ---------- in-memory multi-round conversations (stateless API per DeepSeek docs) ----------
-CONVERSATIONS: Dict[str, List[Dict[str, Any]]] = {}
-PENDING_USER_CONFIRM: Dict[str, Dict[str, Any]] = {}
-
-CONVERSATION_MODES: Dict[str, str] = {}
-SUMMARY_IN_PROGRESS: Dict[str, float] = {}
-PENDING_EXCERPT_PATHS: Dict[str, List[str]] = {}
-_SUMMARY_STATE_LOCK = threading.Lock()
-_CONVERSATION_RUN_LOCKS: Dict[str, threading.RLock] = {}
-_CONVERSATION_RUN_LOCKS_LOCK = threading.Lock()
-_TOOL_EXEC_LOCK = threading.RLock()
-_CONVERSATION_STOP_FLAGS: Dict[str, Set[str]] = {}
-_ACTIVE_CONVERSATION_RUNS: Dict[str, str] = {}
-_CONVERSATION_STOP_LOCK = threading.Lock()
-
-
-def _begin_conversation_run(cid: str) -> Optional[str]:
-    key = str(cid or "")
-    with _CONVERSATION_STOP_LOCK:
-        if key in _ACTIVE_CONVERSATION_RUNS:
-            return None
-        run_id = str(uuid.uuid4())
-        _ACTIVE_CONVERSATION_RUNS[key] = run_id
-        _CONVERSATION_STOP_FLAGS.pop(key, None)
-        return run_id
-
-
-def _end_conversation_run(cid: str, run_id: str = "") -> None:
-    key = str(cid or "")
-    with _CONVERSATION_STOP_LOCK:
-        active = _ACTIVE_CONVERSATION_RUNS.get(key)
-        if not run_id or active == run_id:
-            _ACTIVE_CONVERSATION_RUNS.pop(key, None)
-            _CONVERSATION_STOP_FLAGS.pop(key, None)
-
-
-def _request_conversation_stop(cid: str, run_id: str = "") -> bool:
-    key = str(cid or "")
-    if not key:
-        return False
-    with _CONVERSATION_STOP_LOCK:
-        active = _ACTIVE_CONVERSATION_RUNS.get(key)
-        if not active:
-            _CONVERSATION_STOP_FLAGS.pop(key, None)
-            return False
-        rid = str(run_id or active)
-        if rid != active:
-            return False
-        _CONVERSATION_STOP_FLAGS.setdefault(key, set()).add(rid)
-        return True
-
-
-def _consume_conversation_stop_requested(cid: str, run_id: str = "") -> bool:
-    key = str(cid or "")
-    rid = str(run_id or "")
-    with _CONVERSATION_STOP_LOCK:
-        flags = _CONVERSATION_STOP_FLAGS.get(key)
-        if not flags or rid not in flags:
-            return False
-        flags.discard(rid)
-        if not flags:
-            _CONVERSATION_STOP_FLAGS.pop(key, None)
-        return True
-
-
-def _peek_conversation_stop_requested(cid: str, run_id: str = "") -> bool:
-    """是否已有停止请求（不消费标志，供工具执行循环内轮询）。"""
-    key = str(cid or "")
-    with _CONVERSATION_STOP_LOCK:
-        active = _ACTIVE_CONVERSATION_RUNS.get(key)
-        eff = str(run_id or active or "")
-        flags = _CONVERSATION_STOP_FLAGS.get(key)
-        if not flags or not eff:
-            return False
-        return eff in flags
-
+from util.context_manager_v2 import ContextManager, adjust_excerpt_range_half_open as _adjust_excerpt_range_half_open
+from util.session_store_v2 import new_conversation_id as _v2_new_conversation_id
+from agent_v2.sse_events import context_layout_event as _context_layout_event
 
 def _finish_conversation_stopped(cid: str, rollback_messages: List[Dict[str, Any]]) -> Dict[str, Any]:
     messages = copy.deepcopy(rollback_messages)
@@ -427,16 +132,6 @@ def _finish_conversation_stopped(cid: str, rollback_messages: List[Dict[str, Any
     CONVERSATIONS[cid] = messages
     _save_conversation(cid, messages)
     return {"type": "stopped", "message": "任务已停止"}
-
-
-def _get_conversation_run_lock(cid: str) -> threading.RLock:
-    key = str(cid or "")
-    with _CONVERSATION_RUN_LOCKS_LOCK:
-        lock = _CONVERSATION_RUN_LOCKS.get(key)
-        if lock is None:
-            lock = threading.RLock()
-            _CONVERSATION_RUN_LOCKS[key] = lock
-        return lock
 
 
 def _ensure_conversation_loaded(cid: str) -> None:
@@ -1255,7 +950,7 @@ def _validate_public_tool_args(script_name: str, args: Dict[str, Any]) -> Option
         if bare not in public:
             bad.append(bare)
     if not bad:
-        rules = args.get("rules") or args.get("--rules")
+        rules = args.get("rules")
         if script_name == "replace_in_file.py" and isinstance(rules, list):
             nested_bad: list[str] = []
             for item in rules:
@@ -1427,20 +1122,14 @@ def execute_tool_script(script_name: str, args: Dict[str, Any]) -> dict:
         return _execute_tool_script_locked(script_name, args)
 
 
-# ── kling_generate 生成类 action 列表（用于确认 ID 拦截） ──
+
+# ── kling_generate 生成类 action 列表（用于确认拦截） ──
 _KLING_GENERATE_ACTIONS = {
     "text2video", "image2video", "multimodal2video", "multi_image2video",
     "motion_control", "video_extend", "lip_sync", "avatar",
     "text2image", "image2image", "multi_image2image", "omni_image",
     "virtual_try_on", "text2audio",
 }
-
-# 从 agent_v2.live_state 导入确认 ID 系统
-try:
-    from agent_v2.live_state import kling_create_confirm_id, kling_consume_confirm_id
-except ImportError:
-    kling_create_confirm_id = None
-    kling_consume_confirm_id = None
 
 
 def _kling_estimate_cost(action: str, args: dict) -> str:
@@ -1459,7 +1148,6 @@ def _kling_estimate_cost(action: str, args: dict) -> str:
         d = 5
     rate = {"std": 0.6, "pro": 0.8, "4k": 3.0}.get(mode, 0.6)
     return "约 " + str(rate * d) + " 元"
-
 
 def _execute_tool_script_locked(script_name: str, args: Dict[str, Any]) -> dict:
     """execute_tool_script 的加锁实现；仅调用 agent_main，不劫持 sys.argv/stdout。"""
@@ -1492,6 +1180,7 @@ def _execute_tool_script_locked(script_name: str, args: Dict[str, Any]) -> dict:
                 confirm_id = str(raw_cid).strip()
                 info = kling_consume_confirm_id(confirm_id)
                 if info is None:
+                    # 尝试自动确认（ID 存在但未确认时，直接确认后消耗）
                     try:
                         from agent_v2.live_state import kling_mark_confirmed
                         kling_mark_confirmed(confirm_id)
@@ -1500,7 +1189,7 @@ def _execute_tool_script_locked(script_name: str, args: Dict[str, Any]) -> dict:
                     info = kling_consume_confirm_id(confirm_id)
                 if info and info.get("action") == action:
                     args.pop("confirm_id", None)  # 消耗后移除，避免传给 agent_main
-                    pass  # 拦截消耗通过，继续到正常流程
+                    pass  # 拦截消耗通过
                 else:
                     return {
                         "ok": False,
@@ -1542,6 +1231,7 @@ def _execute_tool_script_locked(script_name: str, args: Dict[str, Any]) -> dict:
     public_arg_error = _validate_public_tool_args(script_name, args)
     if public_arg_error is not None:
         return attach_tool_help_on_failure(script_name, None, public_arg_error)
+
     args = _coerce_tool_arguments_for_agent(args)
     mod_name = script_name.replace('.py', '')
 
@@ -2130,6 +1820,17 @@ PURE_WINDOW_NO_FINAL_ASSISTANT = "（本轮含工具调用，完整细节见近�
 _PURE_ANCHOR_CACHE: Dict[str, int] = {}
 
 
+def _context_manager_v2(conversation_id: str) -> ContextManager:
+    """按 ContextState.java 构造会话级 ContextManager（锚定缓存与现网共用同一 dict）。"""
+    return ContextManager(
+        conversation_id,
+        CONTEXT_PURE_USER_ROUNDS,
+        CONTEXT_FULL_USER_ROUNDS,
+        CONTEXT_SUMMARY_TOKEN_THRESHOLD,
+        _PURE_ANCHOR_CACHE,
+    )
+
+
 def _split_pure_and_full_dialogue(
     dialogue: List[Dict[str, Any]],
     full_n: int,
@@ -2388,77 +2089,6 @@ def _compute_context_layout_payload(conversation_id: str, persisted: List[Dict[s
     return {"segments": segments, "total_tokens": int(total_used), "budget_tokens": int(budget)}
 
 
-def _adjust_excerpt_range_half_open(messages: List[Dict[str, Any]], start: int, end: int) -> Tuple[int, int]:
-    """0-based 半开区间 [start, end)。扩展以尽量覆盖完整 tool 链。"""
-    n = len(messages)
-    start = max(0, min(start, n))
-    end = max(start, min(end, n))
-    if start >= end:
-        return start, end
-    if start < n and messages[start].get("role") == "tool":
-        t = start
-        while t > 0 and messages[t - 1].get("role") == "tool":
-            t -= 1
-        if t > 0:
-            prev = messages[t - 1]
-            if prev.get("role") == "assistant" and prev.get("tool_calls"):
-                start = t - 1
-    i = start
-    while i < end:
-        m = messages[i]
-        if m.get("role") == "assistant" and m.get("tool_calls"):
-            tc_list = m.get("tool_calls") or []
-            need_ids = {
-                str((tc or {}).get("id") or "")
-                for tc in tc_list
-                if isinstance(tc, dict) and (tc or {}).get("id")
-            }
-            need_ids.discard("")
-            if not need_ids:
-                i += 1
-                continue
-            j = i + 1
-            while j < n and messages[j].get("role") == "tool":
-                j += 1
-            if j > end:
-                end = min(j, n)
-        i += 1
-    return start, min(end, n)
-
-
-def _dialogue_summary_excerpt_half_open(messages: List[Dict[str, Any]]) -> Optional[Tuple[int, int]]:
-    """摘要截取区间 [start,end)：仅覆盖「首条 user」至「保留尾」起点之前，保留末尾 full+pure 个 user 回合不动。
-
-    与上下文窗口一致：full_user_rounds + pure_user_rounds 个 user 从末尾起不得被本段摘要删除。
-    """
-    fu = _find_first_user_index(messages)
-    if fu is None:
-        return None
-    user_idxs = [i for i, m in enumerate(messages) if m.get("role") == "user" and i >= fu]
-    k = len(user_idxs)
-    fn = max(1, int(CONTEXT_FULL_USER_ROUNDS))
-    pn = max(0, int(CONTEXT_PURE_USER_ROUNDS))
-    reserve = fn + pn
-    if reserve <= 0:
-        return None
-    if k <= reserve:
-        # 轮次在保留窗口内，但 token 量可能远超阈值（如单轮大文件读取）。
-        # 动态缩小保留窗口至 fn 轮近期，把更早轮次（远期区域）纳入摘取范围。
-        if k <= fn:
-            return None  # 全在近期，无旧轮可摘
-        end_cap = user_idxs[k - fn]  # 保留最后 fn 轮，摘取更早的 k-fn 轮
-    else:
-        end_cap = user_idxs[k - reserve]
-    start0 = fu
-    if start0 >= end_cap:
-        return None
-    s_adj, e_adj = _adjust_excerpt_range_half_open(messages, start0, end_cap)
-    e_adj = min(e_adj, end_cap)
-    if s_adj >= e_adj:
-        return None
-    return s_adj, e_adj
-
-
 def _parse_excerpt_file(raw: str) -> Tuple[dict, str]:
     lines = raw.splitlines()
     if len(lines) < 3 or lines[0].strip() != "---":
@@ -2619,16 +2249,10 @@ def _sanitize_tool_pairing_for_api(msgs: List[Dict[str, Any]]) -> List[Dict[str,
 
 
 def _build_api_messages_for_model(persisted: List[Dict[str, Any]], conversation_id: str) -> List[Dict[str, Any]]:
-    sys_base, kb_part, summaries, pure_folded, full_pre, full_suf, _pure_user_turns, mode_tail = _build_context_segments(
-        persisted, conversation_id
-    )
-    sys_content = sys_base
-    if kb_part:
-        sys_content += "\n\n" + kb_part
-    prefix = [{"role": "system", "content": sys_content}]
-    tail = list(full_pre) + list(pure_folded) + list(full_suf)
-    built = prefix + summaries + tail + [mode_tail]
-    return _sanitize_tool_pairing_for_api(built)
+    # ContextState.java：flatten 顺序与旧实现一致；须先 tryLoadPending（见 run_agent_turn）再进入此处组包
+    cm = _context_manager_v2(conversation_id)
+    cm.rebuild_from_persisted(persisted, _build_context_segments, conversation_id)
+    return cm.flatten_to_api_messages(_sanitize_tool_pairing_for_api)
 
 
 _AGENT_SUMMARY_BRIDGE_TAIL = "\n\n【以上为历史摘要，下面继续当前对话】"
@@ -2693,17 +2317,20 @@ def _summarize_messages_slice_with_llm(slice_msgs: List[Dict[str, Any]], cid: st
 
 
 def _maybe_schedule_summarization(cid: str, messages: List[Dict[str, Any]]) -> None:
+    """阈值触发异步摘要：区间与 token 判断经 ContextManager（ContextState.java / asyncExcerpt 路径）。"""
+    cm = _context_manager_v2(cid)
+    cm.rebuild_from_persisted(messages, _build_context_segments, cid)
     with _SUMMARY_STATE_LOCK:
         alive = SUMMARY_IN_PROGRESS.get(cid)
         if alive is not None and time.time() >= alive:
             SUMMARY_IN_PROGRESS.pop(cid, None)
             alive = None
-        total_tokens = sum(_approx_tokens_message(m) for m in messages)
-        if total_tokens <= CONTEXT_SUMMARY_TOKEN_THRESHOLD:
+        total_tokens = cm.estimate_persisted_flat_token_total(messages, _approx_tokens_message)
+        if total_tokens <= cm.summary_token_threshold:
             return
         if alive is not None:
             return
-        rng = _dialogue_summary_excerpt_half_open(messages)
+        rng = cm.dialogue_summary_excerpt_half_open(messages)
         if rng is None:
             return
         s_adj, e_adj = rng[0], rng[1]
@@ -2754,13 +2381,12 @@ def run_agent_turn(
     messages = list(CONVERSATIONS.get(conversation_id, []))
     if not resume_after_user_confirm:
         _tail_drop_incomplete_tool_assistant(messages)
-        _normalize_persisted_conversation(messages)
-        _merge_pending_excerpts_for_conversation(conversation_id, messages)
-        rollback_messages = copy.deepcopy(messages)
+    _normalize_persisted_conversation(messages)
+    # ContextState.java：每次组包请求大模型前须 tryLoadPendingMemFile（含 user-confirm 续跑）
+    _context_manager_v2(conversation_id).try_load_pending_mem_file(messages, _merge_pending_excerpts_for_conversation)
+    rollback_messages = copy.deepcopy(messages)
+    if not resume_after_user_confirm:
         messages.append({"role": "user", "content": user_text})
-    else:
-        _normalize_persisted_conversation(messages)
-        rollback_messages = copy.deepcopy(messages)
     user_text_for_preview = user_text
     if resume_after_user_confirm:
         user_text_for_preview = ""
@@ -3291,681 +2917,3 @@ def _save_usage_accumulator(data: Dict[str, Any]) -> None:
                 pass
     USAGE_ACCUM_FILE.write_text(json.dumps(clean, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-
-from contextlib import asynccontextmanager
-
-@asynccontextmanager
-async def _agent_lifespan(app):
-    """捕获 uvicorn 关闭时的 CancelledError，避免打印无害的 Traceback"""
-    try:
-        yield
-    except asyncio.CancelledError:
-        pass  # uvicorn 关闭时正常行为，不需要 traceback
-
-
-app = FastAPI(title="Code Web agent", lifespan=_agent_lifespan)
-
-# 沉浸模式 v1.1：模块化 UI 静态资源 + 独立入口（经典 `/` 仍为内联 HTML，不变）
-_IMMERSIVE_HTML = AGENT_ROOT / "res" / "html" / "agent-immersive.html"
-app.mount("/assets", StaticFiles(directory=str(AGENT_ROOT / "res")), name="assets")
-
-
-@app.get("/immersive", include_in_schema=False)
-def immersive_index():
-    if not _IMMERSIVE_HTML.is_file():
-        raise HTTPException(404, "immersive UI not found")
-    return FileResponse(str(_IMMERSIVE_HTML), media_type="text/html; charset=utf-8")
-
-
-class UsageAccumIn(BaseModel):
-    session_token_used: int = Field(default=0, ge=0)
-    total_prompt_tokens: int = Field(default=0, ge=0)
-    total_completion_tokens: int = Field(default=0, ge=0)
-    total_cache_hit_tokens: int = Field(default=0, ge=0)
-    total_cache_miss_tokens: int = Field(default=0, ge=0)
-
-
-class ChatIn(BaseModel):
-    message: str = Field(..., description="User message")
-    conversation_id: Optional[str] = Field(default=None, description="Thread id; omit to start new")
-    mode: Optional[str] = Field(default=None, description="Mode override: auto/plan/execute")
-    model: Optional[str] = Field(default=None, description="Session model id (must match ALLOWED_MODELS / CHAT_API_MODELS)")
-
-
-class ChatUserConfirmIn(BaseModel):
-    conversation_id: str = Field(..., description="Thread id (matches session / cid)")
-    confirm: str = Field(..., description="User-selected or typed confirmation text")
-    mode: Optional[str] = Field(default=None, description="Mode override: auto/plan/execute")
-    model: Optional[str] = Field(default=None, description="Session model id (must match ALLOWED_MODELS / CHAT_API_MODELS)")
-
-
-class ChatStopIn(BaseModel):
-    conversation_id: str = Field(..., description="Thread id to stop")
-    run_id: Optional[str] = Field(default=None, description="Active run id to stop")
-
-
-class ChatTitleIn(BaseModel):
-    conversation_id: str = Field(..., description="Thread id to title")
-
-
-class ChatUiStateIn(BaseModel):
-    active_conversation_id: Optional[str] = Field(default=None)
-    tabs: List[Dict[str, Any]] = Field(default_factory=list)
-
-
-def _conversation_sse_event(cid: str, ev: Dict[str, Any]) -> Dict[str, Any]:
-    out = dict(ev or {})
-    # 必须用当前 HTTP 流绑定的 cid 覆盖：内层 yield 若带空/None 的 conversation_id，
-    # setdefault 不会写入，前端 normalizeConversationId 会丢弃整包 SSE。
-    _cid = str(cid or "").strip()
-    if _cid:
-        out["conversation_id"] = _cid
-    else:
-        out.setdefault("conversation_id", "")
-    return out
-
-
-def _context_layout_event(conversation_id: str, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """SSE：当前 messages 下的上下文视图（供底部比例条 / 悬浮层）。"""
-    return _conversation_sse_event(
-        conversation_id,
-        {"type": "context_layout", **_compute_context_layout_payload(conversation_id, messages)},
-    )
-
-
-def _apply_conversation_request_options(cid: str, mode: str, model: str) -> None:
-    mod = str(model or "").strip()
-    if mod:
-        okm, _m = set_conversation_model(cid, mod)
-        if not okm:
-            raise HTTPException(400, "invalid model")
-    m = str(mode or "").strip().lower()
-    if m == "auto":
-        CONVERSATION_MODES.pop(cid, None)
-    elif m in ("plan", "execute"):
-        CONVERSATION_MODES[cid] = m
-
-
-@app.post("/api/chat/user-confirm/stream")
-def chat_user_confirm_stream(inp: ChatUserConfirmIn, request: Request):
-    cid = inp.conversation_id.strip()
-    conf = inp.confirm.strip()
-    if not cid:
-        raise HTTPException(400, "empty conversation_id")
-    pending = PENDING_USER_CONFIRM.get(cid)
-    if not pending:
-        raise HTTPException(400, "no pending user confirmation for this conversation")
-    tool_call_id = str(pending.get("tool_call_id") or "")
-    exec_args0 = pending.get("exec_args")
-    if not isinstance(exec_args0, dict):
-        PENDING_USER_CONFIRM.pop(cid, None)
-        raise HTTPException(500, "invalid pending user_confirm state")
-    script_name = str(pending.get("script", "user_confirm.py"))
-    if script_name == "kling_generate.py":
-        # 仅第一选项（确认生成）放行，其他全部拦截
-        _first_opt = str(pending.get("confirms", [None])[0]) if isinstance(pending.get("confirms"), list) and len(pending.get("confirms")) > 0 else "确认生成"
-        if conf == _first_opt:
-            result = execute_tool_script(script_name, exec_args0)
-            exec_args1 = exec_args0
-        else:
-            try:
-                from agent_v2.live_state import kling_mark_confirmed as _kmc, kling_consume_confirm_id as _kcc
-                _cid = str(exec_args0.get("confirm_id") or "")
-                if _cid:
-                    _kmc(_cid)
-                    _kcc(_cid)
-            except Exception:
-                pass
-            result = {"ok": True, "data": {"confirm": str(conf) if conf else "取消", "cancelled": True, "message": "用户已取消操作，请立即停止当前任务，不要再调用任何生成工具！"}}
-            exec_args1 = exec_args0
-    else:
-        exec_args1 = _merge_confirm_into_user_confirm_args(exec_args0, conf)
-        result = execute_tool_script(script_name, exec_args1)
-    if not (isinstance(result, dict) and result.get("ok") is True):
-        _record_tool_debug_failure(
-            conversation_id=cid,
-            api_name=script_name.replace('.py', ''),
-            script=script_name,
-            tool_call_id=tool_call_id,
-            request=exec_args1,
-            response=result,
-            source="user_confirm_resume",
-        )
-    messages = list(CONVERSATIONS.get(cid, []))
-    idx: Optional[int] = None
-    for i in range(len(messages) - 1, -1, -1):
-        if messages[i].get("role") == "tool" and str(messages[i].get("tool_call_id") or "") == tool_call_id:
-            idx = i
-            break
-    if idx is None:
-        PENDING_USER_CONFIRM.pop(cid, None)
-        raise HTTPException(400, "tool message not found for pending confirmation")
-    messages[idx] = {
-        "role": "tool",
-        "tool_call_id": tool_call_id,
-        "content": _truncate_tool_result(result),
-    }
-    PENDING_USER_CONFIRM.pop(cid, None)
-    CONVERSATIONS[cid] = messages
-    _save_conversation(cid, messages)
-    mode = str(inp.mode or "").strip().lower()
-
-    if mode not in {"", "auto", "plan", "execute"}:
-        raise HTTPException(400, "invalid mode")
-    mod = str(inp.model or "").strip()
-    if mod:
-        okm, _m = set_conversation_model(cid, mod)
-        if not okm:
-            raise HTTPException(400, "invalid model")
-    if mode == "auto":
-        CONVERSATION_MODES.pop(cid, None)
-    elif mode in ("plan", "execute"):
-        CONVERSATION_MODES[cid] = mode
-    client_ip = ""
-    xff = (request.headers.get("x-forwarded-for") or "").strip()
-    if xff:
-        client_ip = xff.split(",")[0].strip()
-    if not client_ip:
-        client_ip = (request.headers.get("x-real-ip") or "").strip()
-    if not client_ip and request.client is not None:
-        client_ip = str(request.client.host or "").strip()
-    client_ip = _normalize_client_ip_for_tools(client_ip)
-
-    def gen():
-        _run_id = ""
-        try:
-            _run_id = _begin_conversation_run(cid) or ""
-            if not _run_id:
-                _busy_ev = {"type": "error", "conversation_id": cid, "where": "server", "detail": "当前会话仍在执行中，请等待完成或先停止。"}
-                yield f"data: {json.dumps(_busy_ev, ensure_ascii=False)}\n\n"
-                return
-            yield f"data: {json.dumps({'type': 'run_started', 'conversation_id': cid, 'run_id': _run_id}, ensure_ascii=False)}\n\n"
-            try:
-                _tpd = {
-                    "type": "tool_preview_update",
-                    "conversation_id": cid,
-                    "tool_call_id": tool_call_id,
-                    "preview": preview_tool_result(script_name, result),
-                }
-                yield f"data: {json.dumps(_tpd, ensure_ascii=False)}\n\n"
-            finally:
-                pass
-            _ensure_conversation_loaded(cid)
-            if _persisted_session_unreadable_after_load(cid):
-                _se = {
-                    "type": "error",
-                    "conversation_id": cid,
-                    "where": "session_persist",
-                    "detail": SESSION_PERSIST_UNREADABLE_SSE_DETAIL,
-                }
-                yield f"data: {json.dumps(_se, ensure_ascii=False)}\n\n"
-                return
-            _apply_conversation_request_options(cid, mode, mod)
-            _msgs_ctx = list(CONVERSATIONS.get(cid, []))
-            yield f"data: {json.dumps(_context_layout_event(cid, _msgs_ctx), ensure_ascii=False)}\n\n"
-            for ev in run_agent_turn(cid, "", client_ip=client_ip, mode_hint=mode, resume_after_user_confirm=True, run_id=_run_id):
-                ev2 = _conversation_sse_event(cid, ev)
-                _log_agent_console_sse(cid, ev2)
-                yield f"data: {json.dumps(ev2, ensure_ascii=False)}\n\n"
-        except Exception as _exc:
-
-            _err_ev = {"type": "error", "conversation_id": cid, "where": "server", "detail": str(_exc)}
-            yield f"data: {json.dumps(_err_ev, ensure_ascii=False)}\n\n"
-        finally:
-            if _run_id:
-                _end_conversation_run(cid, _run_id)
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
-    )
-
-
-
-@app.get("/")
-def index():
-    return HTMLResponse(INLINE_UI_HTML, media_type="text/html; charset=utf-8")
-
-
-@app.get("/favicon.ico", include_in_schema=False)
-def favicon():
-    return Response(status_code=204)
-
-
-@app.get("/api/model-pricing")
-def model_pricing(conversation_id: str = "", model: str = ""):
-    return get_model_pricing_snapshot(conversation_id, model)
-
-
-@app.get("/api/usage-accumulator")
-def usage_accumulator_get():
-    return _load_usage_accumulator()
-
-
-@app.put("/api/usage-accumulator")
-def usage_accumulator_put(body: UsageAccumIn):
-    _save_usage_accumulator(body.model_dump())
-    return {"ok": True}
-
-
-@app.get("/api/chat/history")
-def chat_history(conversation_id: str = ""):
-    cid = str(conversation_id or "").strip()
-    if not cid:
-        raise HTTPException(400, "empty conversation_id")
-    _ensure_conversation_loaded(cid)
-    messages = list(CONVERSATIONS.get(cid, []))
-    # 附带当前待办清单，供前端刷新页面后恢复 Todo 显示
-    todo_list = None
-    try:
-        todo_r = _todo_list_mod.execute(cid, {"action": "query"})
-        if todo_r.get("ok") and todo_r.get("data") is not None:
-            todo_list = todo_r["data"]
-    except Exception:
-        pass
-    return {"ok": True, "conversation_id": cid, "items": _chat_history_from_messages(messages), "todo_list": todo_list}
-
-
-@app.get("/api/chat/sessions")
-def chat_sessions():
-    state = _load_last_open_session_state()
-    title_by_id: Dict[str, str] = {}
-    for t in state.get("tabs") or []:
-        if isinstance(t, dict):
-            cid = str(t.get("id") or "")
-            title = str(t.get("title") or "").strip()
-            if cid and title:
-                title_by_id[cid] = title
-    rows: List[Dict[str, Any]] = []
-    seen_ids: set[str] = set()
-    try:
-        # 优先从 .title 文件收集会话（标题来源）
-        title_files = list(SESSION_DIR.glob("*.title")) + list(SESSION_DIR.glob("*/*.title"))
-        for tf in title_files:
-            cid = tf.stem
-            if not re.match(r"^[A-Za-z0-9._:-]{8,128}$", cid) or cid in seen_ids:
-                continue
-            seen_ids.add(cid)
-            title = tf.read_text(encoding="utf-8").strip()[:80] if tf.is_file() else ""
-            try:
-                updated_at = int(tf.stat().st_mtime * 1000)
-            except Exception:
-                updated_at = 0
-            rows.append({"id": cid, "title": title or title_by_id.get(cid) or f"会话 {cid[:8]}", "updated_at": updated_at, "date_group": _session_date_group_from_path(tf)})
-        # 补充没有 .title 文件的 session（新会话等），仍显示
-        json_files = list(SESSION_DIR.glob("*.json")) + list(SESSION_DIR.glob("*/*.json"))
-        for fp in json_files:
-            cid = fp.stem
-            if not re.match(r"^[A-Za-z0-9._:-]{8,128}$", cid) or cid in seen_ids:
-                continue
-            seen_ids.add(cid)
-            messages = CONVERSATIONS.get(cid)
-            if messages is None:
-                messages = _load_conversation(cid) or []
-            title = _load_conversation_title(cid) or title_by_id.get(cid) or _fallback_title_from_messages(cid, list(messages))
-            try:
-                updated_at = int(fp.stat().st_mtime * 1000)
-            except Exception:
-                updated_at = 0
-            rows.append({"id": cid, "title": title[:80], "updated_at": updated_at, "date_group": _session_date_group_from_path(fp)})
-    except Exception:
-        pass
-    rows.sort(key=lambda r: (r.get("date_group") or "", r.get("updated_at", 0)), reverse=True)
-    return {"ok": True, "sessions": rows}
-
-
-@app.post("/api/chat/title")
-def chat_title(body: ChatTitleIn):
-    cid = str(body.conversation_id or "").strip()
-    if not cid:
-        raise HTTPException(400, "empty conversation_id")
-    _ensure_conversation_loaded(cid)
-    messages = list(CONVERSATIONS.get(cid, []))
-    title = _generate_conversation_title(cid, messages)
-    # 生成标题后写入独立 .title 文件
-    _save_title_file(cid, title)
-    return {"ok": True, "conversation_id": cid, "title": title}
-
-
-@app.get("/api/chat/ui-state")
-def chat_ui_state_get():
-    state = _load_last_open_session_state()
-    return {"ok": True, "state": state}
-
-
-@app.put("/api/chat/ui-state")
-def chat_ui_state_put(body: ChatUiStateIn):
-    tabs: List[Dict[str, str]] = []
-    for t in body.tabs or []:
-        cid = str(t.get("id") or "").strip()
-        if not re.match(r"^[A-Za-z0-9._:-]{8,128}$", cid):
-            continue
-        title = str(t.get("title") or "").strip()
-        tabs.append({"id": cid, "title": title[:80]})
-    tabs = tabs[-UI_RESTORE_MAX_TABS:]
-    active = str(body.active_conversation_id or "").strip()
-    if not re.match(r"^[A-Za-z0-9._:-]{8,128}$", active):
-        active = tabs[0]["id"] if tabs else ""
-    elif tabs and not any(t["id"] == active for t in tabs):
-        tabs = tabs[1:] + [{"id": active, "title": f"会话 {active[:8]}"}] if len(tabs) >= UI_RESTORE_MAX_TABS else tabs + [{"id": active, "title": f"会话 {active[:8]}"}]
-    state = {"active_conversation_id": active, "tabs": tabs, "updated_at": int(time.time() * 1000)}
-    _save_last_open_session_state(state)
-    return {"ok": True}
-
-
-# ── 知识库 API ──
-
-
-@app.get("/api/reasoning-effort")
-async def reasoning_effort_get(request: Request):
-    """查询当前会话或全局的 reasoning_effort 值"""
-    cid = str(request.query_params.get("conversation_id") or "").strip()
-    return {"ok": True, "reasoning_effort": _get_reasoning_effort(cid), "global_default": _get_reasoning_effort()}
-
-
-@app.put("/api/reasoning-effort")
-async def reasoning_effort_set(request: Request):
-    """设置会话级 reasoning_effort"""
-    try:
-        body = await request.json()
-    except Exception:
-        return {"ok": False, "error": "invalid JSON"}
-    cid = str(body.get("cid") or body.get("conversation_id") or "").strip()
-    effort = str(body.get("effort") or "").strip().lower()
-    if not cid:
-        return {"ok": False, "error": "conversation_id required"}
-    ok = _set_reasoning_effort(cid, effort)
-    return {"ok": ok, "reasoning_effort": _get_reasoning_effort(cid)}
-
-
-@app.get("/api/kb/files")
-def kb_files():
-    """列出知识库目录下文件（不按后缀过滤；勾选时再校验是否可用）。"""
-    if not KB_BASE_DIR:
-        return {"ok": True, "enabled": False, "files": []}
-    if not KB_BASE_DIR.is_dir():
-        try:
-            KB_BASE_DIR.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            return {"ok": True, "enabled": False, "files": []}
-    result = []
-    for p in sorted(KB_BASE_DIR.rglob("*")):
-        if not p.is_file():
-            continue
-        if "__pycache__" in p.parts:
-            continue
-        rel = str(p.relative_to(KB_BASE_DIR)).replace("\\", "/")
-        result.append({"path": rel, "name": p.name, "mtime": p.stat().st_mtime})
-    return {"ok": True, "enabled": True, "files": result}
-
-
-@app.get("/api/kb/checked")
-def kb_checked_get(conversation_id: str = ""):
-    cid = str(conversation_id or "").strip()
-    if not cid:
-        raise HTTPException(400, "empty conversation_id")
-    with _KB_CHECKED_LOCK:
-        state = _KB_CHECKED_STATE.get(cid, set())
-    return {"ok": True, "checked": sorted(state)}
-
-
-class KbCheckedIn(BaseModel):
-    conversation_id: str = Field(..., description="会话 ID")
-    checked: List[str] = Field(default_factory=list, description="勾选的文件相对路径列表")
-
-
-@app.put("/api/kb/checked")
-def kb_checked_put(body: KbCheckedIn):
-    cid = str(body.conversation_id or "").strip()
-    if not cid:
-        raise HTTPException(400, "empty conversation_id")
-    raw_paths = set(body.checked or [])
-    accepted: Set[str] = set()
-    for rel in raw_paths:
-        fp = _kb_safe_resolve_rel(rel)
-        if fp and _kb_file_allowed_when_checked(fp):
-            try:
-                norm = str(fp.relative_to(KB_BASE_DIR.resolve())).replace("\\", "/")
-            except ValueError:
-                continue
-            accepted.add(norm)
-    with _KB_CHECKED_LOCK:
-        if accepted:
-            _KB_CHECKED_STATE[cid] = accepted
-        else:
-            _KB_CHECKED_STATE.pop(cid, None)
-        _kb_persist_checked()
-    return {"ok": True, "checked": sorted(accepted)}
-
-
-@app.post("/api/chat/stop")
-def chat_stop(inp: ChatStopIn):
-    cid = str(inp.conversation_id or "").strip()
-    if not cid:
-        raise HTTPException(400, "empty conversation_id")
-    stopped = _request_conversation_stop(cid, str(inp.run_id or "").strip())
-    return {"ok": True, "conversation_id": cid, "stopped": stopped}
-
-
-@app.post("/api/chat/stream")
-def chat_stream(inp: ChatIn, request: Request):
-    text = inp.message.strip()
-    if not text:
-        raise HTTPException(400, "empty message")
-    if AT_MESSAGE_FILE_PREFETCH:
-        # @路径预读：仅对「普通文件」注入全文；目录不预读（模型可据路径用工具浏览）
-        import re as _re
-        _at_files = _re.findall(
-            r'@((?:"[^"]+")|(?:[A-Za-z]:[\\/][^\s]+)|(?:~[^\s]+)|(?:/[^\s]+))',
-            text,
-        )
-        _injected = []
-        for _fp in _at_files:
-            _fp = _strip_config_path_value(_fp.strip('"').strip("'"))
-            if not _fp:
-                continue
-            try:
-                _p = Path(_fp).expanduser()
-                try:
-                    _p = _p.resolve()
-                except OSError:
-                    pass
-                if _p.is_dir():
-                    continue
-                if _p.is_file():
-                    with open(_p, "r", encoding="utf-8", errors="replace") as _f:
-                        _fc = _f.read()
-                    if len(_fc) > 500_000:
-                        _fc = _fc[:500_000] + "\n...(文件过大，已截断)"
-                    _injected.append(f"\n\n【引用的文件 @{_fp} 内容如下】\n{_fc}\n【文件结束】")
-            except Exception as _e:
-                _injected.append(f"\n\n【警告：无法读取 @{_fp}：{_e}】")
-        if _injected:
-            text = "".join(_injected) + "\n\n---\n用户消息：" + text
-    cid = str(inp.conversation_id or "").strip() or str(uuid.uuid4())
-    mode = str(inp.mode or "").strip().lower()
-
-    if mode not in {"", "auto", "plan", "execute"}:
-        raise HTTPException(400, "invalid mode")
-
-    mod = str(inp.model or "").strip()
-    if mod:
-        okm, _m = set_conversation_model(cid, mod)
-        if not okm:
-            raise HTTPException(400, "invalid model")
-    if mode == "auto":
-        CONVERSATION_MODES.pop(cid, None)
-    elif mode in ("plan", "execute"):
-        CONVERSATION_MODES[cid] = mode
-
-    # 从本地文件恢复会话
-    if cid not in CONVERSATIONS or not CONVERSATIONS.get(cid):
-        loaded = _load_conversation(cid)
-        if loaded:
-            CONVERSATIONS[cid] = loaded
-
-    client_ip = ""
-    xff = (request.headers.get("x-forwarded-for") or "").strip()
-    if xff:
-        client_ip = xff.split(",")[0].strip()
-    if not client_ip:
-        client_ip = (request.headers.get("x-real-ip") or "").strip()
-    if not client_ip and request.client is not None:
-        client_ip = str(request.client.host or "").strip()
-    client_ip = _normalize_client_ip_for_tools(client_ip)
-
-    def gen():
-        _run_id = ""
-        try:
-            _run_id = _begin_conversation_run(cid) or ""
-            if not _run_id:
-                _busy_ev = {"type": "error", "conversation_id": cid, "where": "server", "detail": "当前会话仍在执行中，请等待完成或先停止。"}
-                yield f"data: {json.dumps(_busy_ev, ensure_ascii=False)}\n\n"
-                return
-            yield f"data: {json.dumps({'type': 'run_started', 'conversation_id': cid, 'run_id': _run_id}, ensure_ascii=False)}\n\n"
-            if not _chat_api_key_available():
-                _err_ev = {"type": "error", "conversation_id": cid, "where": "config", "detail": "请先在 config.ini 的 [model] 节配置 api_key（或设置环境变量 CHAT_API_KEY）"}
-                yield f"data: {json.dumps(_err_ev, ensure_ascii=False)}\n\n"
-                return
-            _ensure_conversation_loaded(cid)
-            if _persisted_session_unreadable_after_load(cid):
-                _se = {
-                    "type": "error",
-                    "conversation_id": cid,
-                    "where": "session_persist",
-                    "detail": SESSION_PERSIST_UNREADABLE_SSE_DETAIL,
-                }
-                yield f"data: {json.dumps(_se, ensure_ascii=False)}\n\n"
-                return
-            _apply_conversation_request_options(cid, mode, mod)
-            for ev in run_agent_turn(cid, text, client_ip=client_ip, mode_hint=mode, run_id=_run_id):
-                ev2 = _conversation_sse_event(cid, ev)
-                _log_agent_console_sse(cid, ev2)
-                yield f"data: {json.dumps(ev2, ensure_ascii=False)}\n\n"
-        except Exception as _exc:
-
-            _err_ev = {"type": "error", "conversation_id": cid, "where": "server", "detail": str(_exc)}
-            yield f"data: {json.dumps(_err_ev, ensure_ascii=False)}\n\n"
-        finally:
-            if _run_id:
-                _end_conversation_run(cid, _run_id)
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
-    )
-
-
-@app.get("/api/dir-browse")
-def dir_browse(path: str = ""):
-    """浏览目录结构，供前端 @ 文件选择器使用。
-    默认路径：WORKSPACE_DIR → 桌面 → HOME。
-    支持 Windows 盘符列表（path=_drives_）。
-    """
-    import os as _os
-    import string as _string
-
-    _workspace = _strip_config_path_value(str(AGENT_CONFIG.get("AGENT_WORKSPACE_DIR") or ""))
-    if _workspace:
-        _default = Path(_workspace).expanduser().resolve()
-    else:
-        _default = Path.home()
-    if not _default.is_dir():
-        _default = Path.home()
-
-    # ── 盘符列表模式（仅 Windows）──
-    if str(path).strip() == "_drives_":
-        items = []
-        for _letter in _string.ascii_uppercase:
-            _dp = f"{_letter}:\\"
-            if _os.path.exists(_dp):
-                _is_ready = _os.path.isdir(_dp)
-                # 读取卷标
-                _label = ""
-                if _is_ready:
-                    try:
-                        import ctypes as _ct
-                        _buf = _ct.create_unicode_buffer(261)
-                        _ct.windll.kernel32.GetVolumeInformationW(
-                            _dp, _buf, _ct.sizeof(_buf), None, None, None, None, 0
-                        )
-                        _label = _buf.value or ""
-                    except Exception:
-                        pass
-                _name = f"{_letter}:\\"
-                if _label:
-                    _name += f" ({_label})"
-                elif _is_ready:
-                    _name += " (本地磁盘)"
-                else:
-                    _name += " (未就绪)"
-                items.append({
-                    "name": _name,
-                    "type": "dir",
-                    "ext": "",
-                    "path": f"{_letter}:/" if _is_ready else _dp,
-                })
-        return {"current": "计算机", "parent": "", "items": items}
-
-    if not path or not str(path).strip():
-        target = _default
-    else:
-        raw_s = _strip_config_path_value(str(path).strip())
-        raw = Path(raw_s).expanduser()
-        if raw.is_absolute():
-            cand = raw.resolve()
-        else:
-            cand = (_default / raw).resolve()
-        target = cand if cand.is_dir() else _default
-    try:
-        entries = _os.scandir(str(target))
-    except OSError:
-        entries = []
-    items = []
-    for e in sorted(entries, key=lambda x: (not x.is_dir(), x.name.lower())):
-        ext = _os.path.splitext(e.name)[1].lower()
-        items.append({
-            "name": e.name,
-            "type": "dir" if e.is_dir() else "file",
-            "ext": ext,
-            "path": _os.path.abspath(e.path).replace("\\", "/"),
-        })
-    parent_p = target.parent.resolve()
-    # 盘符根目录（如 C:/）→ 父路径指向盘符列表
-    _t_str = str(target).rstrip("\\").rstrip("/")
-    if len(_t_str) == 2 and _t_str[1] == ":":
-        parent_p_str = "_drives_"
-    else:
-        parent_p_str = str(parent_p).replace("\\", "/")
-    return {
-        "current": str(target).replace("\\", "/"),
-        "parent": parent_p_str,
-        "items": items,
-    }
-
-@app.get("/health")
-def health():
-    return {"ok": True, "catalog": str(TOOL_LIST_JSON), "model": default_model_from_env(), "allowed_models": list(ALLOWED_MODELS)}
-
-
-def main():
-    # 加载配置（读取 config.ini，设置环境变量等）
-    from util.config_loader import load_config
-    load_config(verbose=True)
-    port_str = str(AGENT_CONFIG["AGENT_SERVER_PORT"]).strip()
-    if not port_str:
-        print("FATAL: AGENT_SERVER_PORT 未设置！请在 config.ini 的 [server] 节配置 port", flush=True)
-        sys.exit(1)
-    
-    # ── API Key 检查 ──
-    if not _chat_api_key_available():
-        print("⚠️  WARNING: API Key 未配置或为空！请在 config.ini 的 [model] 节设置 api_key 或环境变量 CHAT_API_KEY", file=sys.stderr, flush=True)
-        print("⚠️  或通过环境变量 CHAT_API_KEY 设置", file=sys.stderr, flush=True)
-
-    uvicorn.run(app, host=AGENT_CONFIG["AGENT_SERVER_HOST"], port=int(port_str))
-
-
-if __name__ == "__main__":
-    main()

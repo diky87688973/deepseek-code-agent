@@ -14,7 +14,7 @@ if !errorlevel! neq 0 (
 )
 
 echo.
-echo === DeepSeek Code Agent v1 快速启动 ===
+echo === DeepSeek Code Agent v1.2 快速启动 ===
 echo.
 
 :: ── 从 config.ini [server] 读取 port（首条匹配 ^port *=）──

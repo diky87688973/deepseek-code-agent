@@ -16,7 +16,8 @@
     "region_replace_safety": "replace_in_file 提供四种替换方式：① line_start+line_end（行替换，推荐）：按行号替换，坐标永不漂移。② regions 数组：一次传入 [{region_start,region_end,new_text},...]，工具自动降序防漂移。③ 单次 region_start+region_end：精确替换。④ rules 数组：字面 old_text→new_text 批量替换。",
     "literal_replace_ambiguity": "⚠️ old_text+new_text 字面替换默认 replace_all=true。若某文件中有多处相同匹配会全部误伤。安全铁律：① 每次必须设 expected_replacements=n 校验替换次数（等于提供「唯一性断言」，匹配数不符则拒绝）；② old_text 包含足够长的唯一上下文；③ 可改用 line_start+line_end 或 region_start/region_end 精确区间；④ 不确定匹配数时先用 find_in_file 看匹配位置。",
     "string_escape": "⚠️ 字符串参数（old_text、new_text、pattern、patch_text、code 等）中的反斜杠 \\ 按 JSON 标准转义。例如：arguments 中 \\n 表示字面反斜杠+n（而非换行符），\\\\ 表示单个反斜杠。不确定时优先用 line_start+line_end 或 region 替换，避免转义问题。",
-    "kling_video_markdown": "【🔴 强制规则】视频播放必须用 `![播放视频](url)` 格式，禁止任何其他写法。\n规则：\n1. kling_generate(action=query_result) 返回的 data.message 已包含正确格式，必须原样逐字输出，不得改写、不得省略、不得追加评论。\n2. 如果 data.message 中有多个 ![播放视频](url)，必须全部保留。\n3. 禁止用 [下载视频](url)、视频链接：xxx、![video](url)、Markdown video 标签、HTML video 标签 — 前端只认 ![播放视频](url) 这一种格式。\n4. 若工具未返回 message（如任务还在处理中），但你手上有视频 URL，也必须自行组装 ![播放视频](url) 格式。\n5. 验证方法：你输出后如果没看到视频播放控件，说明你写错格式了，必须立刻修正。"
+    "kling_video_markdown": "【🔴 强制规则】视频播放必须用 `![播放视频](url)` 格式，禁止任何其他写法。\n规则：\n1. kling_generate(action=query_result) 返回的 data.message 已包含正确格式，必须原样逐字输出，不得改写、不得省略、不得追加评论。\n2. 如果 data.message 中有多个 ![播放视频](url)，必须全部保留。\n3. 禁止用 [下载视频](url)、视频链接：xxx、![video](url)、Markdown video 标签、HTML video 标签 — 前端只认 ![播放视频](url) 这一种格式。\n4. 若工具未返回 message（如任务还在处理中），但你手上有视频 URL，也必须自行组装 ![播放视频](url) 格式。\n5. 验证方法：你输出后如果没看到视频播放控件，说明你写错格式了，必须立刻修正。",
+    "kling_image_markdown": "【🔴 强制规则】图片预览必须用 `![图片](url)` 格式。\n规则：\n1. kling_generate(action=query_result) 的 data.message 中已包含正确格式的 `![图片](url)`，必须原样逐字输出，不得改写、不得省略。\n2. 禁止用 data URI/base64 嵌入图片（浪费 token）、禁止用 [下载链接](url)、禁止用 HTML <img> 标签。\n3. 前端只认 `![图片](url)` 这一种格式。\n4. 如果 url 是 CDN 链接返回 403，请使用 data.message 中的 /kling-tasks/ 本地 HTTP 路径。\n5. 验证方法：你输出后如果没看到图片，说明你写错格式了，必须立刻修正。"
   },
   "tools": [
     {
@@ -2154,6 +2155,12 @@
           "type": "boolean",
           "required": false,
           "description": "本机 TTY 调试菜单。"
+        },
+        {
+          "flag": "--confirm_id",
+          "type": "string",
+          "required": false,
+          "description": "确认ID（用户确认时自动标记已确认）"
         }
       ],
       "examples": [
@@ -2737,7 +2744,7 @@
           "flag": "--cwd",
           "type": "string",
           "required": false,
-          "description": "工作目录，默认可为工作区根。"
+          "description": "工作目录（默认：工作区根目录）"
         },
         {
           "flag": "--timeout_sec",
@@ -2835,7 +2842,7 @@
           "flag": "--cwd",
           "type": "string",
           "required": false,
-          "description": "执行前 chdir。"
+          "description": "执行前 chdir（默认：工作区根目录）"
         },
         {
           "flag": "--timeout_sec",
@@ -2938,16 +2945,16 @@
           "description": "画面比例：16:9（默认）/ 9:16 / 1:1 / 4:3 / 3:4。"
         },
         {
-          "flag": "--resolution",
+          "flag": "--resolution_type",
           "type": "string",
           "required": false,
-          "description": "分辨率：2k（默认）/ 4k / 1080p。"
+          "description": "分辨率（2k/4k，对应 dreamina CLI 的 --resolution_type）"
         },
         {
-          "flag": "--model",
+          "flag": "--model_version",
           "type": "string",
           "required": false,
-          "description": "模型名称（可选，不指定时使用默认模型）。seedance2.0系列需用户明确指定。"
+          "description": "模型版本（4.0/4.1/4.5/4.6/5.0，对应 dreamina CLI 的 --model_version）"
         },
         {
           "flag": "--count",
@@ -2956,10 +2963,10 @@
           "description": "生成数量，默认1。"
         },
         {
-          "flag": "--image_path",
+          "flag": "--images",
           "type": "string",
           "required": false,
-          "description": "输入图片路径（image2video/image2image 必填）。"
+          "description": "输入图片路径（image2video/image2image 必填，对应 dreamina CLI 的 --images 参数）"
         },
         {
           "flag": "--gen_status",
@@ -3027,7 +3034,7 @@
     {
       "name": "kling_generate.py",
       "path": "tools/kling_generate.py",
-      "purpose": "⚠️ 可灵 Kling AI 视频/图像生成工具（消耗积分）。通过 HTTP API 生成视频/图片，每次调用都会消耗账号积分。**必须在获得用户明确许可后才能调用**，生成前应先告知用户将消耗的积分/费用并征得同意。Plan 模式下拒绝执行任何生成类操作。查询结果(query_result)不消耗积分。",
+      "purpose": "⚠️ 可灵 Kling AI 全能力工具（消耗积分）。支持文生视频/图生视频/多模态/多图参考/动作控制/视频延长/对口型/数字人/文生图/图生图/虚拟试穿/文生音效。生成类操作由agent层统一拦截确认。查询结果(query_result)不消耗积分。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -3040,31 +3047,31 @@
           "flag": "--action",
           "type": "string",
           "required": false,
-          "description": "操作类型：text2video（文生视频）/ query_result（查询结果）。默认text2video。"
+          "description": "操作类型：text2video(文生视频) / image2video(图生视频) / multimodal2video(多模态视频) / multi_image2video(多图参考生视频) / motion_control(动作控制) / video_extend(视频延长) / lip_sync(对口型) / avatar(数字人) / text2image(文生图) / image2image(图生图) / omni_image(Omni图像) / virtual_try_on(虚拟试穿) / text2audio(文生音效) / query_result(查询结果)。"
         },
         {
           "flag": "--prompt",
           "type": "string",
           "required": false,
-          "description": "视频提示词（text2video 必填）。"
+          "description": "提示词。"
         },
         {
           "flag": "--model_name",
           "type": "string",
           "required": false,
-          "description": "模型名称，默认 kling-v1。支持：kling-v1, kling-v1-6, kling-v2-master, kling-v2-1-master, kling-v2-5-turbo, kling-v2-6, kling-v3"
+          "description": "模型名称，默认kling-v1。"
         },
         {
           "flag": "--duration",
           "type": "string",
           "required": false,
-          "description": "视频时长（秒），默认5。可选：3-15"
+          "description": "时长(秒)，默认5。"
         },
         {
           "flag": "--mode",
           "type": "string",
           "required": false,
-          "description": "生成模式：std（720P）/ pro（1080P）/ 4k。默认std。"
+          "description": "生成模式：std / pro / 4k。默认std。"
         },
         {
           "flag": "--sound",
@@ -3106,7 +3113,7 @@
           "flag": "--multi_prompt",
           "type": "array",
           "required": false,
-          "description": "各分镜提示词数组，格式：[{\"index\":1,\"prompt\":\"...\",\"duration\":\"5\"}]"
+          "description": "各分镜提示词数组（仅text2video多镜头时使用）。"
         },
         {
           "flag": "--camera_control",
@@ -3137,81 +3144,79 @@
           "type": "string",
           "required": false,
           "description": "查询任务ID（query_result action时使用）。"
+        },
+        {
+          "flag": "--image_url",
+          "type": "string",
+          "required": false,
+          "description": "图片URL（图生视频/图生图/虚拟试穿必填）"
+        },
+        {
+          "flag": "--image_list",
+          "type": "array",
+          "required": false,
+          "description": "多图列表，格式 [{\"image\":\"url1\"},{\"image\":\"url2\"}]（多模态/多图参考/图生图时使用）。"
+        },
+        {
+          "flag": "--num_images",
+          "type": "integer",
+          "required": false,
+          "description": "生成图片数量（文生图/图生图），默认1，最大9。"
+        },
+        {
+          "flag": "--video_id",
+          "type": "string",
+          "required": false,
+          "description": "视频ID（视频延长/对口型必填）。"
+        },
+        {
+          "flag": "--audio_url",
+          "type": "string",
+          "required": false,
+          "description": "音频URL（对口型必填）。"
+        },
+        {
+          "flag": "--query_action",
+          "type": "string",
+          "required": false,
+          "description": "查询时指定操作类型（如text2image），默认自动推断。"
+        },
+        {
+          "flag": "--confirm_id",
+          "type": "string",
+          "required": false,
+          "description": "确认ID（从之前调用的返回获取，传入后执行生成任务）"
         }
       ],
       "examples": [
         {
           "title": "文生视频",
-          "note": "生成一段5秒视频。",
+          "note": "生成一段视频。",
           "args": {
             "action": "text2video",
-            "prompt": "一只可爱的小猫在公园里玩耍",
+            "prompt": "一只小猫在玩耍",
             "duration": "5",
             "mode": "std",
             "aspect_ratio": "16:9"
           }
         },
         {
-          "title": "多镜头文生视频",
-          "note": "生成15秒多镜头视频。",
+          "title": "文生图",
+          "note": "生成一张图片。",
           "args": {
-            "action": "text2video",
-            "model_name": "kling-v3",
-            "duration": "15",
-            "mode": "std",
-            "multi_shot": true,
-            "shot_type": "customize",
-            "multi_prompt": [
-              {
-                "index": 1,
-                "prompt": "镜头1描述",
-                "duration": "5"
-              },
-              {
-                "index": 2,
-                "prompt": "镜头2描述",
-                "duration": "5"
-              },
-              {
-                "index": 3,
-                "prompt": "镜头3描述",
-                "duration": "5"
-              }
-            ]
+            "action": "text2image",
+            "prompt": "一只小猫",
+            "model_name": "kling-v2-1",
+            "aspect_ratio": "1:1",
+            "num_images": 1
           }
         },
         {
-          "title": "带运镜控制的视频",
-          "note": "生成视频并指定运镜方向。",
-          "args": {
-            "action": "text2video",
-            "prompt": "日落时分的海滩，海浪拍打沙滩",
-            "duration": "10",
-            "mode": "pro",
-            "camera_control": {
-              "type": "forward_up"
-            },
-            "aspect_ratio": "16:9"
-          }
-        },
-        {
-          "title": "文生视频（有声+水印）",
-          "note": "生成带声音和水印的视频。",
-          "args": {
-            "action": "text2video",
-            "prompt": "有人在咖啡馆弹钢琴",
-            "duration": "5",
-            "mode": "pro",
-            "sound": "on",
-            "watermark_enabled": true
-          }
-        },
-        {
-          "title": "查询任务结果",
-          "note": "用任务ID查询生成结果。",
+          "title": "查询结果",
+          "note": "查询任务结果。",
           "args": {
             "action": "query_result",
-            "task_id": "<从text2video返回获取>"
+            "task_id": "<task_id>"
           }
         }
       ]

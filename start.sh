@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# DeepSeek Code Agent v1 - Linux/macOS 快速启动脚本
+# DeepSeek Code Agent v2 - Linux/macOS 快速启动脚本
 
 set -e
 
-APP_NAME="DeepSeek Code Agent v1"
+APP_NAME="DeepSeek Code Agent v1.2"
 
 cat <<'EOF'
 
  ╔══════════════════════════════════════╗
- ║   DeepSeek Code Agent v1  快速启动   ║
+ ║   DeepSeek Code Agent v1.2  快速启动   ║
  ╚══════════════════════════════════════╝
 
 EOF

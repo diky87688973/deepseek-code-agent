@@ -22,7 +22,7 @@ from tool_help_share import capture_help, HelpfulParser
 def build_parser() -> argparse.ArgumentParser:
     p = HelpfulParser(description="执行内联 Python 源码（进程内 exec，不经 shell）")
     p.add_argument("--code", required=True, help="Python 源码字符串")
-    p.add_argument("--cwd", help="执行前切换工作目录")
+    p.add_argument("--cwd", help="执行前切换工作目录（默认：工作区根目录）")
     p.add_argument("--timeout_sec", type=int, default=300, help="保留参数；进程内 exec 无法在时限点可靠中断")
     p.add_argument(
         "--restrict_to_workspace",
@@ -56,9 +56,9 @@ def _emit_envelope_file_and_stdout(args: argparse.Namespace, envelope: dict) -> 
 
 
 def _forbid_inline_search(code: str) -> bool:
-    """禁止在胶水代码里绕过宿主调度搜索类工具（须走服务端线程+进度）。"""
+    """禁止在胶水代码里使用 file_search/grep_files/base64（搜索走服务端，base64 浪费 token）。"""
     s = code or ""
-    return "file_search" in s or "grep_files" in s
+    return "file_search" in s or "grep_files" in s or "base64" in s
 
 
 def agent_main(
@@ -83,7 +83,7 @@ def agent_main(
                 "data": None,
                 "error": {
                     "type": "Forbidden",
-                    "message": "禁止在 python_inline 中调度 file_search/grep_files！请直接使用对应工具的 function call（走服务端线程+进度）。",
+                    "message": "禁止在 python_inline 中使用 file_search/grep_files/base64！搜索类工具请用对应 function call，base64 嵌入图片浪费 token 且导致对话中断。",
                 },
             }
 
@@ -98,6 +98,11 @@ def agent_main(
                     raise ValueError(f"cwd 不是目录: {cp}")
                 prev_cwd = os.getcwd()
                 os.chdir(cp)
+            else:
+                # 未指定 cwd 时默认使用工作目录
+                ws = ac.workspace_root()
+                prev_cwd = os.getcwd()
+                os.chdir(ws)
 
             with contextlib.redirect_stdout(captured_stdout), contextlib.redirect_stderr(captured_stderr):
                 exec(code, {"__name__": "__python_inline__"})  # noqa: S102

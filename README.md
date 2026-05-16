@@ -15,7 +15,7 @@ pip install -r requirements.txt
 # 3. 启动
 #    Windows：双击 start.bat
 #    Linux：  chmod +x start.sh && ./start.sh
-#    或直接： python deepseek_code_agent.py
+#    或直接： python deepseek_code_agent2.py
 ```
 
 启动后浏览器访问 `http://127.0.0.1:8801` 打开主界面；多列沉浸布局访问 `http://127.0.0.1:8801/immersive`。
@@ -100,8 +100,10 @@ pip install -r requirements.txt
 
 ```
 deepseek-code-agent/
-├── deepseek_code_agent.py      # 服务端主程序（FastAPI）
-├── main_tray.py                # 系统托盘启动器
+├── deepseek_code_agent2.py     # v2 入口（FastAPI 装配）
+├── agent_v2/                   # v2 业务与 HTTP 模块
+├── deepseek_code_agent.py      # v1 原版（保留参考，默认不再启动）
+├── main_tray.py                # 系统托盘启动器（加载 v2）
 ├── config.ini                  # 配置文件（API Key / 端口 / 路径）
 ├── requirements.txt            # Python 依赖
 ├── start.bat                   # Windows 一键启动（自动提权 + ACL 防篡改）

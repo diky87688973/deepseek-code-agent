@@ -13,11 +13,13 @@ header .hdr-theme-btn{display:inline-flex;align-items:center;justify-content:cen
 header .hdr-theme-btn:hover{color:#e6edf5;border-color:#7a8aa3;background:rgba(120,130,145,.2)}
 header a.hdr-immersive-btn{display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0 12px;border-radius:999px;font-size:12px;font-weight:600;color:#c9a86a;background:rgba(138,112,72,.14);border:1px solid #8a7048;text-decoration:none;white-space:nowrap;cursor:pointer;box-sizing:border-box}
 header a.hdr-immersive-btn:hover{color:#dfc08c;border-color:#a08055;background:rgba(160,128,85,.22);text-decoration:none}
-main{flex:1;display:flex;min-height:0}
-.chat{flex:1;min-height:0;border-right:1px solid #333;display:flex;flex-direction:column;min-width:0}
+main{flex:1;display:flex;min-height:0;align-items:stretch}
+.chat{flex:1 1 0;min-height:0;display:flex;flex-direction:column;min-width:600px}
+.classic-split-resizer{cursor:col-resize;align-self:stretch;flex:0 0 3px;box-sizing:border-box;background-color:#2a2a2a;border-left:1px solid #333;border-right:1px solid #333;flex-shrink:0}
+.classic-split-resizer:hover{background-color:#3a3f47;border-left-color:#4a4f57;border-right-color:#4a4f57}
+.side{flex:0 0 auto;width:min(600px,46vw);background:#252526;display:flex;flex-direction:column;min-width:300px}
 .chat-conversation-mount{flex:1 1 0;min-height:0;display:flex;flex-direction:column;min-width:0}
 .chat-conversation-pane{flex:1 1 0;min-height:0;display:flex;flex-direction:column;min-width:0}
-.side{width:min(600px,46vw);background:#252526;display:flex;flex-direction:column;min-width:260px}
 .p-title{font-size:11px;color:#888;padding:6px 10px;border-bottom:1px solid #333;text-transform:uppercase;letter-spacing:.04em}
 .chat-title-row{position:relative;display:flex;align-items:flex-start;gap:8px;min-width:0;flex:0 0 auto}
 .chat-more-btn{flex:0 0 auto;width:14px;height:24px;padding:0;border:0;border-radius:4px;background:transparent;color:#8f98a5;line-height:1;font-size:16px}
@@ -401,7 +403,16 @@ html[data-ui-theme="light"] header a.hdr-immersive-btn:hover {
 }
 html[data-ui-theme="light"] .chat {
   background: #eef1f6;
+}
+html[data-ui-theme="light"] .classic-split-resizer {
+  background-color: #e4e9f2;
+  border-left-color: #c8d4e8;
   border-right-color: #c8d4e8;
+}
+html[data-ui-theme="light"] .classic-split-resizer:hover {
+  background-color: #d0dae8;
+  border-left-color: #9eb0cc;
+  border-right-color: #9eb0cc;
 }
 html[data-ui-theme="light"] .side {
   background: #f4f6fb;

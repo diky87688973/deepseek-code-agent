@@ -244,8 +244,14 @@ def agent_main(
                 total = len(lines_kd)
                 s = ls - 1  # 0-based
                 e = le - 1
-                if s < 0 or e >= total or s > e:
-                    raise ValueError(f"行号越界：start={ls}, end={le}, 共{total}行")
+                if s < 0:
+                    s = 0
+                if e >= total:
+                    e = total - 1
+                if s > e:
+                    new_body = original
+                    counts_per_rule = [0]
+                    continue
                 before = "".join(lines_kd[:s])
                 after = "".join(lines_kd[e + 1:])
                 new_body = before + nt + after
@@ -257,17 +263,20 @@ def agent_main(
             )
             counts_per_rule = [1 if new_body != original else 0]
         elif mode == "linerange":
-            rep = "" if new_text is None else str(new_text)
-            lines_keepends = original.splitlines(keepends=True)
-            total = len(lines_keepends)
             ls = int(line_start) - 1  # 转 0-based
             le = int(line_end) - 1
-            if ls < 0 or le >= total or ls > le:
-                raise ValueError(f"行号越界：start={line_start}, end={line_end}, 共{total}行")
-            before = "".join(lines_keepends[:ls])
-            after = "".join(lines_keepends[le + 1:])
-            new_body = before + rep + after
-            counts_per_rule = [1 if new_body != original else 0]
+            if ls < 0:
+                ls = 0
+            if le >= total:
+                le = total - 1
+            if ls > le:
+                new_body = original
+                counts_per_rule = [0]
+            else:
+                before = "".join(lines_keepends[:ls])
+                after = "".join(lines_keepends[le + 1:])
+                new_body = before + rep + after
+                counts_per_rule = [1 if new_body != original else 0]
         else:
             rep = "" if new_text is None else str(new_text)
             lines_keepends = original.splitlines(keepends=True)

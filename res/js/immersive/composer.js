@@ -177,6 +177,7 @@
       var j = await r.json();
       if (!j || j.ok !== true) return;
       var items = j.items || [];
+      if (j.context_layout) col.s.lastContextLayout = j.context_layout;
       var msgsEl = col.msgsEl;
       while (msgsEl.firstChild) msgsEl.removeChild(msgsEl.firstChild);
       for (var i = 0; i < items.length; i++) {
@@ -194,6 +195,10 @@
         });
       }
       msgsEl.scrollTop = msgsEl.scrollHeight;
+      if (j.context_layout && typeof IMM.updateImmersiveContextBar === "function") {
+        var active = IMM.CM && IMM.CM.getActive ? IMM.CM.getActive() : null;
+        if (active && active.id === col.id) IMM.updateImmersiveContextBar();
+      }
     } catch (e) {}
   }
 
@@ -669,9 +674,27 @@
       }
     };
     sessMenu.appendChild(nb);
+    if (!items.length) {
+      var emp = document.createElement("div");
+      emp.className = "imm-session-empty";
+      emp.textContent = "暂无历史会话";
+      sessMenu.appendChild(emp);
+      return;
+    }
+    var lastGroup = null;
     items.forEach(function (s) {
       var id = IMM.normalizeConversationId(s && s.id);
       if (!id) return;
+      var group = String((s && s.date_group) || "");
+      if (group && group !== lastGroup) {
+        lastGroup = group;
+        var gh = document.createElement("div");
+        gh.className = "imm-session-group";
+        gh.textContent = group;
+        sessMenu.appendChild(gh);
+      } else if (!group && lastGroup !== null) {
+        lastGroup = null;
+      }
       var row = document.createElement("button");
       row.type = "button";
       row.className = "imm-session-row" + (openIds[id] ? " imm-session-open" : "");

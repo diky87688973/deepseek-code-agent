@@ -220,13 +220,13 @@ def _action_user_credit() -> dict:
     }
 
 
-def _action_generate(gen_type: str = "text2image", prompt: str = "", ratio: str = "16:9", resolution: str = "2k", model: str = "", count: int = 1) -> dict:
+def _action_generate(gen_type: str = "text2image", prompt: str = "", ratio: str = "16:9", resolution: str = "2k", model_version: str = "", count: int = 1) -> dict:
     """文生图/文生视频。"""
     if not prompt:
         return ac.err(ValueError("缺少 prompt 参数"))
     args = [gen_type, "--prompt", prompt, "--ratio", ratio, "--resolution_type", resolution]
-    if model:
-        args.extend(["--model_version", model])
+    if model_version:
+        args.extend(["--model_version", model_version])
     r = _run_dreamina(args, timeout=300)
     return _parse_submit_response(r, gen_type)
 
@@ -297,30 +297,30 @@ def _action_list_task(gen_status: str = "", limit: int = 20) -> dict:
     return {"ok": r["ok"], "data": {"action": "list_task", "raw": stdout[:5000], "message": f"```\n{stdout[:5000]}\n```" if stdout else "暂无任务记录。"}, "error": r["error"]}
 
 
-def _action_image2video(image_path: str, prompt: str = "", model: str = "") -> dict:
+def _action_image2video(images: str, prompt: str = "", model_version: str = "") -> dict:
     """图生视频。"""
-    if not image_path:
-        return ac.err(ValueError("缺少 image_path 参数"))
-    img = Path(image_path)
+    if not images:
+        return ac.err(ValueError("缺少 images 参数"))
+    img = Path(images)
     if not img.is_file():
-        return ac.err(FileNotFoundError(f"图片文件不存在：{image_path}"))
-    args = ["image2video", "--image_path", image_path]
+        return ac.err(FileNotFoundError(f"图片文件不存在：{images}"))
+    args = ["image2video", "--images", images]
     if prompt:
         args.extend(["--prompt", prompt])
-    if model:
-        args.extend(["--model", model])
+    if model_version:
+        args.extend(["--model_version", model_version])
     r = _run_dreamina(args, timeout=300)
     return _parse_submit_response(r, "image2video")
 
 
-def _action_image2image(image_path: str, prompt: str = "", ratio: str = "1:1") -> dict:
+def _action_image2image(images: str, prompt: str = "", ratio: str = "1:1") -> dict:
     """图生图。"""
-    if not image_path:
-        return ac.err(ValueError("缺少 image_path 参数"))
-    img = Path(image_path)
+    if not images:
+        return ac.err(ValueError("缺少 images 参数"))
+    img = Path(images)
     if not img.is_file():
-        return ac.err(FileNotFoundError(f"图片文件不存在：{image_path}"))
-    args = ["image2image", "--image_path", image_path, "--ratio", ratio]
+        return ac.err(FileNotFoundError(f"图片文件不存在：{images}"))
+    args = ["image2image", "--images", images, "--ratio", ratio]
     if prompt:
         args.extend(["--prompt", prompt])
     r = _run_dreamina(args, timeout=300)
@@ -373,10 +373,10 @@ def agent_main(
     device_code: str = "",
     poll: int = 5,
     ratio: str = "16:9",
-    resolution: str = "2k",
-    model: str = "",
+    resolution_type: str = "2k",
+    model_version: str = "",
     count: int = 1,
-    image_path: str = "",
+    images: str = "",
     gen_status: str = "",
     limit: int = 20,
 ) -> dict:
@@ -387,13 +387,13 @@ def agent_main(
             "check_login": lambda: _action_check_login(device_code, poll),
             "logout": lambda: _action_logout(),
             "user_credit": lambda: _action_user_credit(),
-            "generate": lambda: _action_generate(gen_type, prompt, ratio, resolution, model, count),
-            "text2image": lambda: _action_generate("text2image", prompt, ratio, resolution, model, count),
-            "text2video": lambda: _action_generate("text2video", prompt, ratio, resolution, model, count),
+            "generate": lambda: _action_generate(gen_type, prompt, ratio, resolution_type, model_version, count),
+            "text2image": lambda: _action_generate("text2image", prompt, ratio, resolution_type, model_version, count),
+            "text2video": lambda: _action_generate("text2video", prompt, ratio, resolution_type, model_version, count),
             "query_result": lambda: _action_query_result(submit_id),
             "list_task": lambda: _action_list_task(gen_status, limit),
-            "image2video": lambda: _action_image2video(image_path, prompt, model),
-            "image2image": lambda: _action_image2image(image_path, prompt, ratio),
+            "image2video": lambda: _action_image2video(images, prompt, model),
+            "image2image": lambda: _action_image2image(images, prompt, ratio),
         }
         handler = action_map.get(action)
         if handler is None:
@@ -413,17 +413,17 @@ def main() -> None:
     p.add_argument("--device_code", default="", help="设备码（登录检查）")
     p.add_argument("--poll", type=int, default=5, help="轮询间隔（秒）")
     p.add_argument("--ratio", default="16:9", help="画面比例")
-    p.add_argument("--resolution", default="2k", help="分辨率")
-    p.add_argument("--model", default="", help="模型名称")
+    p.add_argument("--resolution_type", default="2k", help="分辨率")
+    p.add_argument("--model_version", default="", help="模型名称")
     p.add_argument("--count", type=int, default=1, help="生成数量")
-    p.add_argument("--image_path", default="", help="图片路径")
+    p.add_argument("--images", default="", help="图片路径")
     p.add_argument("--gen_status", default="", help="筛选任务状态")
     p.add_argument("--limit", type=int, default=20, help="任务列表数量")
     p.add_argument("--json_out", action="store_true", help="JSON 输出")
     args = p.parse_args()
     r = agent_main(action=args.action, prompt=args.prompt, gen_type=args.gen_type, submit_id=args.submit_id,
-                   device_code=args.device_code, poll=args.poll, ratio=args.ratio, resolution=args.resolution,
-                   model=args.model, count=args.count, image_path=args.image_path, gen_status=args.gen_status, limit=args.limit)
+                   device_code=args.device_code, poll=args.poll, ratio=args.ratio, resolution_type=args.resolution_type,
+                   model_version=args.model_version, count=args.count, images=args.images, gen_status=args.gen_status, limit=args.limit)
     if args.json_out:
         print(json.dumps(r, ensure_ascii=False))
     else:

@@ -163,9 +163,18 @@ def _log(msg: str):
 
 def start_server():
     global uvicorn_server
-    _log("正在启动 uvicorn 服务器...")
+    _log("正在启动 uvicorn 服务器 (v2)...")
     import uvicorn
-    from deepseek_code_agent import app
+    from deepseek_code_agent2 import app
+    from agent_v2 import agent_core as _agent_core
+
+    if not _agent_core._chat_api_key_available():
+        _log("WARNING: API Key 未配置，请在 config.ini [model] 设置 api_key 或环境变量 CHAT_API_KEY")
+        print(
+            "[main_tray] ⚠️  API Key 未配置，请在 config.ini [model] 设置 api_key 或 CHAT_API_KEY",
+            file=sys.stderr,
+            flush=True,
+        )
     try:
         # log_config=None 禁用 uvicorn 默认日志配置（兼容 --noconsole 无控制台环境）
         config = uvicorn.Config(app, host=HOST, port=PORT, log_config=None, reload=False)
@@ -213,7 +222,7 @@ def create_tray_icon():
         pystray.MenuItem("\u274c \u9000\u51fa\u670d\u52a1", on_exit),
     )
 
-    icon = pystray.Icon("deepseek_code_agent", img, "DeepSeek Code Agent v1\n\u540e\u53f0 AI \u670d\u52a1\u8fd0\u884c\u4e2d", menu)
+    icon = pystray.Icon("deepseek_code_agent2", img, "DeepSeek Code Agent v2\n\u540e\u53f0 AI \u670d\u52a1\u8fd0\u884c\u4e2d", menu)
     return icon
 
 
@@ -244,7 +253,7 @@ def on_exit(icon, item=None):
 
 def main():
     import time
-    _log(f"启动 DeepSeek Code Agent v1")
+    _log(f"启动 DeepSeek Code Agent v2")
     _log(f"服务器地址: {SERVER_URL}")
     _log(f"AGENT_ROOT: {BASE_DIR}")
     _log(f"DATA_ROOT: {DATA_ROOT}")
@@ -252,7 +261,7 @@ def main():
     _log(f"config.ini 存在: {(BASE_DIR / 'config.ini').exists()}")
     _log(f"PORT env: {os.environ.get('PORT') or '未设置'}")
     _log(f"CHAT_API_BASE_URL: {os.environ.get('CHAT_API_BASE_URL') or '未设置'}")
-    print(f"[main_tray] 正在启动 DeepSeek Code Agent v1...", flush=True)
+    print(f"[main_tray] 正在启动 DeepSeek Code Agent v2...", flush=True)
     print(f"[main_tray] 服务器地址: {SERVER_URL}", flush=True)
 
     # ── 1. 远程版本检测（不阻塞启动）──

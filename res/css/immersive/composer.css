@@ -321,6 +321,15 @@ html[data-ui-theme="light"] #immT::placeholder {
 }
 .imm-session-row:hover { background: var(--imm-menu-hover-bg); }
 .imm-session-new { font-weight: 600; }
+.imm-session-group {
+  padding: 8px 9px 4px;
+  color: var(--imm-menu-hint);
+  font-size: 10px;
+  font-weight: 700;
+  position: sticky;
+  top: -4px;
+  background: var(--imm-pop-bg);
+}
 .imm-session-empty { color: var(--imm-menu-hint); padding: 10px; font-size: 12px; }
 .imm-session-title {
   flex: 1;

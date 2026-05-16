@@ -45,6 +45,8 @@ def agent_main(
             if not cp.is_dir():
                 raise ValueError(f"cwd 不是目录: {cp}")
             cwd_resolved = str(cp)
+        else:
+            cwd_resolved = str(ac.workspace_root())
 
         selected_shell, shell_executable = _resolve_shell_executable(shell, command)
         cp = subprocess.run(
@@ -86,7 +88,7 @@ def main() -> None:
 
     p = argparse.ArgumentParser(description="run_command")
     p.add_argument("--command", required=True)
-    p.add_argument("--cwd", default=None)
+    p.add_argument("--cwd", default=None, help="执行目录（默认：工作区根目录）")
     p.set_defaults(safe_mode=True)
     p.add_argument("--timeout_sec", type=int, default=300)
     p.add_argument("--shell", choices=["auto", "cmd", "powershell"], default="auto")

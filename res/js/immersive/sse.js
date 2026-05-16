@@ -101,6 +101,13 @@
 
   function renderTodoInColumn(col, ev) {
     var items = Array.isArray(ev.items) ? ev.items : [];
+    if (ev.close) {
+      if (col && col.wrapEl) {
+        var host = col.wrapEl.querySelector(".imm-col-todo");
+        if (host) host.style.display = "none";
+      }
+      return;
+    }
     if (!items.length) return;
     if (!col || !col.wrapEl) return;
     var wrap = col.wrapEl;
@@ -118,12 +125,8 @@
         host.classList.toggle("collapsed");
       });
     }
+    host.style.display = "";
     var needCollapse = !!(ev.collapsed);
-    if (needCollapse) {
-      host.classList.remove("collapsed");
-    } else {
-      host.classList.add("collapsed");
-    }
     var done = 0, html = '<div class="imm-todo-hdr"><span class="imm-todo-hdr-title">📋 Todo List</span><span class="imm-todo-hdr-count">0/0</span><span class="imm-todo-collapse-icon">▼</span></div><div class="imm-todo-body"><div class="imm-todo-scroll"><div class="imm-todo-items">';
     for (var i = 0; i < items.length; i++) {
       if (items[i].done) done++;
@@ -450,7 +453,12 @@
             hideChatLoading(s);
             endedAwaitingUserConfirm = true;
           } else if (ev.type === "todo_list") {
-            renderTodoInColumn(col, ev);
+            if (ev.close) {
+              var todoHost = msgsEl && msgsEl.parentNode && msgsEl.parentNode.querySelector(".imm-col-todo");
+              if (todoHost) todoHost.style.display = "none";
+            } else {
+              renderTodoInColumn(col, ev);
+            }
           } else if (ev.type === "reasoning_delta" || ev.type === "reasoning_sync") {
             /* 无 lastLlm 卡片时跳过推理块（1.1） */
           } else if (ev.type === "error") {

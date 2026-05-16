@@ -305,10 +305,12 @@ def line_meta_keepends(lines_keepends: list[str]) -> tuple[list[int], list[int]]
 
 def text_slice_by_lines(lines_keepends: list[str], start_line: int, end_line: int) -> str:
     total = len(lines_keepends)
-    if start_line < 1 or end_line < 1 or start_line > end_line or end_line > total:
-        raise ValueError(
-            f"行号越界: start_line={start_line}, end_line={end_line}, total_lines={total}"
-        )
+    if start_line < 1 or start_line > total:
+        return ""
+    if end_line > total:
+        end_line = total
+    if start_line > end_line:
+        start_line = end_line
     return "".join(lines_keepends[start_line - 1 : end_line])
 
 
@@ -322,10 +324,12 @@ def abs_span_lines_columns(
 ) -> tuple[int, int]:
     """行列矩形区间 → 全文半开区间 [abs_start, abs_end)。列号 1-based，end_column 为开区间。"""
     total = len(lines_keepends)
-    if start_line < 1 or end_line < 1 or start_line > total or end_line > total:
-        raise ValueError(
-            f"行号越界: start_line={start_line}, end_line={end_line}, total_lines={total}"
-        )
+    if start_line < 1:
+        return (0, len(full_text))
+    if end_line > total:
+        end_line = total
+    if start_line > total or end_line < 1 or start_line > end_line:
+        return (0, 0)
     starts, content_lens = line_meta_keepends(lines_keepends)
     sl = start_line - 1
     el = end_line - 1

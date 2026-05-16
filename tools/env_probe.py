@@ -47,7 +47,7 @@ def agent_main(*, run_type: str = "") -> dict:
     data = {
         "platform": sys.platform,
         "python": sys.version.split()[0],
-        "cwd": str(Path.cwd()),
+        "cwd": str(ac.workspace_root()),
         "available": available,
         "pycharm_terminal_note": "IDE 终端仍调用系统 shell（如 powershell/cmd），常规 pip/命令均可使用。",
         "recommendations": recommendations,

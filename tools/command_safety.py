@@ -115,6 +115,16 @@ def _check_command_blacklist(command: str) -> Optional[str]:
             f"{advice}\n"
             f"如需删除文件/目录，请使用 delete_file 工具（逻辑删除移至回收站）。"
         )
+    # 内容层面拦截：base64 编码（模型常用来嵌入图片，浪费 token 且导致对话中断）
+    _base64_inline_patterns = ["import base64", "from base64"]
+    for _pat in _base64_inline_patterns:
+        if _pat in command.lower():
+            return (
+                f"命令黑名单拦截：命令中包含 '{_pat}'。\n"
+                f"禁止在命令/代码中使用 base64 编码嵌入图片/文件内容。\n"
+                f"请使用专用工具（如 read_file、write_file、read_write、web_fetch）处理文件内容。\n"
+                f"图片预览请用 `![图片](url)` 格式，不要用 data URI/base64。"
+            )
     for blk in sorted(_CMD_BLACKLIST, key=len, reverse=True):
         if " " in blk and command.strip().lower().startswith(blk):
             advice = _BLACKLIST_ADVICE.get(blk, "禁止使用此命令")

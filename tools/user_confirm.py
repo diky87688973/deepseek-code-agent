@@ -56,10 +56,21 @@ def agent_main(
     multi: bool = False,
     custom_option_index: Optional[int] = None,
     interactive: bool = False,
+    confirm_id: str = "",
 ) -> dict:
     try:
         if confirm is not None:
-            return ac.ok({"confirm": str(confirm)})
+            # 有待确认的 confirm_id 时自动标记
+            if confirm_id:
+                try:
+                    from agent_v2.live_state import kling_mark_confirmed
+                    kling_mark_confirmed(confirm_id)
+                except Exception:
+                    pass
+            _result = {"confirm": str(confirm)}
+            if confirm_id:
+                _result["confirm_id"] = confirm_id
+            return ac.ok(_result)
 
         if confirms is None:
             raise ValueError("须提供 confirms（非空字符串数组）")

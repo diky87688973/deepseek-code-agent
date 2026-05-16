@@ -62,11 +62,27 @@
   }
   function renderInlineMarkdown(s) {
     var t = escapeHtml(s || "");
-    t = t.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, function (_, alt, url) {
+    // 裸 Windows 路径 D:\...\workspace\... → 转 /kling-tasks/ 或 /ws/
+    t = t.replace(/!\[([^\]]*)\]\(([a-zA-Z]:[\/\\]AI_DATA_ROOT[\/\\]workspace[\/\\]([^\s)]+))\)/g, function (_, alt, raw, p) {
+      var localPath = raw.replace(/\//g, '\\');
+      if (/\.(mp4|mov|webm|avi)(\?|$)/i.test(p)) {
+        return '<video src="/workspace/' + p + '" controls style="max-width:100%;border-radius:6px;margin:4px 0;max-height:480px;background:#000;" title="' + localPath + '" alt="' + localPath + '"></video>';
+      }
+      return '<img src="/workspace/' + p + '" alt="' + localPath + '" loading="lazy" style="max-width:300px;height:auto" title="' + localPath + '" />';
+    });
+    // file:/// 工作区路径 → 转 /kling-tasks/ 或 /ws/ 静态路由
+    t = t.replace(/!\[([^\]]*)\]\(file:\/\/\/[a-zA-Z]:[\/\\]AI_DATA_ROOT[\/\\]workspace[\/\\]([^\s)]+)\)/g, function (_, alt, p) {
+      var localPath = 'D:\\AI_DATA_ROOT\\workspace\\' + p.replace(/\//g, '\\');
+      if (/\.(mp4|mov|webm|avi)(\?|$)/i.test(p)) {
+        return '<video src="/workspace/' + p + '" controls style="max-width:100%;border-radius:6px;margin:4px 0;max-height:480px;background:#000;" title="' + localPath + '" alt="' + localPath + '"></video>';
+      }
+      return '<img src="/workspace/' + p + '" alt="' + localPath + '" loading="lazy" style="max-width:300px;height:auto" title="' + localPath + '" />';
+    });
+    t = t.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+|\/[^\s)]+|[a-zA-Z]:[\/\\][^\s)]+)\)/g, function (_, alt, url) {
       if (/\.(mp4|mov|webm|avi)(\?|$)/i.test(url)) {
         return '<video src="' + url + '" controls style="max-width:100%;border-radius:6px;margin:4px 0;max-height:480px;background:#000;"></video>';
       }
-      return '<img src="' + url + '" alt="' + alt + '" loading="lazy" />';
+      return '<img src="' + url + '" alt="' + alt + '" loading="lazy" style="max-width:300px;height:auto" />';
     });
     t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function (_, label, url) {
       return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + label + "</a>";
