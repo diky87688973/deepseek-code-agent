@@ -477,7 +477,10 @@ return escapeHtml(t);
 }
 function renderInlineMarkdown(s){
 let t=escapeHtml(s||'');
-t=t.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g,function(_,alt,url){return '<img src="'+url+'" alt="'+alt+'" loading="lazy" />';});
+t=t.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g,function(_,alt,url){
+  if(/\.(mp4|mov|webm|avi)(\?|$)/i.test(url)) return '<video src="'+url+'" controls style="max-width:100%;border-radius:6px;margin:4px 0;max-height:480px;background:#000;"></video>';
+  return '<img src="'+url+'" alt="'+alt+'" loading="lazy" />';
+});
 t=t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,function(_,label,url){return '<a href="'+url+'" target="_blank" rel="noopener noreferrer">'+label+'</a>';});
 t=t.replace(/`([^`]+)`/g,'<code>$1</code>');
 t=t.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
@@ -1498,7 +1501,7 @@ pendingToolTags.push({tag:o.tag,ok:!!ok||!!ev.user_confirm_required});
 if(ev.user_confirm_required){o.tag.textContent="待确认";o.tag.className="tag tag-run";}
 o.resLb.style.display="block";o.resPb.style.display="block";if(ev.user_confirm_required){try{var _pj=JSON.parse(ev.preview||"{}");var _em=_pj&&_pj.error&&_pj.error.message?String(_pj.error.message):"";var _em2=_em.indexOf("\n\n--help:")>=0?_em.split("\n\n--help:")[0].trim():_em;var slim={ok:_pj.ok,data:_pj.data,error:_pj.error?{code:_pj.error.code,type:_pj.error.type,message:_em2,hint:_pj.error.hint,retryable:_pj.error.retryable}:null};o.resPb.textContent=JSON.stringify(slim,null,2);}catch(e){o.resPb.textContent=ev.preview||"";}}else{try{var _pj2=JSON.parse(ev.preview||"{}");o.resPb.textContent=JSON.stringify(_pj2,null,2);}catch(e){o.resPb.textContent=ev.preview||"";}}
 fillToolPreview(o,ev);
-try{var _pp=typeof ev.preview==="string"?JSON.parse(ev.preview):ev.preview;var _so=_pp&&_pp.data&&_pp.data.stdout;if(_so&&typeof _so==="string"&&_so.trim()){var _cardDiv=document.createElement("div");_cardDiv.className="b a";var _cardTitle=(o.stepTitle&&o.stepTitle.trim())?escapeHtml(o.stepTitle.trim()):"执行命令脚本";var _cmdRaw=(o.args&&(o.args.command||o.args.code))||"";_cardDiv.innerHTML='<div class="chat-diff-card"><div class="chat-diff-cap">'+_cardTitle+'</div><div class="diff-unified" style="overflow:inherit"><pre style="margin:0;padding:4px 8px;font-size:11px;line-height:1.4;background:#0d0d0d;max-height:200px"><code>'+escapeHtml(_cmdRaw)+'</code></pre></div><div class="diff-unified" style="overflow:inherit;border-top:1px solid #2a2a2a"><pre style="margin:0;padding:4px 8px;font-size:11px;line-height:1.4;max-height:200px"><code>'+escapeHtml(_so)+'</code></pre></div></div>';if(streamAssistantEl){streamAssistantEl.after(_cardDiv);streamAssistantEl=null;streamAssistantText="";}else{msgs.appendChild(_cardDiv);}
+try{var _pp=typeof ev.preview==="string"?JSON.parse(ev.preview):ev.preview;var _so=_pp&&_pp.data&&_pp.data.stdout;if(_so&&typeof _so==="string"&&_so.trim()){var _cardDiv=document.createElement("div");_cardDiv.className="b a";var _cardTitle=(o.stepTitle&&o.stepTitle.trim())?escapeHtml(o.stepTitle.trim()):"执行命令脚本";var _cmdRaw=(o.args&&(o.args.command||o.args.code))||"";_cardDiv.innerHTML='<div class="chat-diff-card"><div class="chat-diff-cap">'+_cardTitle+'</div><div class="diff-unified chat-run-wrap"><pre class="chat-run-pre chat-run-pre--cmd"><code>'+escapeHtml(_cmdRaw)+'</code></pre></div><div class="diff-unified chat-run-wrap chat-run-out-border"><pre class="chat-run-pre chat-run-pre--out"><code>'+escapeHtml(_so)+'</code></pre></div></div>';if(streamAssistantEl){streamAssistantEl.after(_cardDiv);streamAssistantEl=null;streamAssistantText="";}else{msgs.appendChild(_cardDiv);}
 scrollMsgsToBottom();}}catch(_e3){}
 if(ev.user_confirm_required)openUserConfirmModalFromToolEnd(ev);toolOpen.delete(tid);}
 

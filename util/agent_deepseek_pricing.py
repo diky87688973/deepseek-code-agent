@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Model pricing: static JSON (CHAT_PRICING_JSON) or fetch DeepSeek pricing page when enabled."""
+"""Model pricing: static JSON (CHAT_PRICING_SOURCE / config.ini misc.pricing_source)."""
 
 from __future__ import annotations
 
@@ -12,15 +12,17 @@ import urllib.error
 import urllib.request
 
 from .agent_model_dispatch import ALLOWED_MODELS
+from util.config_loader import load_config
 
-PRICING_URL = "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/"
+_AGENT_CONFIG = load_config(verbose=False)
+
 _PAIR_RE = re.compile(r"<td>([0-9.]+)元</td><td>([0-9.]+)元")
 
 _NUM_KEYS = frozenset({"cache_hit_cny_per_m", "cache_miss_cny_per_m", "output_cny_per_m"})
 
 
 def _pricing_source_mode() -> str:
-    v = (os.environ.get("CHAT_PRICING_SOURCE") or "auto").strip().lower()
+    v = str(_AGENT_CONFIG.get("AGENT_PRICING_SOURCE") or "").strip().lower()
     if v in ("deepseek", "fetch", "html"):
         return "deepseek"
     if v in ("0", "false", "no", "off", "none", "static_only"):
@@ -40,7 +42,7 @@ def _row_from_static(obj: Any) -> Optional[Dict[str, float]]:
 
 
 def _static_table() -> Optional[Dict[str, Any]]:
-    raw = (os.environ.get("CHAT_PRICING_JSON") or "").strip()
+    raw = str(_AGENT_CONFIG.get("AGENT_PRICING_JSON") or "").strip()
     if not raw:
         return None
     try:
@@ -64,9 +66,12 @@ def _lookup_static(model: str, table: Dict[str, Any]) -> Optional[Tuple[Dict[str
 
 
 def _fetch_rows() -> Optional[List[Tuple[float, float]]]:
+    url = str(_AGENT_CONFIG["AGENT_PRICING_PAGE_URL"]).strip()
+    if not url:
+        raise RuntimeError("AGENT_PRICING_PAGE_URL 未设置！请在 config.ini 的 [misc] 节配置 pricing_page_url")
     try:
         req = urllib.request.Request(
-            PRICING_URL,
+            url,
             headers={"User-Agent": "deepseek-code-agent-pricing/1.0"},
             method="GET",
         )

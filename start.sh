@@ -39,7 +39,7 @@ if [ ! -f "config.ini" ]; then
 fi
 
 # 从 config.ini 读取 port 供提示（首条 ^port *=）
-PORT_HINT=8801
+PORT_HINT=
 if [ -f "config.ini" ]; then
     _line="$(grep -E '^[[:space:]]*port[[:space:]]*=' config.ini 2>/dev/null | head -1)"
     if [ -n "$_line" ]; then
@@ -51,7 +51,8 @@ fi
 echo "[信息] 检测依赖..."
 python3 -c "import fastapi" 2>/dev/null || python -c "import fastapi" 2>/dev/null || {
     echo "[信息] 首次运行，正在安装依赖..."
-    pip3 install -r requirements.txt -q 2>/dev/null || pip install -r requirements.txt -q || {
+    echo "[信息] 正在安装以下依赖：fastapi uvicorn pydantic pystray Pillow openpyxl"
+    pip3 install -r requirements.txt 2>/dev/null || pip install -r requirements.txt || {
         echo "[错误] 依赖安装失败，请手动执行: pip install -r requirements.txt"
         exit 1
     }
@@ -74,7 +75,7 @@ fi
 
 echo "[信息] 正在启动 $APP_NAME ..."
 echo "[信息] 托盘功能仅 Windows 支持，Linux/macOS 将直接启动 Web 服务"
-echo "[信息] 服务启动后请访问 http://127.0.0.1:${PORT_HINT}"
+echo "[信息] 服务启动后请访问 http://127.0.0.1:${PORT_HINT:-未知}"
 echo "[信息] 按 Ctrl+C 即可停止服务"
 echo ""
 

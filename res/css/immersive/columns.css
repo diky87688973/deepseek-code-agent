@@ -225,6 +225,52 @@
   padding-left: 6px;
 }
 
+/* 与经典页 chat-run-* 对齐：执行命令 stdout 卡片（需高于 .imm-msgs .b.a pre 的变量背景） */
+.imm-msgs .b.a .chat-run-wrap {
+  overflow: inherit;
+}
+.imm-msgs .b.a .chat-run-out-border {
+  border-top: 1px solid #2a2a2a;
+}
+.imm-msgs .b.a pre.chat-run-pre {
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  max-height: 200px;
+  overflow: auto;
+  font-family: Consolas, ui-monospace, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-sizing: border-box;
+}
+.imm-msgs .b.a pre.chat-run-pre--cmd {
+  background: #0d0d0d;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  color: #e6edf3;
+}
+.imm-msgs .b.a pre.chat-run-pre--cmd code {
+  color: #e6edf3;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+.imm-msgs .b.a pre.chat-run-pre--out {
+  background: transparent;
+  color: #c9d1d9;
+}
+.imm-msgs .b.a pre.chat-run-pre--out code {
+  color: #c9d1d9;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+
 /* ── diff 卡片白天 ── */
 html[data-ui-theme="light"] .chat-diff-neg {
   color: #d73a49;
@@ -251,4 +297,25 @@ html[data-ui-theme="light"] .diff-unified .d-meta {
   color: #5a6474;
   background: #f0f2f4;
   border-left-color: #c8d4e8;
+}
+html[data-ui-theme="light"] .imm-msgs .b.a .chat-diff-card .diff-unified {
+  background: #f8f9fa;
+}
+html[data-ui-theme="light"] .imm-msgs .b.a .chat-run-out-border {
+  border-top-color: #d0dae8;
+}
+html[data-ui-theme="light"] .imm-msgs .b.a pre.chat-run-pre--cmd {
+  background: #f0f4fa;
+  border-color: #c8d4e8;
+  color: #0d1117;
+}
+html[data-ui-theme="light"] .imm-msgs .b.a pre.chat-run-pre--cmd code {
+  color: #0d1117;
+}
+html[data-ui-theme="light"] .imm-msgs .b.a pre.chat-run-pre--out {
+  background: #ffffff;
+  color: #24292f;
+}
+html[data-ui-theme="light"] .imm-msgs .b.a pre.chat-run-pre--out code {
+  color: #24292f;
 }

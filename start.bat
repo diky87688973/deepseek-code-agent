@@ -25,7 +25,11 @@ for /f "usebackq tokens=2 delims==" %%a in (`findstr /r /i "^[ ]*port[ ]*=" conf
         set PORT=!PORT: =!
     )
 )
-if not defined PORT set PORT=8801
+if not defined PORT (
+    echo [错误] 未在 config.ini 的 [server] 节找到 port 配置
+    pause
+    exit /b 1
+)
 
 :: 检查是否在项目根目录
 if not exist "main_tray.py" (
@@ -58,7 +62,7 @@ echo [信息] 检测依赖...
 python -c "import fastapi" 2>nul
 if !errorlevel! neq 0 (
     echo [信息] 首次运行，正在安装依赖...
-    pip install -r requirements.txt -q
+    pip install -r requirements.txt
     if !errorlevel! neq 0 (
         echo [错误] 依赖安装失败，请手动执行: pip install -r requirements.txt
         pause

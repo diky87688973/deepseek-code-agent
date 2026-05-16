@@ -9,5 +9,3 @@ Pillow>=10.0.0
 
 # 知识库 Excel 文件支持
 openpyxl>=3.1.0
-# OCR 图片文字识别
-easyocr>=1.7.0

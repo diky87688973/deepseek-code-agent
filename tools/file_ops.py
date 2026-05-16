@@ -16,9 +16,6 @@ from typing import Optional, Tuple
 import agent_common as ac
 from tool_help_share import HelpfulParser
 
-# 回收站根：优先环境变量 AGENT_RECYCLE_ROOT，否则使用内建默认路径（见 BUILTIN_RECYCLE_ROOT）
-BUILTIN_RECYCLE_ROOT = Path.home() / "AI_DATA_ROOT" / "AI_安全删除回收站"
-
 
 def _ensure_under_root(root: Path, p: Path) -> None:
     try:
@@ -28,10 +25,11 @@ def _ensure_under_root(root: Path, p: Path) -> None:
 
 
 def _recycle_bin_root() -> Path:
-    env = os.environ.get("AGENT_RECYCLE_ROOT", "").strip()
-    if env:
-        return Path(env)
-    return Path(BUILTIN_RECYCLE_ROOT)
+    env = os.environ.get("AGENT_RECYCLE_ROOT")
+    if not env:
+        # AGENT_RECYCLE_ROOT 由主程序基于 DATA_ROOT 设置
+        raise RuntimeError("AGENT_RECYCLE_ROOT 未设置！请通过主程序启动（main_tray.py）")
+    return Path(env)
 
 
 def _is_inside_recycle(src: Path, recycle_root: Path) -> bool:

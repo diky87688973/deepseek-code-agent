@@ -48,7 +48,7 @@ _lock_single_instance()
 
 # ── 最先加载配置（覆盖环境变量）──
 from util.config_loader import load_config
-load_config(verbose=True)
+_AGENT_CONFIG = load_config(verbose=True)
 
 # ── 路径兼容：源码 / PyInstaller 打包后 ──
 if getattr(sys, 'frozen', False):
@@ -57,25 +57,24 @@ else:
     BASE_DIR = Path(__file__).resolve().parent
 
 os.chdir(str(BASE_DIR))
-# PORT 由 config.ini（经 load_config 写入环境变量）或已有环境变量提供
 
 sys.path.insert(0, str(BASE_DIR))
 
-# ── DATA_ROOT：可写数据目录，默认 ~/AI_DATA_ROOT（用户目录下）──
-_dr = os.environ.get("AGENT_DATA_ROOT_DIR", "").strip()
+# ── DATA_ROOT：可写数据目录，从 AGENT_CONFIG 读取 ──
+_dr = str(_AGENT_CONFIG.get("AGENT_DATA_ROOT_DIR") or "").strip()
 if len(_dr) >= 2 and _dr[0] == _dr[-1] and _dr[0] in ("'", '"'):
     _dr = _dr[1:-1].strip()
-if _dr:
-    DATA_ROOT = Path(_dr).expanduser().resolve()
-else:
-    DATA_ROOT = Path.home() / "AI_DATA_ROOT"
+if not _dr:
+    print("FATAL: AGENT_DATA_ROOT_DIR 未设置！请在 config.ini 的 [workspace] 节配置 data_root", flush=True)
+    sys.exit(1)
+DATA_ROOT = Path(_dr).expanduser().resolve()
 # 向环境变量写入回收站路径（供 file_ops 等工具读取 AGENT_RECYCLE_ROOT）
 os.environ.setdefault("AGENT_RECYCLE_ROOT", str(DATA_ROOT / "AI_安全删除回收站"))
 
-HOST = os.environ.get("HOST", "127.0.0.1")
-port_str = os.environ.get("PORT")
+HOST = str(_AGENT_CONFIG["AGENT_SERVER_HOST"]).strip()
+port_str = str(_AGENT_CONFIG["AGENT_SERVER_PORT"]).strip()
 if not port_str:
-    print("FATAL: PORT 未设置！请在 config.ini 的 [server] 节配置 port（映射为环境变量 PORT）", flush=True)
+    print("FATAL: AGENT_SERVER_PORT 未设置！请在 config.ini 的 [server] 节配置 port", flush=True)
     sys.exit(1)
 PORT = int(port_str)
 SERVER_URL = f"http://{HOST}:{PORT}"
@@ -84,7 +83,7 @@ uvicorn_server = None
 shutdown_event = threading.Event()
 
 # ── UNLOCK_CODE_UPDATE：是否跳过 ACL 锁定（更新时用）──
-_unlock_update = os.environ.get("UNLOCK_CODE_UPDATE", "false").strip().lower() in ("true", "1", "yes")
+_unlock_update = str(_AGENT_CONFIG.get("UNLOCK_CODE_UPDATE") or "").strip().lower() in ("true", "1", "yes")
 
 
 # ── ACL 安全锁 ──
@@ -251,8 +250,8 @@ def main():
     _log(f"DATA_ROOT: {DATA_ROOT}")
     _log(f"UNLOCK_CODE_UPDATE: {_unlock_update}")
     _log(f"config.ini 存在: {(BASE_DIR / 'config.ini').exists()}")
-    _log(f"PORT env: {os.environ.get('PORT', '未设置')}")
-    _log(f"CHAT_API_BASE_URL: {os.environ.get('CHAT_API_BASE_URL', '未设置')}")
+    _log(f"PORT env: {os.environ.get('PORT') or '未设置'}")
+    _log(f"CHAT_API_BASE_URL: {os.environ.get('CHAT_API_BASE_URL') or '未设置'}")
     print(f"[main_tray] 正在启动 DeepSeek Code Agent v1...", flush=True)
     print(f"[main_tray] 服务器地址: {SERVER_URL}", flush=True)
 

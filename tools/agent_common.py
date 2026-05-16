@@ -9,6 +9,10 @@ import re
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
+from util.config_loader import load_config
+
+_AGENT_CONFIG = load_config(verbose=False)
+
 
 def ok(data: Optional[dict]) -> dict:
     return {"ok": True, "data": data, "error": None}
@@ -26,7 +30,7 @@ def _strip_outer_quotes(s: str) -> str:
 
 
 def workspace_root() -> Path:
-    w = _strip_outer_quotes(os.environ.get("WORKSPACE_DIR") or "")
+    w = _strip_outer_quotes(str(_AGENT_CONFIG.get("AGENT_WORKSPACE_DIR") or ""))
     if w:
         return Path(w).expanduser().resolve()
     return Path.cwd().resolve()

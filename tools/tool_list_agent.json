@@ -15,7 +15,8 @@
     "tool_help_on_failure": "凡工具返回 ok=false，宿主在 error.tool_help 中附带 argparse 等效 --help 全文 + 本清单摘要；模型须据此纠错。",
     "region_replace_safety": "replace_in_file 提供四种替换方式：① line_start+line_end（行替换，推荐）：按行号替换，坐标永不漂移。② regions 数组：一次传入 [{region_start,region_end,new_text},...]，工具自动降序防漂移。③ 单次 region_start+region_end：精确替换。④ rules 数组：字面 old_text→new_text 批量替换。",
     "literal_replace_ambiguity": "⚠️ old_text+new_text 字面替换默认 replace_all=true。若某文件中有多处相同匹配会全部误伤。安全铁律：① 每次必须设 expected_replacements=n 校验替换次数（等于提供「唯一性断言」，匹配数不符则拒绝）；② old_text 包含足够长的唯一上下文；③ 可改用 line_start+line_end 或 region_start/region_end 精确区间；④ 不确定匹配数时先用 find_in_file 看匹配位置。",
-    "string_escape": "⚠️ 字符串参数（old_text、new_text、pattern、patch_text、code 等）中的反斜杠 \\ 按 JSON 标准转义。例如：arguments 中 \\n 表示字面反斜杠+n（而非换行符），\\\\ 表示单个反斜杠。不确定时优先用 line_start+line_end 或 region 替换，避免转义问题。"
+    "string_escape": "⚠️ 字符串参数（old_text、new_text、pattern、patch_text、code 等）中的反斜杠 \\ 按 JSON 标准转义。例如：arguments 中 \\n 表示字面反斜杠+n（而非换行符），\\\\ 表示单个反斜杠。不确定时优先用 line_start+line_end 或 region 替换，避免转义问题。",
+    "kling_video_markdown": "【🔴 强制规则】视频播放必须用 `![播放视频](url)` 格式，禁止任何其他写法。\n规则：\n1. kling_generate(action=query_result) 返回的 data.message 已包含正确格式，必须原样逐字输出，不得改写、不得省略、不得追加评论。\n2. 如果 data.message 中有多个 ![播放视频](url)，必须全部保留。\n3. 禁止用 [下载视频](url)、视频链接：xxx、![video](url)、Markdown video 标签、HTML video 标签 — 前端只认 ![播放视频](url) 这一种格式。\n4. 若工具未返回 message（如任务还在处理中），但你手上有视频 URL，也必须自行组装 ![播放视频](url) 格式。\n5. 验证方法：你输出后如果没看到视频播放控件，说明你写错格式了，必须立刻修正。"
   },
   "tools": [
     {
@@ -2481,7 +2482,7 @@
     {
       "name": "image_ocr.py",
       "path": "tools/image_ocr.py",
-      "purpose": "对图片 source 做 OCR，返回 full_text 等。engine=auto|pytesseract|easyocr；region 可裁剪 x,y,w,h。",
+      "purpose": "对图片做 OCR 文字识别，支持 pytesseract（本地引擎）和 easyocr（AI引擎）。依赖：easyocr 按需安装（pip install easyocr），首次调用自动检测。pytesseract 需额外安装 Tesseract 系统程序。",
       "stdout_output": "{ok,data:{full_text,...}}",
       "args": [
         {
@@ -2890,6 +2891,371 @@
           "args": {
             "code": "import pandas as pd; df=pd.read_csv('a.csv'); print(df.head().to_csv(index=False))",
             "cwd": "data"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dreamina_generate.py",
+      "path": "tools/dreamina_generate.py",
+      "purpose": "即梦 Dreamina 文生图/文生视频工具。封装 dreamina CLI，支持登录/OAuth认证/余额查询/文生图/文生视频/图生视频/图生图/异步结果查询/任务列表。需先安装 dreamina CLI（curl -s https://jimeng.jianying.com/cli | bash）。",
+      "stdout_output": "{ok,data}",
+      "args": [
+        {
+          "flag": "--action",
+          "type": "string",
+          "required": false,
+          "description": "操作类型：login（发起登录）/ check_login（检查登录，需device_code）/ logout / user_credit / text2image（文生图）/ text2video（文生视频）/ image2video（图生视频，需image_path）/ image2image（图生图，需image_path）/ query_result（查询结果，需submit_id）/ list_task（任务列表）。默认user_credit。"
+        },
+        {
+          "flag": "--prompt",
+          "type": "string",
+          "required": false,
+          "description": "生成提示词（text2image/text2video/image2video/image2image 必填）。"
+        },
+        {
+          "flag": "--gen_type",
+          "type": "string",
+          "required": false,
+          "description": "生成类型：text2image（默认）/ text2video。"
+        },
+        {
+          "flag": "--submit_id",
+          "type": "string",
+          "required": false,
+          "description": "查询异步任务结果时使用（query_result action）。"
+        },
+        {
+          "flag": "--device_code",
+          "type": "string",
+          "required": false,
+          "description": "OAuth 设备码（check_login action 时使用）。"
+        },
+        {
+          "flag": "--ratio",
+          "type": "string",
+          "required": false,
+          "description": "画面比例：16:9（默认）/ 9:16 / 1:1 / 4:3 / 3:4。"
+        },
+        {
+          "flag": "--resolution",
+          "type": "string",
+          "required": false,
+          "description": "分辨率：2k（默认）/ 4k / 1080p。"
+        },
+        {
+          "flag": "--model",
+          "type": "string",
+          "required": false,
+          "description": "模型名称（可选，不指定时使用默认模型）。seedance2.0系列需用户明确指定。"
+        },
+        {
+          "flag": "--count",
+          "type": "integer",
+          "required": false,
+          "description": "生成数量，默认1。"
+        },
+        {
+          "flag": "--image_path",
+          "type": "string",
+          "required": false,
+          "description": "输入图片路径（image2video/image2image 必填）。"
+        },
+        {
+          "flag": "--gen_status",
+          "type": "string",
+          "required": false,
+          "description": "按状态筛选任务（list_task action）。可选：success/fail/querying/all。"
+        },
+        {
+          "flag": "--limit",
+          "type": "integer",
+          "required": false,
+          "description": "任务列表数量上限，默认20。"
+        },
+        {
+          "flag": "--poll",
+          "type": "integer",
+          "required": false,
+          "description": "登录轮询间隔秒数，默认5。"
+        }
+      ],
+      "examples": [
+        {
+          "title": "查询余额",
+          "note": "无参数即查余额。",
+          "args": {
+            "action": "user_credit"
+          }
+        },
+        {
+          "title": "发起登录",
+          "note": "返回 verification_uri 和 user_code，用户访问后授权。",
+          "args": {
+            "action": "login"
+          }
+        },
+        {
+          "title": "检查登录状态",
+          "note": "登录后轮询确认。",
+          "args": {
+            "action": "check_login",
+            "device_code": "<从login返回获取>",
+            "poll": 5
+          }
+        },
+        {
+          "title": "文生图",
+          "note": "生成一张图片。",
+          "args": {
+            "action": "text2image",
+            "prompt": "一只猫的肖像，写实风格",
+            "ratio": "1:1",
+            "resolution": "2k"
+          }
+        },
+        {
+          "title": "查询生成结果",
+          "note": "用 submit_id 查询异步结果。",
+          "args": {
+            "action": "query_result",
+            "submit_id": "<从generate返回获取>"
+          }
+        }
+      ]
+    },
+    {
+      "name": "kling_generate.py",
+      "path": "tools/kling_generate.py",
+      "purpose": "⚠️ 可灵 Kling AI 视频/图像生成工具（消耗积分）。通过 HTTP API 生成视频/图片，每次调用都会消耗账号积分。**必须在获得用户明确许可后才能调用**，生成前应先告知用户将消耗的积分/费用并征得同意。Plan 模式下拒绝执行任何生成类操作。查询结果(query_result)不消耗积分。",
+      "stdout_output": "{ok,data}",
+      "args": [
+        {
+          "flag": "--run_type",
+          "type": "string",
+          "required": false,
+          "description": "会话模式。plan 模式下拒绝执行生成操作。"
+        },
+        {
+          "flag": "--action",
+          "type": "string",
+          "required": false,
+          "description": "操作类型：text2video（文生视频）/ query_result（查询结果）。默认text2video。"
+        },
+        {
+          "flag": "--prompt",
+          "type": "string",
+          "required": false,
+          "description": "视频提示词（text2video 必填）。"
+        },
+        {
+          "flag": "--model_name",
+          "type": "string",
+          "required": false,
+          "description": "模型名称，默认 kling-v1。支持：kling-v1, kling-v1-6, kling-v2-master, kling-v2-1-master, kling-v2-5-turbo, kling-v2-6, kling-v3"
+        },
+        {
+          "flag": "--duration",
+          "type": "string",
+          "required": false,
+          "description": "视频时长（秒），默认5。可选：3-15"
+        },
+        {
+          "flag": "--mode",
+          "type": "string",
+          "required": false,
+          "description": "生成模式：std（720P）/ pro（1080P）/ 4k。默认std。"
+        },
+        {
+          "flag": "--sound",
+          "type": "string",
+          "required": false,
+          "description": "是否生成声音：on/off。默认off。"
+        },
+        {
+          "flag": "--aspect_ratio",
+          "type": "string",
+          "required": false,
+          "description": "画面比例：16:9 / 9:16 / 1:1。默认16:9。"
+        },
+        {
+          "flag": "--negative_prompt",
+          "type": "string",
+          "required": false,
+          "description": "负向提示词，可选。"
+        },
+        {
+          "flag": "--cfg_scale",
+          "type": "number",
+          "required": false,
+          "description": "自由度(0-1)，默认0.5。"
+        },
+        {
+          "flag": "--multi_shot",
+          "type": "boolean",
+          "required": false,
+          "description": "是否多镜头，默认false。"
+        },
+        {
+          "flag": "--shot_type",
+          "type": "string",
+          "required": false,
+          "description": "分镜方式：customize（自定义）/ intelligence（智能），multi_shot=true时必填。"
+        },
+        {
+          "flag": "--multi_prompt",
+          "type": "array",
+          "required": false,
+          "description": "各分镜提示词数组，格式：[{\"index\":1,\"prompt\":\"...\",\"duration\":\"5\"}]"
+        },
+        {
+          "flag": "--camera_control",
+          "type": "object",
+          "required": false,
+          "description": "运镜控制，如 {\"type\":\"down_back\"} 或 {\"type\":\"simple\",\"config\":{\"horizontal\":5}}。"
+        },
+        {
+          "flag": "--watermark_enabled",
+          "type": "boolean",
+          "required": false,
+          "description": "是否生成水印，true=生成，false=不生成，默认不生成。"
+        },
+        {
+          "flag": "--callback_url",
+          "type": "string",
+          "required": false,
+          "description": "任务回调URL，任务完成时服务端主动通知。"
+        },
+        {
+          "flag": "--external_task_id",
+          "type": "string",
+          "required": false,
+          "description": "自定义任务ID，用于查询。"
+        },
+        {
+          "flag": "--task_id",
+          "type": "string",
+          "required": false,
+          "description": "查询任务ID（query_result action时使用）。"
+        }
+      ],
+      "examples": [
+        {
+          "title": "文生视频",
+          "note": "生成一段5秒视频。",
+          "args": {
+            "action": "text2video",
+            "prompt": "一只可爱的小猫在公园里玩耍",
+            "duration": "5",
+            "mode": "std",
+            "aspect_ratio": "16:9"
+          }
+        },
+        {
+          "title": "多镜头文生视频",
+          "note": "生成15秒多镜头视频。",
+          "args": {
+            "action": "text2video",
+            "model_name": "kling-v3",
+            "duration": "15",
+            "mode": "std",
+            "multi_shot": true,
+            "shot_type": "customize",
+            "multi_prompt": [
+              {
+                "index": 1,
+                "prompt": "镜头1描述",
+                "duration": "5"
+              },
+              {
+                "index": 2,
+                "prompt": "镜头2描述",
+                "duration": "5"
+              },
+              {
+                "index": 3,
+                "prompt": "镜头3描述",
+                "duration": "5"
+              }
+            ]
+          }
+        },
+        {
+          "title": "带运镜控制的视频",
+          "note": "生成视频并指定运镜方向。",
+          "args": {
+            "action": "text2video",
+            "prompt": "日落时分的海滩，海浪拍打沙滩",
+            "duration": "10",
+            "mode": "pro",
+            "camera_control": {
+              "type": "forward_up"
+            },
+            "aspect_ratio": "16:9"
+          }
+        },
+        {
+          "title": "文生视频（有声+水印）",
+          "note": "生成带声音和水印的视频。",
+          "args": {
+            "action": "text2video",
+            "prompt": "有人在咖啡馆弹钢琴",
+            "duration": "5",
+            "mode": "pro",
+            "sound": "on",
+            "watermark_enabled": true
+          }
+        },
+        {
+          "title": "查询任务结果",
+          "note": "用任务ID查询生成结果。",
+          "args": {
+            "action": "query_result",
+            "task_id": "<从text2video返回获取>"
+          }
+        }
+      ]
+    },
+    {
+      "name": "web_fetch_render.py",
+      "path": "tools/web_fetch_render.py",
+      "purpose": "支持 JS 渲染的网页抓取工具。使用 Playwright 无头浏览器加载页面，等待 JS 渲染完成后提取正文文本。适合抓取 SPA 动态页面。依赖：pip install playwright && python -m playwright install chromium（按需安装，首次使用时会引导）",
+      "stdout_output": "{ok,data}",
+      "args": [
+        {
+          "flag": "--url",
+          "type": "string",
+          "required": true,
+          "description": "目标网页 URL。"
+        },
+        {
+          "flag": "--wait_sec",
+          "type": "number",
+          "required": false,
+          "description": "等待 JS 渲染的秒数，默认3秒。页面加载慢时可增大。"
+        },
+        {
+          "flag": "--max_chars",
+          "type": "integer",
+          "required": false,
+          "description": "返回正文最大字符数，默认100000。"
+        }
+      ],
+      "examples": [
+        {
+          "title": "抓取 SPA 文档页",
+          "note": "抓取可灵 API 文档。",
+          "args": {
+            "url": "https://klingai.com/document-api/apiReference/model/textToVideo",
+            "wait_sec": 5
+          }
+        },
+        {
+          "title": "快速抓取",
+          "note": "不需要 JS 的页面可设 wait_sec=0。",
+          "args": {
+            "url": "https://example.com",
+            "wait_sec": 0
           }
         }
       ]

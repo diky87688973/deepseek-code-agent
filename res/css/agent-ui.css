@@ -159,6 +159,14 @@ pre{margin:0;padding:8px;max-height:220px;overflow:auto;white-space:pre-wrap;wor
 .diff-unified .d-del{color:#f48771;background:#2d1b1e;border-left:3px solid #f85149;padding-left:6px}
 .diff-unified .d-add{color:#89d185;background:#1b2d1e;border-left:3px solid #3daf3f;padding-left:6px}
 .diff-unified .d-eq,.diff-unified .d-meta{color:#c9d3dd;background:#222426;border-left:3px solid rgba(148,164,182,.28);padding-left:6px}
+/* 聊天内「执行命令」stdout 卡片：勿用内联深色底，否则白天模式下 .b.a code 的配色会叠出极低对比度 */
+.chat-run-wrap{overflow:inherit}
+.chat-run-out-border{border-top:1px solid #2a2a2a}
+.chat-run-pre{margin:0;padding:4px 8px;font-size:11px;line-height:1.4;max-height:200px;overflow:auto;font-family:Consolas,ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;box-sizing:border-box}
+.chat-run-pre--cmd{background:#0d0d0d;border:1px solid #2a2a2a;border-radius:4px;color:#e6edf3}
+.chat-run-pre--cmd code{color:#e6edf3;background:transparent;padding:0;border-radius:0;font-size:inherit;line-height:inherit}
+.chat-run-pre--out{background:transparent;color:#c9d1d9}
+.chat-run-pre--out code{color:#c9d1d9;background:transparent;padding:0;border-radius:0;font-size:inherit;line-height:inherit}
 .llm-merge-block{margin:10px 0 0 0;padding:10px 0 0 0;border-top:1px dashed #3d4450}
 .chat-diff-card{margin:0 0 10px 0;border:1px solid #3a3d41;border-radius:6px;background:#121416;overflow:hidden;max-width:100%}
 .chat-diff-cap{padding:6px 8px;font-size:11px;color:#c9d1d9;border-bottom:1px solid #2a2a2a;background:#1a1d21;line-height:1.35}
@@ -612,4 +620,22 @@ html[data-ui-theme="light"] .diff-unified .d-meta {
 }
 html[data-ui-theme="light"] .b.a .chat-diff-card .diff-unified {
   background: #f8f9fa;
+}
+html[data-ui-theme="light"] .chat-run-out-border {
+  border-top-color: #d0dae8;
+}
+html[data-ui-theme="light"] .chat-run-pre--cmd {
+  background: #f0f4fa;
+  border-color: #c8d4e8;
+  color: #0d1117;
+}
+html[data-ui-theme="light"] .chat-run-pre--cmd code {
+  color: #0d1117;
+}
+html[data-ui-theme="light"] .chat-run-pre--out {
+  background: #ffffff;
+  color: #24292f;
+}
+html[data-ui-theme="light"] .chat-run-pre--out code {
+  color: #24292f;
 }

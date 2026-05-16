@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """DeepSeek Code Agent: OpenAI-compatible Chat Completions + 工具库（tool_list_agent.json）。
 
-Configure CHAT_API_BASE_URL + CHAT_API_KEY (DEEPSEEK_* still accepted as fallback).
+Configure via config.ini [model] api_key / api_base_url, or env CHAT_API_KEY / CHAT_API_BASE_URL.
 Typical body: messages, tools, stream with SSE data: lines — see provider docs for JSON mode, tools, and errors.
 - 本仓库工具库与 Agent 落盘文本（JSON 等）默认 UTF-8。
 - 工具调用失败时（ok 非 true）可向 DATA_ROOT 下 debug 目录写入 JSON 记录；AGENT_TOOL_DEBUG=0 关闭。
@@ -93,12 +93,12 @@ def _strip_config_path_value(value: object) -> str:
     return raw
 
 
-# 可写运行时数据目录：默认 ~/AI_DATA_ROOT（用户目录下），可通过 config.ini 修改
+# 可写运行时数据目录，从配置读取
 _dr = _strip_config_path_value(AGENT_CONFIG.get("AGENT_DATA_ROOT_DIR"))
-if _dr:
-    DATA_ROOT = Path(_dr).expanduser().resolve()
-else:
-    DATA_ROOT = Path.home() / "AI_DATA_ROOT"
+if not _dr:
+    print("FATAL: AGENT_DATA_ROOT_DIR 未设置！请在 config.ini 的 [workspace] 节配置 data_root", flush=True)
+    sys.exit(1)
+DATA_ROOT = Path(_dr).expanduser().resolve()
 
 # ── 知识库配置 ──
 _KB_DIR_STR = _strip_config_path_value(AGENT_CONFIG.get("AGENT_KNOWLEDGE_BASE_DIR"))
@@ -210,37 +210,33 @@ SESSION_ENCRYPTION_MAGIC = "__code_web_agent_session_encrypted__"
 SESSION_APP_ENTROPY = hashlib.sha256((str(AGENT_ROOT) + "|code-web-agent-session-v1").encode("utf-8")).digest()
 
 
-# ── Agent 运行参数：从 AGENT_CONFIG 读取，config.ini / 环境变量可覆盖 ──
+# ── Agent 运行参数：从 AGENT_CONFIG 读取（无默认值，缺失报错）──
 _CONTEXT_CFG = AGENT_CONFIG
 # full：保留末尾 full_user_rounds 个 user 回合为近期完整对话（含工具）；pure：紧挨其前 pure_user_rounds 个 user 回合为远期纯对话（折叠）。
-CONTEXT_FULL_USER_ROUNDS = int(_CONTEXT_CFG.get("AGENT_CONTEXT_FULL_USER_ROUNDS", 5))
-CONTEXT_PURE_USER_ROUNDS = int(_CONTEXT_CFG.get("AGENT_CONTEXT_PURE_USER_ROUNDS", 0))
-_SUMMARY_THINK_RAW = str(_CONTEXT_CFG.get("AGENT_SUMMARY_THINKING", "enabled") or "enabled").strip().lower()
-SUMMARY_THINKING_ENABLED = _SUMMARY_THINK_RAW not in ("0", "false", "no", "off", "disabled")
+CONTEXT_FULL_USER_ROUNDS = int(_CONTEXT_CFG["AGENT_CONTEXT_FULL_USER_ROUNDS"])
+CONTEXT_PURE_USER_ROUNDS = int(_CONTEXT_CFG["AGENT_CONTEXT_PURE_USER_ROUNDS"])
+_SUMMARY_THINK_RAW = str(_CONTEXT_CFG["AGENT_SUMMARY_THINKING"]).strip().lower()
+SUMMARY_THINKING_ENABLED = _SUMMARY_THINK_RAW not in ("", "0", "false", "no", "off", "disabled")
 # AGENT_CONTEXT_TOKEN_METHOD：config.ini 预留，当前未参与分支（仅 estimate）
-TOKEN_ESTIMATE_EN_PER_CHAR = float(_CONTEXT_CFG.get("AGENT_TOKEN_ESTIMATE_EN_PER_CHAR", 0.3))
-TOKEN_ESTIMATE_ZH_PER_CHAR = float(_CONTEXT_CFG.get("AGENT_TOKEN_ESTIMATE_ZH_PER_CHAR", 0.6))
+TOKEN_ESTIMATE_EN_PER_CHAR = float(_CONTEXT_CFG["AGENT_TOKEN_ESTIMATE_EN_PER_CHAR"])
+TOKEN_ESTIMATE_ZH_PER_CHAR = float(_CONTEXT_CFG["AGENT_TOKEN_ESTIMATE_ZH_PER_CHAR"])
 # 上下文比例条：与「已用 token 估算」对比的总预算（用于末尾剩余容量条）
-CONTEXT_LAYOUT_BUDGET_TOKENS = int(_CONTEXT_CFG.get("AGENT_CONTEXT_LAYOUT_BUDGET_TOKENS", 131072))
-CONTEXT_SUMMARY_TOKEN_THRESHOLD = int(_CONTEXT_CFG.get("AGENT_CONTEXT_SUMMARY_TOKEN_THRESHOLD", 200000))
-if TOKEN_ESTIMATE_EN_PER_CHAR < 0:
-    TOKEN_ESTIMATE_EN_PER_CHAR = 0.3
-if TOKEN_ESTIMATE_ZH_PER_CHAR < 0:
-    TOKEN_ESTIMATE_ZH_PER_CHAR = 0.6
-SUMMARY_IN_PROGRESS_TTL_SEC = float(_CONTEXT_CFG.get("AGENT_SUMMARY_IN_PROGRESS_TTL_SEC", 300.0))
-MAX_TOOL_ROUNDS = int(_CONTEXT_CFG.get("AGENT_MAX_TOOL_ROUNDS", 10000))
-UI_RESTORE_MAX_TABS = int(_CONTEXT_CFG.get("AGENT_UI_RESTORE_MAX_TABS", 8))
-UI_RESTORE_MAX_CHAT_ITEMS = int(_CONTEXT_CFG.get("AGENT_UI_RESTORE_MAX_CHAT_ITEMS", 40))
-_PREVIEW_RAW = _CONTEXT_CFG.get("AGENT_PREVIEW_INTENT_KEYS", ["预览", "原文", "全文", "完整内容", "原始内容", "显示文件", "打开", "查看", "读取", "给我看看", "看一下", "看一看"])
+CONTEXT_LAYOUT_BUDGET_TOKENS = int(_CONTEXT_CFG["AGENT_CONTEXT_LAYOUT_BUDGET_TOKENS"])
+CONTEXT_SUMMARY_TOKEN_THRESHOLD = int(_CONTEXT_CFG["AGENT_CONTEXT_SUMMARY_TOKEN_THRESHOLD"])
+SUMMARY_IN_PROGRESS_TTL_SEC = float(_CONTEXT_CFG["AGENT_SUMMARY_IN_PROGRESS_TTL_SEC"])
+MAX_TOOL_ROUNDS = int(_CONTEXT_CFG["AGENT_MAX_TOOL_ROUNDS"])
+UI_RESTORE_MAX_TABS = int(_CONTEXT_CFG["AGENT_UI_RESTORE_MAX_TABS"])
+UI_RESTORE_MAX_CHAT_ITEMS = int(_CONTEXT_CFG["AGENT_UI_RESTORE_MAX_CHAT_ITEMS"])
+_PREVIEW_RAW = _CONTEXT_CFG["AGENT_PREVIEW_INTENT_KEYS"]
 PREVIEW_INTENT_KEYS = tuple(_PREVIEW_RAW) if isinstance(_PREVIEW_RAW, (list, tuple)) else tuple(_PREVIEW_RAW)
 
 # @路径：是否在进模型前由服务端预读并注入全文。False=由模型按需用工具读取；True=恢复预注入。
-AT_MESSAGE_FILE_PREFETCH = bool(_CONTEXT_CFG.get("AGENT_AT_MESSAGE_FILE_PREFETCH", False))
+AT_MESSAGE_FILE_PREFETCH = bool(_CONTEXT_CFG["AGENT_AT_MESSAGE_FILE_PREFETCH"])
 
 # ---------- 控制台调试：stderr 输出 JSON 行（SSE 事件、工具完整入参/出参）。AGENT_CONSOLE_LOG=0 关闭 ----------
 def _agent_console_log_enabled() -> bool:
-    v = os.environ.get("AGENT_CONSOLE_LOG", "1").strip().lower()
-    return v not in ("0", "false", "no", "off")
+    v = str(AGENT_CONFIG.get("AGENT_CONSOLE_LOG") or "").strip().lower()
+    return v not in ("", "0", "false", "no", "off")
 
 
 def _sse_event_console_repr(ev: Dict[str, Any]) -> Dict[str, Any]:
@@ -292,8 +288,8 @@ def _log_agent_console_tool(
 
 
 def _tool_debug_file_enabled() -> bool:
-    v = os.environ.get("AGENT_TOOL_DEBUG", "1").strip().lower()
-    return v not in ("0", "false", "no", "off")
+    v = str(AGENT_CONFIG.get("AGENT_TOOL_DEBUG") or "").strip().lower()
+    return v not in ("", "0", "false", "no", "off")
 
 
 def _safe_debug_filename_segment(name: str, max_len: int = 48) -> str:
@@ -616,8 +612,8 @@ def _safe_json_loads(s: str) -> Optional[dict]:
 
 
 def _reasoning_delta_field_names() -> List[str]:
-    raw = (os.environ.get("CHAT_API_REASONING_DELTA_FIELDS") or "reasoning_content,reasoning").strip()
-    names = [x.strip() for x in raw.split(",") if x.strip()]
+    raw = str(AGENT_CONFIG.get("AGENT_REASONING_DELTA_FIELDS") or "").strip()
+    names = [x.strip() for x in raw.replace(",", " ").split() if x.strip()]
     return names if names else ["reasoning_content", "reasoning"]
 
 
@@ -687,9 +683,9 @@ def _xor_stream(data: bytes, key: bytes, nonce: bytes) -> bytes:
 
 
 def _encrypt_session_payload(plain: bytes) -> Dict[str, Any]:
-    mode = str(AGENT_CONFIG.get("AGENT_SESSION_ENCRYPTION") or "auto").strip().lower() or "auto"
+    mode = str(AGENT_CONFIG["AGENT_SESSION_ENCRYPTION"]).strip().lower()
     if mode not in {"auto", "dpapi", "local", "none"}:
-        mode = "auto"
+        mode = "none"
     if mode == "none":
         return None  # 通知调用方直接存明文
     if os.name == "nt" and mode in {"auto", "dpapi"}:
@@ -1703,23 +1699,19 @@ _REASONING_EFFORTS: Dict[str, str] = {}
 
 
 def _chat_api_key_available() -> bool:
-    """检查 API Key 是否已配置"""
-    key = os.environ.get("CHAT_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or ""
-    return bool(key and key.strip() and key != "你的 DeepSeek API KEY" and key != "sk-你的API密钥")
+    """检查 API Key 是否已配置（从 AGENT_CONFIG 读取，无内置默认值）"""
+    key = AGENT_CONFIG["AGENT_MODEL_API_KEY"]
+    return bool(key and key.strip())
 
 
 def _get_reasoning_effort(cid: str = "") -> str:
-    """从会话级或全局环境变量获取 reasoning_effort（默认 high），可选 high/max。"""
+    """从会话级或配置获取 reasoning_effort（high/max），无默认值，缺失则返回 high。"""
     cid_key = str(cid or "").strip()
     if cid_key and cid_key in _REASONING_EFFORTS:
         return _REASONING_EFFORTS[cid_key]
-    raw = (os.environ.get("REASONING_EFFORT") or "high").strip().lower()
+    raw = str(AGENT_CONFIG.get("AGENT_REASONING_EFFORT") or "").strip().lower()
     if raw in ("high", "max"):
         return raw
-    if raw in ("low", "medium"):
-        return "high"
-    if raw in ("xhigh",):
-        return "max"
     return "high"
 
 
@@ -1858,7 +1850,7 @@ def _resolve_conversation_mode(conversation_id: str, user_text: str, mode_hint: 
 
 
 # KB max file size (from config, default 200KB)
-_KB_MAX_FILE_SIZE = int(AGENT_CONFIG.get("AGENT_KB_MAX_FILE_SIZE", 200000))
+_KB_MAX_FILE_SIZE = int(AGENT_CONFIG["AGENT_KB_MAX_FILE_SIZE"])
 
 
 def _kb_safe_resolve_rel(rel: str) -> Optional[Path]:
@@ -2046,12 +2038,16 @@ def _find_first_user_index(messages: List[Dict[str, Any]]) -> Optional[int]:
 
 PURE_WINDOW_NO_FINAL_ASSISTANT = "（本轮含工具调用，完整细节见近期完整对话。）"
 
+# 压缩后远期锚定缓存：conversation_id → pure_count（首次压缩后固定，新对话全入近期）
+_PURE_ANCHOR_CACHE: Dict[str, int] = {}
+
 
 def _split_pure_and_full_dialogue(
     dialogue: List[Dict[str, Any]],
     full_n: int,
     pure_n: int,
     has_compressed: bool = False,
+    conversation_id: str = "",
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
     """远期：仅当已触发过摘要压缩后才存在——取对话前 pure_n 个 user 回合并锚定不动，
     保障 KV 缓存前缀稳定。未压缩时远期恒为空，新对话全归近期（铁律）。
@@ -2072,15 +2068,22 @@ def _split_pure_and_full_dialogue(
 
     # ── 铁律：未压缩过 → 远期恒空，全部归近期 ──
     if not has_compressed or pn <= 0:
+        _PURE_ANCHOR_CACHE.pop(conversation_id, None)
         return [], [], list(dialogue)
 
     # ── 已压缩过：远期锚定 ──
     if k <= fn + pn:
-        # 压缩后初始态（k 不超过 fn+pn）：优先满足近期 fn 轮，余量归远期
-        pure_count = max(0, k - fn)
-        if pure_count == 0:
+        # 从缓存取锚定值；首次压缩时计算并缓存
+        cached_pure = _PURE_ANCHOR_CACHE.get(conversation_id)
+        if cached_pure is not None:
+            pure_count = cached_pure
+        else:
+            pure_count = max(0, k - fn)
+            if pure_count > 0 and conversation_id:
+                _PURE_ANCHOR_CACHE[conversation_id] = pure_count
+        if pure_count == 0 or pure_count >= k:
             return [], [], list(dialogue)
-        pure_end = user_idxs[pure_count]               # 第 pure_count 个 user = 前 k-fn 轮 → 远期
+        pure_end = user_idxs[pure_count]
     else:
         # 远期锚定为前 pn 轮，近期自然增长
         pure_end = user_idxs[pn]                        # 第 pn 个 user = 前 pn 轮 → 远期（锚定！）
@@ -2216,6 +2219,7 @@ def _build_context_segments(
         CONTEXT_FULL_USER_ROUNDS,
         CONTEXT_PURE_USER_ROUNDS,
         has_compressed,
+        conversation_id,
     )
     pure_user_turns = _count_user_turns_in_messages(pure_raw)
     pure_folded = _fold_pure_window_for_api(pure_raw)
@@ -3749,11 +3753,11 @@ def dir_browse(path: str = ""):
     import os as _os
     import string as _string
 
-    _workspace = _strip_config_path_value(os.environ.get("WORKSPACE_DIR", ""))
+    _workspace = _strip_config_path_value(str(AGENT_CONFIG.get("AGENT_WORKSPACE_DIR") or ""))
     if _workspace:
         _default = Path(_workspace).expanduser().resolve()
     else:
-        _default = Path.home() / "Desktop"
+        _default = Path.home()
     if not _default.is_dir():
         _default = Path.home()
 
@@ -3833,12 +3837,12 @@ def health():
 
 
 def main():
-    # 加载配置（读取 config.ini，设置环境变量 PORT 等）
+    # 加载配置（读取 config.ini，设置环境变量等）
     from util.config_loader import load_config
     load_config(verbose=True)
-    port_str = os.environ.get("PORT")
+    port_str = str(AGENT_CONFIG["AGENT_SERVER_PORT"]).strip()
     if not port_str:
-        print("FATAL: PORT 未设置！请在 config.ini 的 [server] 节配置 port", flush=True)
+        print("FATAL: AGENT_SERVER_PORT 未设置！请在 config.ini 的 [server] 节配置 port", flush=True)
         sys.exit(1)
     
     # ── API Key 检查 ──
@@ -3846,7 +3850,7 @@ def main():
         print("⚠️  WARNING: API Key 未配置或为空！请在 config.ini 的 [model] 节设置 api_key 或环境变量 CHAT_API_KEY", file=sys.stderr, flush=True)
         print("⚠️  或通过环境变量 CHAT_API_KEY 设置", file=sys.stderr, flush=True)
 
-    uvicorn.run(app, host="127.0.0.1", port=int(port_str))
+    uvicorn.run(app, host=AGENT_CONFIG["AGENT_SERVER_HOST"], port=int(port_str))
 
 
 if __name__ == "__main__":

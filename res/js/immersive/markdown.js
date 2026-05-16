@@ -63,6 +63,9 @@
   function renderInlineMarkdown(s) {
     var t = escapeHtml(s || "");
     t = t.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, function (_, alt, url) {
+      if (/\.(mp4|mov|webm|avi)(\?|$)/i.test(url)) {
+        return '<video src="' + url + '" controls style="max-width:100%;border-radius:6px;margin:4px 0;max-height:480px;background:#000;"></video>';
+      }
       return '<img src="' + url + '" alt="' + alt + '" loading="lazy" />';
     });
     t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function (_, label, url) {

@@ -39,12 +39,19 @@ except ImportError:
 def _detect_engine(prefer: Optional[str]) -> str:
     if prefer == "pytesseract" and _HAS_PYTESSERACT:
         return "pytesseract"
-    if prefer == "easyocr" and _HAS_EASYOCR:
-        return "easyocr"
+    if prefer == "easyocr":
+        try:
+            import easyocr
+            return "easyocr"
+        except ImportError:
+            pass
     if _HAS_PYTESSERACT:
         return "pytesseract"
-    if _HAS_EASYOCR:
+    try:
+        import easyocr
         return "easyocr"
+    except ImportError:
+        pass
     return "none"
 
 

@@ -2,7 +2,7 @@
 """OpenAI-compatible chat completions client (POST .../v1/chat/completions, SSE data: lines).
 
 Use any gateway that follows the OpenAI chat completions + streaming shape used by this agent.
-Configure with CHAT_API_BASE_URL + CHAT_API_KEY, or fall back to DEEPSEEK_BASE_URL + DEEPSEEK_API_KEY.
+Configure via config.ini [model] api_key / api_base_url, or env CHAT_API_KEY / CHAT_API_BASE_URL.
 """
 
 from __future__ import annotations
@@ -12,6 +12,10 @@ import os
 import urllib.error
 import urllib.request
 from typing import Any, Dict, Iterator, Optional, Tuple
+
+from util.config_loader import load_config
+
+_AGENT_CONFIG = load_config(verbose=False)
 
 from fastapi import HTTPException
 
@@ -70,27 +74,31 @@ def _map_upstream_http_for_client(status_code: int, body: str, *, base_url: str,
 
 
 def chat_api_base_url() -> str:
-    v = (os.environ.get("CHAT_API_BASE_URL") or os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com").strip().rstrip("/")
+    v = str(_AGENT_CONFIG.get("AGENT_MODEL_API_BASE_URL") or "").strip().rstrip("/")
+    if not v:
+        raise ValueError("AGENT_MODEL_API_BASE_URL 未设置！请在 config.ini 的 [model] 节配置 api_base_url 或设置环境变量 CHAT_API_BASE_URL")
     return v
 
 
 def chat_api_key() -> str:
-    return (os.environ.get("CHAT_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or "").strip()
+    v = str(_AGENT_CONFIG.get("AGENT_MODEL_API_KEY") or "").strip()
+    if not v:
+        raise ValueError("AGENT_MODEL_API_KEY 未设置！请在 config.ini 的 [model] 节配置 api_key 或设置环境变量 CHAT_API_KEY")
+    return v
 
 
 def chat_completions_url() -> str:
-    path = (os.environ.get("CHAT_COMPLETIONS_PATH") or "/v1/chat/completions").strip()
-    if not path.startswith("/"):
-        path = "/" + path
+    path = "/v1/chat/completions"
     return f"{chat_api_base_url()}{path}"
 
 
 def _stream_include_usage() -> bool:
-    return os.environ.get("CHAT_API_STREAM_INCLUDE_USAGE", "1").strip().lower() not in ("0", "false", "no", "off")
+    v = str(_AGENT_CONFIG.get("AGENT_STREAM_INCLUDE_USAGE") or "").strip().lower()
+    return v not in ("", "0", "false", "no", "off")
 
 
 def _extra_headers() -> Dict[str, str]:
-    raw = os.environ.get("CHAT_API_EXTRA_HEADERS_JSON", "").strip()
+    raw = str(_AGENT_CONFIG.get("AGENT_EXTRA_HEADERS_JSON") or "").strip()
     if not raw:
         return {}
     try:
@@ -117,7 +125,7 @@ def _raise_http_error_from_upstream(ex: urllib.error.HTTPError, payload: dict) -
 def chat_completion_request(payload: dict) -> dict:
     key = chat_api_key()
     if not key:
-        raise HTTPException(status_code=500, detail="CHAT_API_KEY / DEEPSEEK_API_KEY empty")
+        raise HTTPException(status_code=500, detail="AGENT_MODEL_API_KEY 未配置")
     headers = {
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json; charset=utf-8",
@@ -146,7 +154,7 @@ def _safe_json_loads(line: str) -> Optional[dict]:
 def chat_completion_stream(payload: dict) -> Iterator[dict]:
     key = chat_api_key()
     if not key:
-        raise HTTPException(status_code=500, detail="CHAT_API_KEY / DEEPSEEK_API_KEY empty")
+        raise HTTPException(status_code=500, detail="AGENT_MODEL_API_KEY 未配置")
     headers = {
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json; charset=utf-8",

@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Per-conversation model id (独立封装). 可用 CHAT_API_MODELS 覆盖白名单。"""
+"""Per-conversation model id. 通过 config.ini 的 [model] allowed_models / default_model 配置。"""
 
 from __future__ import annotations
 
-import os
 from typing import Dict, Tuple
 
-_DEFAULT_MODELS: Tuple[str, ...] = ("deepseek-v4-pro", "deepseek-v4-flash")
+from util.config_loader import load_config
+
+_AGENT_CONFIG = load_config(verbose=False)
 
 
 def _parse_models_csv(raw: str) -> Tuple[str, ...]:
@@ -14,24 +15,27 @@ def _parse_models_csv(raw: str) -> Tuple[str, ...]:
     return tuple(dict.fromkeys(parts))
 
 
-def _allowed_models_from_env() -> Tuple[str, ...]:
-    v = (os.environ.get("CHAT_API_MODELS") or "").strip()
-    if v:
-        return _parse_models_csv(v)
-    return _DEFAULT_MODELS
+def _load_allowed_models() -> Tuple[str, ...]:
+    raw = str(_AGENT_CONFIG.get("AGENT_ALLOWED_MODELS") or "").strip()
+    if raw:
+        return _parse_models_csv(raw)
+    raise ValueError(
+        "AGENT_ALLOWED_MODELS 未设置！请在 config.ini 的 [model] 节配置 allowed_models "
+        "（如: allowed_models = deepseek-v4-pro, deepseek-v4-flash）"
+        "或设置环境变量 CHAT_API_MODELS"
+    )
 
 
-ALLOWED_MODELS: Tuple[str, ...] = _allowed_models_from_env()
+ALLOWED_MODELS: Tuple[str, ...] = _load_allowed_models()
 
 
 def default_model_from_env() -> str:
-    for key in ("CHAT_API_DEFAULT_MODEL", "DEEPSEEK_MODEL"):
-        v = (os.environ.get(key) or "").strip()
-        if v and v in ALLOWED_MODELS:
-            return v
-    if "deepseek-v4-flash" in ALLOWED_MODELS:
-        return "deepseek-v4-flash"
-    return ALLOWED_MODELS[0] if ALLOWED_MODELS else "deepseek-v4-flash"
+    raw = str(_AGENT_CONFIG.get("AGENT_DEFAULT_MODEL") or "").strip()
+    if raw and raw in ALLOWED_MODELS:
+        return raw
+    if ALLOWED_MODELS:
+        return ALLOWED_MODELS[0]
+    raise ValueError("无可用模型，请在 config.ini 中配置 allowed_models")
 
 
 _CONVERSATION_MODELS: Dict[str, str] = {}
