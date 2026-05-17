@@ -72,6 +72,7 @@ from agent_v2.bootstrap import (
     SESSION_ENCRYPTION_MAGIC,
     SESSION_KEY_FILE,
     SUMMARY_IN_PROGRESS_TTL_SEC,
+    SUMMARY_OUTPUT_MAX_CHARS,
     SUMMARY_THINKING_ENABLED,
     TOKEN_ESTIMATE_EN_PER_CHAR,
     TOKEN_ESTIMATE_ZH_PER_CHAR,
@@ -106,6 +107,7 @@ from agent_v2.live_state import (
     _end_conversation_run,
     _peek_conversation_stop_requested,
     _request_conversation_stop,
+    server_shutting_down,
     kling_create_confirm_id,
     kling_consume_confirm_id,
 )
@@ -122,19 +124,104 @@ from util.agent_deepseek_pricing import get_model_pricing_snapshot
 from util.agent_openai_compatible_client import chat_completion_request, chat_completion_stream
 
 from util.context_manager_v2 import ContextManager, adjust_excerpt_range_half_open as _adjust_excerpt_range_half_open
+from util.session_persist import (
+    append_raw_message as _append_raw_message,
+    bootstrap_raw_from_messages as _bootstrap_raw_from_messages,
+    cache_session_json_path as _cache_session_json_path,
+    ensure_conversation_message_ids_v2 as _ensure_conversation_message_ids_v2,
+    excerpt_meta_round_ids as _excerpt_meta_round_ids,
+    load_messages_from_raw as _load_messages_from_raw,
+    remove_messages_by_round_ids as _remove_messages_by_round_ids,
+    resolve_session_json_path as _resolve_session_json_path,
+    round_ids_from_messages as _round_ids_from_messages,
+    stamp_message_v2 as _stamp_message_v2,
+)
+from util.session_crypto import (
+    decrypt_session_payload as _decrypt_session_payload,
+    encrypt_session_payload as _encrypt_session_payload,
+)
 from util.session_store_v2 import new_conversation_id as _v2_new_conversation_id
 from agent_v2.sse_events import context_layout_event as _context_layout_event
 
-def _finish_conversation_stopped(cid: str, rollback_messages: List[Dict[str, Any]]) -> Dict[str, Any]:
-    messages = copy.deepcopy(rollback_messages)
-    _tail_drop_incomplete_tool_assistant(messages)
+USER_STOPPED_TOOL_MESSAGE = "任务已被用户停止"
+
+
+def _user_stopped_tool_result_dict() -> Dict[str, Any]:
+    return {
+        "ok": False,
+        "data": None,
+        "error": {"type": "Aborted", "message": USER_STOPPED_TOOL_MESSAGE},
+    }
+
+
+def _user_stopped_tool_content() -> str:
+    return json.dumps(_user_stopped_tool_result_dict(), ensure_ascii=False)
+
+
+def _turn_abort_requested(conversation_id: str, run_id: str = "") -> bool:
+    return server_shutting_down() or _peek_conversation_stop_requested(conversation_id, run_id)
+
+
+def _pad_trailing_missing_tool_results_for_user_stop(
+    cid: str,
+    messages: List[Dict[str, Any]],
+    *,
+    round_id: Optional[str] = None,
+) -> int:
+    """为尾部未执行完的 tool_calls 补 ok=false 占位，避免下轮 API 因缺 tool 消息拒请求。"""
+    padded = 0
+    for i in range(len(messages) - 1, -1, -1):
+        m = messages[i]
+        if m.get("role") != "assistant" or not isinstance(m.get("tool_calls"), list) or not m["tool_calls"]:
+            continue
+        need_ids = _assistant_tool_call_ids(m)
+        if not need_ids:
+            continue
+        j = i + 1
+        answered: Set[str] = set()
+        while j < len(messages) and messages[j].get("role") == "tool":
+            tid = str(messages[j].get("tool_call_id") or "")
+            if tid in need_ids:
+                answered.add(tid)
+            j += 1
+        missing = [tid for tid in sorted(need_ids) if tid not in answered]
+        if not missing:
+            return padded
+        for tid in missing:
+            _append_session_message_v2(
+                cid,
+                messages,
+                {
+                    "role": "tool",
+                    "tool_call_id": tid,
+                    "content": _user_stopped_tool_content(),
+                },
+                round_id=round_id,
+            )
+            padded += 1
+        return padded
+    return padded
+
+
+def _finish_conversation_stopped(
+    cid: str,
+    messages: List[Dict[str, Any]],
+    *,
+    round_id: Optional[str] = None,
+    run_id: str = "",
+) -> Dict[str, Any]:
+    """用户停止：保留本轮已追加内容，为未执行工具补占位结果后落盘。"""
+    _pad_trailing_missing_tool_results_for_user_stop(cid, messages, round_id=round_id)
     _normalize_persisted_conversation(messages)
     CONVERSATIONS[cid] = messages
     _save_conversation(cid, messages)
+    if run_id:
+        _consume_conversation_stop_requested(cid, run_id)
     return {"type": "stopped", "message": "任务已停止"}
 
 
 def _ensure_conversation_loaded(cid: str) -> None:
+    """仅加载到内存；摘要合并在发 LLM 前执行，避免打开历史时误删消息并写盘。"""
     if cid and (cid not in CONVERSATIONS or not CONVERSATIONS.get(cid)):
         loaded = _load_conversation(cid)
         if loaded:
@@ -321,112 +408,6 @@ def _best_message_reasoning_field(last_message: Dict[str, Any]) -> str:
     return best
 
 
-def _dpapi_crypt(data: bytes, protect: bool) -> bytes:
-    if os.name != "nt":
-        raise RuntimeError("DPAPI is only available on Windows")
-    import ctypes
-    from ctypes import wintypes
-
-    class DATA_BLOB(ctypes.Structure):
-        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
-
-    in_buf = ctypes.create_string_buffer(data)
-    in_blob = DATA_BLOB(len(data), ctypes.cast(in_buf, ctypes.POINTER(ctypes.c_char)))
-    entropy_buf = ctypes.create_string_buffer(SESSION_APP_ENTROPY)
-    entropy_blob = DATA_BLOB(len(SESSION_APP_ENTROPY), ctypes.cast(entropy_buf, ctypes.POINTER(ctypes.c_char)))
-    out_blob = DATA_BLOB()
-    crypt32 = ctypes.windll.crypt32
-    kernel32 = ctypes.windll.kernel32
-    fn = crypt32.CryptProtectData if protect else crypt32.CryptUnprotectData
-    ok = fn(ctypes.byref(in_blob), None, ctypes.byref(entropy_blob), None, None, 0, ctypes.byref(out_blob))
-    if not ok:
-        raise ctypes.WinError()
-    try:
-        return ctypes.string_at(out_blob.pbData, out_blob.cbData)
-    finally:
-        kernel32.LocalFree(out_blob.pbData)
-
-
-def _session_key_material() -> bytes:
-    SESSION_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if SESSION_KEY_FILE.is_file():
-        val = SESSION_KEY_FILE.read_text(encoding="ascii").strip()
-        return base64.urlsafe_b64decode(val.encode("ascii"))
-    key = os.urandom(32)
-    SESSION_KEY_FILE.write_text(base64.urlsafe_b64encode(key).decode("ascii"), encoding="ascii")
-    try:
-        os.chmod(str(SESSION_KEY_FILE), 0o600)
-    except Exception:
-        pass
-    return key
-
-
-def _session_fallback_key() -> bytes:
-    # Cross-platform default for macOS/Linux, and Windows when DPAPI is disabled/unavailable.
-    # The app entropy means the raw local key file alone is not the complete decrypt key.
-    return hmac.new(SESSION_APP_ENTROPY, _session_key_material(), hashlib.sha256).digest()
-
-
-def _xor_stream(data: bytes, key: bytes, nonce: bytes) -> bytes:
-    out = bytearray()
-    counter = 0
-    while len(out) < len(data):
-        block = hmac.new(key, nonce + counter.to_bytes(8, "big"), hashlib.sha256).digest()
-        out.extend(block)
-        counter += 1
-    return bytes(a ^ b for a, b in zip(data, out[:len(data)]))
-
-
-def _encrypt_session_payload(plain: bytes) -> Dict[str, Any]:
-    mode = str(AGENT_CONFIG["AGENT_SESSION_ENCRYPTION"]).strip().lower()
-    if mode not in {"auto", "dpapi", "local", "none"}:
-        mode = "none"
-    if mode == "none":
-        return None  # 通知调用方直接存明文
-    if os.name == "nt" and mode in {"auto", "dpapi"}:
-        try:
-            data = _dpapi_crypt(plain, True)
-            return {
-                SESSION_ENCRYPTION_MAGIC: 1,
-                "alg": "dpapi-user-v1",
-                "data": base64.b64encode(data).decode("ascii"),
-            }
-        except Exception as exc:
-            if mode == "dpapi":
-                raise
-            print(f"WARN: DPAPI session encryption failed, using local key fallback: {exc}", file=sys.stderr, flush=True)
-    key = _session_fallback_key()
-    nonce = os.urandom(16)
-    cipher = _xor_stream(plain, key, nonce)
-    tag = hmac.new(key, nonce + cipher, hashlib.sha256).digest()
-    return {
-        SESSION_ENCRYPTION_MAGIC: 1,
-        "alg": "local-hmac-sha256-stream-v1",
-        "nonce": base64.b64encode(nonce).decode("ascii"),
-        "data": base64.b64encode(cipher).decode("ascii"),
-        "tag": base64.b64encode(tag).decode("ascii"),
-    }
-
-
-def _decrypt_session_payload(raw: Any) -> Optional[bytes]:
-    if not isinstance(raw, dict) or raw.get(SESSION_ENCRYPTION_MAGIC) != 1:
-        return None
-    alg = str(raw.get("alg") or "")
-    if alg == "dpapi-user-v1":
-        data = base64.b64decode(str(raw.get("data") or "").encode("ascii"))
-        return _dpapi_crypt(data, False)
-    if alg == "local-hmac-sha256-stream-v1":
-        key = _session_fallback_key()
-        nonce = base64.b64decode(str(raw.get("nonce") or "").encode("ascii"))
-        cipher = base64.b64decode(str(raw.get("data") or "").encode("ascii"))
-        tag = base64.b64decode(str(raw.get("tag") or "").encode("ascii"))
-        expected = hmac.new(key, nonce + cipher, hashlib.sha256).digest()
-        if not hmac.compare_digest(tag, expected):
-            raise ValueError("session encryption tag mismatch")
-        return _xor_stream(cipher, key, nonce)
-    raise ValueError(f"unsupported session encryption alg: {alg}")
-
-
 def _session_date_group_from_path(fp: Path) -> str:
     parent = fp.parent.name
     return parent if re.match(r"^\d{4}-\d{2}-\d{2}$", parent) else ""
@@ -489,11 +470,35 @@ def _save_title_file(cid: str, title: str) -> None:
 
 
 def _conversation_file_for_save(cid: str) -> Path:
-    existing = _find_conversation_file(cid)
-    if existing is not None:
-        return existing
-    day = time.strftime("%Y-%m-%d", time.localtime())
-    return SESSION_DIR / day / f"{cid}.json"
+    def _default_for_new(c: str) -> Path:
+        day = time.strftime("%Y-%m-%d", time.localtime())
+        return SESSION_DIR / day / f"{c}.json"
+
+    return _resolve_session_json_path(cid, _find_conversation_file, _default_for_new)
+
+
+def _append_session_message_v2(
+    cid: str,
+    messages: List[Dict[str, Any]],
+    msg: Dict[str, Any],
+    *,
+    new_round: bool = False,
+    round_id: Optional[str] = None,
+) -> str:
+    """追加一条消息：写入轮次/消息 ID，并追加到 {session}.raw。"""
+    rid = _stamp_message_v2(msg, new_round=new_round, round_id=round_id)
+    messages.append(msg)
+    if cid:
+        try:
+            fp = _conversation_file_for_save(cid)
+            _append_raw_message(fp, msg)
+        except Exception as e:
+            print(
+                f"WARN: append session .raw failed cid={cid}: {e}",
+                file=sys.stderr,
+                flush=True,
+            )
+    return rid
 
 
 def _save_conversation(cid: str, messages: List[Dict[str, Any]], title: str = "") -> None:
@@ -503,6 +508,7 @@ def _save_conversation(cid: str, messages: List[Dict[str, Any]], title: str = ""
         SESSION_DIR.mkdir(parents=True, exist_ok=True)
         fp = _conversation_file_for_save(cid)
         fp.parent.mkdir(parents=True, exist_ok=True)
+        _bootstrap_raw_from_messages(fp, messages)
         # 仅存储 messages JSON，不再内嵌标题
         plain = json.dumps(messages, ensure_ascii=False)
         envelope = _encrypt_session_payload(plain.encode("utf-8"))
@@ -531,9 +537,30 @@ def _load_conversation(cid: str) -> Optional[List[Dict[str, Any]]]:
             raw_text = decrypted.decode("utf-8")
             raw = json.loads(raw_text)
         if isinstance(raw, list) and all(isinstance(m, dict) for m in raw):
+            _cache_session_json_path(cid, fp)
+            _ensure_conversation_message_ids_v2(raw)
+            try:
+                _bootstrap_raw_from_messages(fp, raw)
+            except Exception as boot_exc:
+                print(
+                    f"WARN: bootstrap .raw failed cid={cid}: {boot_exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            if not _chat_history_from_messages(raw):
+                recovered = _load_messages_from_raw(fp)
+                if recovered and _chat_history_from_messages(recovered):
+                    print(
+                        f"INFO: restored session messages from .raw cid={cid}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    _ensure_conversation_message_ids_v2(recovered)
+                    return recovered
             return raw
         return None
-    except Exception:
+    except Exception as load_exc:
+        print(f"WARN: load conversation failed cid={cid}: {load_exc}", file=sys.stderr, flush=True)
         return None
 
 
@@ -1122,6 +1149,53 @@ def execute_tool_script(script_name: str, args: Dict[str, Any]) -> dict:
         return _execute_tool_script_locked(script_name, args)
 
 
+def _execute_tool_script_stoppable(
+    conversation_id: str,
+    run_id: str,
+    script_name: str,
+    exec_args: Dict[str, Any],
+    *,
+    progress: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """线程执行工具并在轮询中响应用户停止（避免同步 execute 阻塞时无法检查 stop 标志）。"""
+    if _turn_abort_requested(conversation_id, run_id):
+        return _user_stopped_tool_result_dict()
+    args = dict(exec_args)
+    if progress is not None:
+        args["_progress_dict"] = progress
+    holder: Dict[str, Any] = {}
+
+    def _run() -> None:
+        try:
+            holder["r"] = execute_tool_script(script_name, args)
+        except Exception as exc:
+            holder["r"] = {
+                "ok": False,
+                "data": None,
+                "error": {"type": "ToolError", "message": str(exc)},
+            }
+
+    import threading as _thr
+
+    t = _thr.Thread(target=_run, daemon=True)
+    t.start()
+    while t.is_alive():
+        if _turn_abort_requested(conversation_id, run_id):
+            if progress is not None:
+                progress["_abort"] = True
+            for _ in range(40):
+                if not t.is_alive():
+                    break
+                t.join(timeout=0.25)
+            if t.is_alive():
+                return _user_stopped_tool_result_dict()
+            break
+        t.join(timeout=0.5)
+    if _turn_abort_requested(conversation_id, run_id) and "r" not in holder:
+        return _user_stopped_tool_result_dict()
+    got = holder.get("r")
+    return got if isinstance(got, dict) else _user_stopped_tool_result_dict()
+
 
 # ── kling_generate 生成类 action 列表（用于确认拦截） ──
 _KLING_GENERATE_ACTIONS = {
@@ -1467,8 +1541,8 @@ def _build_direct_preview_message(script_name: str, result: dict, user_text: str
     if not isinstance(data, dict):
         return None
     sn = (script_name or "").lower()
-    if ("replace_in_file" in sn or "write_file" in sn or "apply_patch" in sn) and isinstance(data.get("diff_text"), str):
-        return data["diff_text"]
+    if ("replace_in_file" in sn or "write_file" in sn or "apply_patch" in sn):
+        return None
     return None
 
 
@@ -1631,12 +1705,18 @@ def _resolve_conversation_mode(conversation_id: str, user_text: str, mode_hint: 
 _KB_MAX_FILE_SIZE = int(AGENT_CONFIG["AGENT_KB_MAX_FILE_SIZE"])
 
 
+def _kb_rel_has_hidden_segment(rel: str) -> bool:
+    """路径任一分段以 . 开头视为隐藏（.svn、.git、.env 等），不参与列表与勾选。"""
+    parts = [p for p in str(rel or "").replace("\\", "/").split("/") if p and p != "."]
+    return any(p.startswith(".") for p in parts)
+
+
 def _kb_safe_resolve_rel(rel: str) -> Optional[Path]:
     """将相对路径解析为 KB 根下的真实文件路径；禁止 .. 与越界。"""
     if not KB_BASE_DIR:
         return None
     raw = str(rel or "").strip().replace("\\", "/")
-    if not raw or raw.startswith("/"):
+    if not raw or raw.startswith("/") or _kb_rel_has_hidden_segment(raw):
         return None
     parts = [p for p in raw.split("/") if p and p != "."]
     if any(p == ".." for p in parts):
@@ -1652,8 +1732,34 @@ def _kb_safe_resolve_rel(rel: str) -> Optional[Path]:
     return candidate
 
 
+def list_kb_files_for_api() -> List[Dict[str, Any]]:
+    """列出知识库根下可浏览文件（排除隐藏路径段与 __pycache__）。"""
+    if not KB_BASE_DIR or not KB_BASE_DIR.is_dir():
+        return []
+    out: List[Dict[str, Any]] = []
+    for p in sorted(KB_BASE_DIR.rglob("*")):
+        if not p.is_file() or "__pycache__" in p.parts:
+            continue
+        try:
+            rel = p.relative_to(KB_BASE_DIR)
+        except ValueError:
+            continue
+        if _kb_rel_has_hidden_segment(str(rel).replace("\\", "/")):
+            continue
+        rel_s = str(rel).replace("\\", "/")
+        out.append({"path": rel_s, "name": p.name, "mtime": p.stat().st_mtime})
+    return out
+
+
 def _kb_file_allowed_when_checked(fpath: Path) -> bool:
     """勾选时校验：存在、大小上限；表格类需已安装 openpyxl。"""
+    if KB_BASE_DIR:
+        try:
+            rel = fpath.resolve().relative_to(KB_BASE_DIR.resolve())
+            if _kb_rel_has_hidden_segment(str(rel).replace("\\", "/")):
+                return False
+        except (ValueError, OSError):
+            return False
     try:
         if fpath.stat().st_size > _KB_MAX_FILE_SIZE:
             return False
@@ -1922,20 +2028,20 @@ def _fold_pure_window_for_api(msgs: List[Dict[str, Any]]) -> List[Dict[str, Any]
 
 
 def _strip_tool_trace_for_summary(msgs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """摘要模型输入：去掉 tool 与 assistant 的 tool_calls / reasoning_content。"""
+    """摘要模型输入：去掉 tool 消息；user/assistant/system 仅保留 content，不截断正文。"""
     out: List[Dict[str, Any]] = []
     for m in msgs:
         r = m.get("role")
         if r == "tool":
             continue
         if r == "user":
-            out.append({"role": "user", "content": str(m.get("content") or "")[:8000]})
+            out.append({"role": "user", "content": str(m.get("content") or "")})
         elif r == "assistant":
-            out.append({"role": "assistant", "content": str(m.get("content") or "")[:6000]})
+            out.append({"role": "assistant", "content": str(m.get("content") or "")})
         elif r == "system":
-            out.append({"role": "system", "content": str(m.get("content") or "")[:4000]})
+            out.append({"role": "system", "content": str(m.get("content") or "")})
         else:
-            out.append({"role": str(r or "user"), "content": str(m.get("content") or "")[:4000]})
+            out.append({"role": str(r or "user"), "content": str(m.get("content") or "")})
     return out
 
 
@@ -2105,39 +2211,213 @@ def _parse_excerpt_file(raw: str) -> Tuple[dict, str]:
     return meta, body
 
 
-def _merge_pending_excerpts_for_conversation(cid: str, messages: List[Dict[str, Any]]) -> None:
+def _excerpt_disk_paths_for_cid(cid: str) -> List[Path]:
+    if not cid or not EXCERPTS_DIR.is_dir():
+        return []
+    return sorted(p for p in EXCERPTS_DIR.glob(f"{cid}_*.md") if p.is_file())
+
+
+def _excerpt_file_needs_merge(p: Path) -> bool:
+    try:
+        raw = p.read_text(encoding="utf-8")
+        blob, _ = _parse_excerpt_file(raw)
+        if not isinstance(blob, dict):
+            return True
+        am = blob.get("agent_excerpt_meta")
+        if isinstance(am, dict) and am.get("merged"):
+            return False
+    except Exception:
+        return True
+    return True
+
+
+def _mark_excerpt_merged(p: Path) -> None:
+    try:
+        raw = p.read_text(encoding="utf-8")
+        blob, body = _parse_excerpt_file(raw)
+        if not isinstance(blob, dict):
+            return
+        am = blob.get("agent_excerpt_meta")
+        if not isinstance(am, dict):
+            return
+        am = dict(am)
+        am["merged"] = True
+        am["merged_at"] = int(time.time() * 1000)
+        header = "---\n" + json.dumps({"agent_excerpt_meta": am}, ensure_ascii=False) + "\n---\n\n"
+        p.write_text(header + body, encoding="utf-8")
+    except Exception as exc:
+        print(f"WARN: mark excerpt merged failed {p}: {exc}", file=sys.stderr, flush=True)
+
+
+def _range_is_only_summaries(messages: List[Dict[str, Any]], s: int, e: int) -> bool:
+    if s >= e or s < 0:
+        return True
+    e = min(e, len(messages))
+    for i in range(s, e):
+        m = messages[i]
+        if m.get("role") != "system" or not m.get("_agent_summary"):
+            return False
+    return True
+
+
+def _insert_summary_message(
+    cid: str, messages: List[Dict[str, Any]], body: str
+) -> None:
+    fu = _find_first_user_index(messages)
+    ins = fu if fu is not None else len(messages)
+    summary_msg = {
+        "role": "system",
+        "content": "【历史摘要】\n" + str(body or "").strip(),
+        "_agent_summary": True,
+    }
+    messages.insert(ins, summary_msg)
+    if cid:
+        try:
+            fp = _conversation_file_for_save(cid)
+            _append_raw_message(fp, summary_msg)
+        except Exception as e:
+            print(
+                f"WARN: append summary to .raw failed cid={cid}: {e}",
+                file=sys.stderr,
+                flush=True,
+            )
+
+
+def _merge_one_excerpt_file(p: Path, messages: List[Dict[str, Any]], cid: str = "") -> bool:
+    try:
+        raw = p.read_text(encoding="utf-8")
+    except Exception:
+        return False
+    blob, body = _parse_excerpt_file(raw)
+    am = blob.get("agent_excerpt_meta") if isinstance(blob, dict) else None
+    if not isinstance(am, dict):
+        return False
+    round_ids = _excerpt_meta_round_ids({"agent_excerpt_meta": am})
+    if round_ids:
+        n_before = len(messages)
+        _remove_messages_by_round_ids(messages, round_ids)
+        if len(messages) == n_before:
+            return False
+        _insert_summary_message(cid, messages, body)
+        return True
+    try:
+        s = int(am["start_idx"])
+        e = int(am["end_idx"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    # 旧版仅下标 excerpt：上下文变短后 end_idx 仍很大时会误删整段会话
+    if e > len(messages) or s >= len(messages):
+        return False
+    s, e = _adjust_excerpt_range_half_open(messages, s, e)
+    if s >= len(messages):
+        return False
+    if s >= e or _range_is_only_summaries(messages, s, e):
+        return False
+    e = min(e, len(messages))
+    del messages[s:e]
+    _insert_summary_message(cid, messages, body)
+    return True
+
+
+def _collect_excerpt_paths_to_merge(cid: str) -> List[Path]:
+    """内存 pending 队列 + 磁盘上未 merged 的 excerpt；按 ID 删除时合并顺序无关，文件名时间戳降序。"""
     with _SUMMARY_STATE_LOCK:
-        paths = list(PENDING_EXCERPT_PATHS.pop(cid, []) or [])
-    for path_str in paths:
+        pending = list(PENDING_EXCERPT_PATHS.pop(cid, []) or [])
+    seen: Set[str] = set()
+    out: List[Path] = []
+    for path_str in pending:
         p = Path(path_str)
         if not p.is_file():
             continue
-        try:
-            raw = p.read_text(encoding="utf-8")
-        except Exception:
+        key = str(p.resolve())
+        if key in seen:
             continue
-        blob, body = _parse_excerpt_file(raw)
-        am = blob.get("agent_excerpt_meta") if isinstance(blob, dict) else None
-        if not isinstance(am, dict):
+        seen.add(key)
+        out.append(p)
+    for p in _excerpt_disk_paths_for_cid(cid):
+        if not _excerpt_file_needs_merge(p):
             continue
-        try:
-            s = int(am["start_idx"])
-            e = int(am["end_idx"])
-        except (KeyError, TypeError, ValueError):
+        key = str(p.resolve())
+        if key in seen:
             continue
-        s, e = _adjust_excerpt_range_half_open(messages, s, e)
-        if s >= e or s >= len(messages):
-            continue
-        e = min(e, len(messages))
-        del messages[s:e]
-        fu = _find_first_user_index(messages)
-        ins = fu if fu is not None else len(messages)
-        summary_msg = {
-            "role": "system",
-            "content": "【历史摘要】\n" + str(body or "").strip(),
-            "_agent_summary": True,
+        seen.add(key)
+        out.append(p)
+
+    out.sort(key=lambda path: path.name, reverse=True)
+    return out
+
+
+def _merge_pending_excerpts_for_conversation(
+    cid: str, messages: List[Dict[str, Any]], *, persist: bool = True
+) -> None:
+    if not cid:
+        return
+    try:
+        _merge_pending_excerpts_for_conversation_impl(cid, messages, persist=persist)
+    except Exception as exc:
+        print(
+            f"WARN: merge pending excerpts failed cid={cid}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
+def _merge_pending_excerpts_for_conversation_impl(
+    cid: str, messages: List[Dict[str, Any]], *, persist: bool = True
+) -> None:
+    paths = _collect_excerpt_paths_to_merge(cid)
+    if not paths:
+        return
+    changed = False
+    for p in paths:
+        rid_present = {
+            str(m.get("_agent_round_id") or "").strip()
+            for m in messages
+            if isinstance(m, dict) and m.get("_agent_round_id")
         }
-        messages.insert(ins, summary_msg)
+        if _merge_one_excerpt_file(p, messages, cid):
+            _mark_excerpt_merged(p)
+            changed = True
+        elif not _excerpt_file_needs_merge(p):
+            continue
+        else:
+            try:
+                raw = p.read_text(encoding="utf-8")
+                blob, _ = _parse_excerpt_file(raw)
+                am = blob.get("agent_excerpt_meta") if isinstance(blob, dict) else None
+                if isinstance(am, dict):
+                    round_ids = _excerpt_meta_round_ids({"agent_excerpt_meta": am})
+                    if round_ids and not any(r in rid_present for r in round_ids):
+                        _mark_excerpt_merged(p)
+                        continue
+                    s = int(am.get("start_idx", 0))
+                    e = int(am.get("end_idx", 0))
+                    if (
+                        s >= len(messages)
+                        or s >= e
+                        or (not round_ids and e > len(messages))
+                    ):
+                        _mark_excerpt_merged(p)
+            except Exception:
+                pass
+    if changed:
+        CONVERSATIONS[cid] = messages
+        if persist:
+            _save_conversation(cid, messages)
+
+
+def messages_for_history_api(cid: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """返回 (界面展示用原始消息, 上下文布局用合并预览)。打开历史时不写盘、不破坏 json。"""
+    _ensure_conversation_loaded(cid)
+    stored = list(CONVERSATIONS.get(cid) or [])
+    if not stored:
+        loaded = _load_conversation(cid)
+        if loaded:
+            stored = list(loaded)
+            CONVERSATIONS[cid] = loaded
+    layout_preview = copy.deepcopy(stored)
+    _merge_pending_excerpts_for_conversation(cid, layout_preview, persist=False)
+    return stored, layout_preview
 
 
 def _ephemeral_mode_system_tail(mode: str) -> Dict[str, Any]:
@@ -2276,30 +2556,19 @@ def _summarize_messages_slice_with_llm(slice_msgs: List[Dict[str, Any]], cid: st
         "3) 事实粒度：保留可执行信息——路径、命令、版本号、明确数字、用户硬性约束（必须/禁止等）。\n"
         "4) 未完成：单独列出仍待处理或待用户确认的事项；已放弃的方案一句话带过即可。\n"
         "5) 输出：纯文本中文；建议分节（背景 / 关键结论 / 约束与约定 / 未完成与待确认 / 风险与注意点）；"
-        "总篇幅控制在约 800～1200 字以内，避免过长反噬后续上下文。\n"
+        f"总篇幅不超过约 {SUMMARY_OUTPUT_MAX_CHARS} 字，在限制内尽量保留关键细节与可执行信息。\n"
         "6) 脉络连贯：关注「用户要什么 → 做了什么 → 得到什么结论」的因果链，不要只罗列事实；对每个关键结论尽量保留。\n"
         "7) 禁止编造：不得引入记录中未出现的文件名、结论或数字；不确定处请写「未在记录中明确」。\n"
         "8) 若剔除噪声后确实无可保留的实质信息：请仅输出「摘要为空」五个字（不要加标点或换行），"
         "使全文总字符数少于 10；不要输出其它占位或解释。"
     )
-    compact: List[Dict[str, Any]] = []
-    for m in slice_msgs:
-        r = m.get("role")
-        if r == "tool":
-            continue
-        if r == "user":
-            compact.append({"role": "user", "content": str(m.get("content") or "")[:8000]})
-        elif r == "assistant":
-            compact.append({"role": "assistant", "content": str(m.get("content") or "")[:6000]})
-        elif r == "system":
-            compact.append({"role": "system", "content": str(m.get("content") or "")[:4000]})
     reff = _get_reasoning_effort(cid)
     th_type = "enabled" if SUMMARY_THINKING_ENABLED else "disabled"
     payload = {
         "model": default_model_from_env(),
         "messages": [
             {"role": "system", "content": sys_h},
-            {"role": "user", "content": json.dumps(compact, ensure_ascii=False)},
+            {"role": "user", "content": json.dumps(slice_msgs, ensure_ascii=False)},
         ],
         "reasoning_effort": reff,
         "thinking": {"type": th_type},
@@ -2336,7 +2605,9 @@ def _maybe_schedule_summarization(cid: str, messages: List[Dict[str, Any]]) -> N
         s_adj, e_adj = rng[0], rng[1]
         if s_adj >= e_adj:
             return
-        slice_copy = copy.deepcopy(messages[s_adj:e_adj])
+        excerpt_src = messages[s_adj:e_adj]
+        excerpt_round_ids = _round_ids_from_messages(excerpt_src)
+        slice_copy = copy.deepcopy(excerpt_src)
         slice_copy = _strip_tool_trace_for_summary(slice_copy)
         SUMMARY_IN_PROGRESS[cid] = time.time() + SUMMARY_IN_PROGRESS_TTL_SEC
 
@@ -2348,7 +2619,13 @@ def _maybe_schedule_summarization(cid: str, messages: List[Dict[str, Any]]) -> N
             ts = int(time.time() * 1000)
             EXCERPTS_DIR.mkdir(parents=True, exist_ok=True)
             path = EXCERPTS_DIR / f"{cid}_{ts}.md"
-            meta = {"start_idx": s_adj, "end_idx": e_adj, "conversation_id": cid, "end_exclusive": True}
+            meta = {
+                "round_ids": excerpt_round_ids,
+                "conversation_id": cid,
+                "end_exclusive": True,
+                "start_idx": s_adj,
+                "end_idx": e_adj,
+            }
             header = "---\n" + json.dumps({"agent_excerpt_meta": meta}, ensure_ascii=False) + "\n---\n\n"
             path.write_text(header + text, encoding="utf-8")
             with _SUMMARY_STATE_LOCK:
@@ -2382,11 +2659,22 @@ def run_agent_turn(
     if not resume_after_user_confirm:
         _tail_drop_incomplete_tool_assistant(messages)
     _normalize_persisted_conversation(messages)
+    _ensure_conversation_message_ids_v2(messages)
     # ContextState.java：每次组包请求大模型前须 tryLoadPendingMemFile（含 user-confirm 续跑）
     _context_manager_v2(conversation_id).try_load_pending_mem_file(messages, _merge_pending_excerpts_for_conversation)
     rollback_messages = copy.deepcopy(messages)
+    active_round_id: Optional[str] = None
+    for _m in reversed(messages):
+        if _m.get("role") == "user":
+            active_round_id = str(_m.get("_agent_round_id") or "").strip() or None
+            break
     if not resume_after_user_confirm:
-        messages.append({"role": "user", "content": user_text})
+        active_round_id = _append_session_message_v2(
+            conversation_id,
+            messages,
+            {"role": "user", "content": user_text},
+            new_round=True,
+        )
     user_text_for_preview = user_text
     if resume_after_user_confirm:
         user_text_for_preview = ""
@@ -2400,8 +2688,10 @@ def run_agent_turn(
 
     api_messages = _build_api_messages_for_model(messages, conversation_id)
     for _round in range(MAX_TOOL_ROUNDS):
-        if _consume_conversation_stop_requested(conversation_id, run_id):
-            yield _finish_conversation_stopped(conversation_id, rollback_messages)
+        if server_shutting_down() or _consume_conversation_stop_requested(conversation_id, run_id):
+            yield _finish_conversation_stopped(
+                conversation_id, messages, round_id=active_round_id, run_id=run_id
+            )
             return
         yield {"type": "llm_round", "round": _round + 1}
         reff = _get_reasoning_effort(conversation_id)
@@ -2421,6 +2711,8 @@ def run_agent_turn(
             reasoning_parts: List[str] = []
             stream_tool_calls: List[dict] = []
             for chunk in deepseek_stream_request(body):
+                if _turn_abort_requested(conversation_id, run_id):
+                    break
                 u = chunk.get("usage")
                 if isinstance(u, dict) and u:
                     usage = u
@@ -2452,6 +2744,12 @@ def run_agent_turn(
             _save_conversation(conversation_id, messages)
             return
 
+        if server_shutting_down() or _consume_conversation_stop_requested(conversation_id, run_id):
+            yield _finish_conversation_stopped(
+                conversation_id, messages, round_id=active_round_id, run_id=run_id
+            )
+            return
+
         if usage:
             yield {"type": "usage", "usage": usage}
 
@@ -2475,10 +2773,17 @@ def run_agent_turn(
                 "tool_calls": tcalls,
                 "reasoning_content": reasoning_content or "",
             }
-            messages.append(assistant_msg)
+            _append_session_message_v2(
+                conversation_id, messages, assistant_msg, round_id=active_round_id
+            )
             direct_preview_content: List[str] = []
             turn_stop_after_this_batch = False
             for tc in tcalls:
+                if _turn_abort_requested(conversation_id, run_id):
+                    yield _finish_conversation_stopped(
+                        conversation_id, messages, round_id=active_round_id, run_id=run_id
+                    )
+                    return
                 fn = tc.get("function") or {}
                 api_name = fn.get("name")
                 raw_args = fn.get("arguments") or "{}"
@@ -2543,7 +2848,9 @@ def run_agent_turn(
                         "tool_call_id": tc.get("id"),
                         "step_title": step_title,
                     }
-                    if script == "run_type.py":
+                    if _turn_abort_requested(conversation_id, run_id):
+                        result = _user_stopped_tool_result_dict()
+                    elif script == "run_type.py":
                         result = _execute_run_type(conversation_id, exec_args)
                         if isinstance(result, dict) and not result.get("ok"):
                             import importlib as _il_rt
@@ -2567,7 +2874,9 @@ def run_agent_turn(
                                         result = {"ok": False, "data": None, "error": {"type": "ModeConflict", "message": "当前为 Plan 模式，禁止执行写操作。请先切换为 Execute 模式后再执行。"}}
                                         result = attach_tool_help_on_failure(script, None, result)
                                     else:
-                                        result = execute_tool_script(script, exec_args)
+                                        result = _execute_tool_script_stoppable(
+                                            conversation_id, run_id, script, exec_args
+                                        )
                                 else:
                                     # Plan 模式下所有写操作一律拒绝
                                     result = {"ok": False, "data": None, "error": {"type": "ModeConflict", "message": "当前为 Plan 模式，禁止执行写操作。请先切换为 Execute 模式后再执行。"}}
@@ -2580,10 +2889,14 @@ def run_agent_turn(
                                     result = {"ok": False, "data": None, "error": {"type": "ModeConflict", "message": "当前为 Execute 模式，但未找到执行清单(Todo-List)。请先用 todo_list（action=create）创建执行清单后再执行写操作。"}}
                                     result = attach_tool_help_on_failure(script, None, result)
                                 else:
-                                    result = execute_tool_script(script, exec_args)
+                                    result = _execute_tool_script_stoppable(
+                                        conversation_id, run_id, script, exec_args
+                                    )
                             else:
                                 # Auto 模式：不拦截
-                                result = execute_tool_script(script, exec_args)
+                                result = _execute_tool_script_stoppable(
+                                    conversation_id, run_id, script, exec_args
+                                )
                         else:
                             # file_search / grep_files / regex_locate：线程执行 + 注入 _progress_dict，宿主轮询推送 tool_progress
                             if script in _TOOL_PROGRESS_SCRIPTS:
@@ -2624,7 +2937,7 @@ def run_agent_turn(
                                         }
 
                                     while _t.is_alive():
-                                        if _peek_conversation_stop_requested(conversation_id, run_id):
+                                        if _turn_abort_requested(conversation_id, run_id):
                                             _search_progress["_abort"] = True
                                             _tool_aborted_by_user = True
                                             for _join_i in range(40):
@@ -2640,21 +2953,17 @@ def run_agent_turn(
                                     if _tp_final:
                                         yield _tp_final
                                     if _tool_aborted_by_user:
-                                        if _consume_conversation_stop_requested(conversation_id, run_id):
-                                            pass
                                         turn_stop_after_this_batch = True
-                                        result = {
-                                            "ok": False,
-                                            "data": None,
-                                            "error": {"type": "Aborted", "message": "用户已停止任务"},
-                                        }
+                                        result = _user_stopped_tool_result_dict()
                                     else:
                                         result = _ts_result_holder.get("r", {})
                                 finally:
                                     if script == "file_search.py":
                                         _FILE_SEARCH_ALLOWED = False
                             else:
-                                result = execute_tool_script(script, exec_args)
+                                result = _execute_tool_script_stoppable(
+                                    conversation_id, run_id, script, exec_args
+                                )
                     result = maybe_attach_write_tool_host_dry_run_notice(
                         script,
                         result,
@@ -2741,14 +3050,23 @@ def run_agent_turn(
                     if _preview:
                         direct_preview_content.append(_preview)
                 turn_tool_records.append({"api_name": api_name, "script": script or "(unknown)", "ok": bool(result.get("ok"))})
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.get("id"),
-                    "content": _truncate_tool_result(result),
-                })
+                _append_session_message_v2(
+                    conversation_id,
+                    messages,
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.get("id"),
+                        "content": _truncate_tool_result(result),
+                    },
+                    round_id=active_round_id,
+                )
                 yield _context_layout_event(conversation_id, messages)
+                if _turn_abort_requested(conversation_id, run_id):
+                    turn_stop_after_this_batch = True
                 if turn_stop_after_this_batch:
-                    yield _finish_conversation_stopped(conversation_id, rollback_messages)
+                    yield _finish_conversation_stopped(
+                        conversation_id, messages, round_id=active_round_id, run_id=run_id
+                    )
                     return
             if conversation_id in PENDING_USER_CONFIRM:
                 CONVERSATIONS[conversation_id] = messages
@@ -2757,25 +3075,44 @@ def run_agent_turn(
                 return
             if direct_preview_content:
                 combined = "\n\n".join(direct_preview_content)
-                messages.append({"role": "assistant", "content": combined, "reasoning_content": ""})
+                _append_session_message_v2(
+                    conversation_id,
+                    messages,
+                    {"role": "assistant", "content": combined, "reasoning_content": ""},
+                    round_id=active_round_id,
+                )
                 if not content_parts:
                     yield {"type": "assistant", "content": combined}
                 yield _context_layout_event(conversation_id, messages)
+            if _turn_abort_requested(conversation_id, run_id):
+                yield _finish_conversation_stopped(
+                    conversation_id, messages, round_id=active_round_id, run_id=run_id
+                )
+                return
             api_messages = _build_api_messages_for_model(messages, conversation_id)
             continue
 
         assistant_msg = {"role": "assistant", "content": content}
         if reasoning_content:
             assistant_msg["reasoning_content"] = reasoning_content
-        messages.append(assistant_msg)
+        _append_session_message_v2(
+            conversation_id, messages, assistant_msg, round_id=active_round_id
+        )
         if content and not content_parts:
             yield {"type": "assistant", "content": content}
         break
     else:
         max_rounds_rollback_messages = copy.deepcopy(rollback_messages)
-        messages.append({"role": "user", "content": AGENT_MAX_TOOL_ROUNDS_USER_HINT})
-        if _consume_conversation_stop_requested(conversation_id, run_id):
-            yield _finish_conversation_stopped(conversation_id, max_rounds_rollback_messages)
+        active_round_id = _append_session_message_v2(
+            conversation_id,
+            messages,
+            {"role": "user", "content": AGENT_MAX_TOOL_ROUNDS_USER_HINT},
+            new_round=True,
+        )
+        if server_shutting_down() or _consume_conversation_stop_requested(conversation_id, run_id):
+            yield _finish_conversation_stopped(
+                conversation_id, messages, round_id=active_round_id, run_id=run_id
+            )
             return
         yield {"type": "llm_round", "round": MAX_TOOL_ROUNDS + 1}
         api_messages = _build_api_messages_for_model(messages, conversation_id)
@@ -2795,6 +3132,8 @@ def run_agent_turn(
             reasoning_parts: List[str] = []
             stream_tool_calls: List[dict] = []
             for chunk in deepseek_stream_request(wrap_body):
+                if _turn_abort_requested(conversation_id, run_id):
+                    break
                 u = chunk.get("usage")
                 if isinstance(u, dict) and u:
                     usage = u
@@ -2826,6 +3165,12 @@ def run_agent_turn(
             _save_conversation(conversation_id, messages)
             return
 
+        if server_shutting_down() or _consume_conversation_stop_requested(conversation_id, run_id):
+            yield _finish_conversation_stopped(
+                conversation_id, messages, round_id=active_round_id, run_id=run_id
+            )
+            return
+
         if usage:
             yield {"type": "usage", "usage": usage}
 
@@ -2846,7 +3191,9 @@ def run_agent_turn(
                 "已达到工具调用次数上限；模型在收尾时仍尝试调用工具。请把任务拆成更小步骤或在本对话中追问。"
             )
         assistant_msg = {"role": "assistant", "content": content, "reasoning_content": reasoning_content or ""}
-        messages.append(assistant_msg)
+        _append_session_message_v2(
+            conversation_id, messages, assistant_msg, round_id=active_round_id
+        )
         if content and not content_parts:
             yield {"type": "assistant", "content": content}
 

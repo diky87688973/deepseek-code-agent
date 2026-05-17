@@ -349,13 +349,26 @@
     }
     return { add: a, del: d };
   }
+  function diffRowInnerHtml(r) {
+    var g = r.t === "-" ? "−" : r.t === "+" ? "+" : " ";
+    var gs = r.t === "-" ? "d-gutter-del" : r.t === "+" ? "d-gutter-add" : "d-gutter-eq";
+    return (
+      '<span class="d-gutter ' +
+      gs +
+      '">' +
+      escapeHtml(g) +
+      '</span><span class="d-code">' +
+      escapeHtml(r.l) +
+      "</span>"
+    );
+  }
   function buildDiffRowsHtml(oldT, newT) {
     var rows = linesDiff(oldT, newT);
     var html = "";
     for (var ri = 0; ri < rows.length; ri++) {
       var r = rows[ri];
       var cls = r.t === "-" ? "d-del" : r.t === "+" ? "d-add" : "d-eq";
-      html += '<div class="' + cls + '">' + escapeHtml(r.t + " " + r.l) + "</div>";
+      html += '<div class="' + cls + '">' + diffRowInnerHtml(r) + "</div>";
     }
     return html;
   }
@@ -366,7 +379,7 @@
     if (st.del > 0) cap += ' <span class="chat-diff-neg">-' + st.del + "</span>";
     if (st.add > 0) cap += ' <span class="chat-diff-pos">+' + st.add + "</span>";
     cap += "</div>";
-    var box = '<div class="diff-unified">' + buildDiffRowsHtml(oldT, newT) + "</div>";
+    var box = '<div class="diff-unified diff-surface-light">' + buildDiffRowsHtml(oldT, newT) + "</div>";
     return '<div class="chat-diff-card">' + cap + box + "</div>";
   }
   function renderMarkdown(md) {

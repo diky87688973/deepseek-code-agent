@@ -179,6 +179,15 @@
       var items = j.items || [];
       if (j.context_layout) col.s.lastContextLayout = j.context_layout;
       var msgsEl = col.msgsEl;
+      if (Array.isArray(j.todo_list) && j.todo_list.length && typeof IMM.renderTodoInColumn === "function") {
+        IMM.renderTodoInColumn(col, {
+          items: j.todo_list,
+          all_done: j.todo_list.every(function (it) { return !!it.done; }),
+          collapsed: false,
+        });
+      } else if (typeof IMM.renderTodoInColumn === "function") {
+        IMM.renderTodoInColumn(col, { items: [], close: true });
+      }
       while (msgsEl.firstChild) msgsEl.removeChild(msgsEl.firstChild);
       for (var i = 0; i < items.length; i++) {
         var it = items[i] || {};
@@ -186,15 +195,11 @@
         else if (it.role === "assistant")
           IMM.immAddAssistantMarkdown(msgsEl, String(it.content || ""));
       }
-      msgsEl.scrollTop = msgsEl.scrollHeight;
-      if (Array.isArray(j.todo_list) && j.todo_list.length && typeof IMM.renderTodoInColumn === "function") {
-        IMM.renderTodoInColumn(col, {
-          items: j.todo_list,
-          all_done: j.todo_list.every(function (it) { return !!it.done; }),
-          collapsed: false,
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          msgsEl.scrollTop = msgsEl.scrollHeight;
         });
-      }
-      msgsEl.scrollTop = msgsEl.scrollHeight;
+      });
       if (j.context_layout && typeof IMM.updateImmersiveContextBar === "function") {
         var active = IMM.CM && IMM.CM.getActive ? IMM.CM.getActive() : null;
         if (active && active.id === col.id) IMM.updateImmersiveContextBar();

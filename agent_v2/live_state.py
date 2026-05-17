@@ -60,6 +60,22 @@ _TOOL_EXEC_LOCK = threading.RLock()
 _CONVERSATION_STOP_FLAGS: Dict[str, Set[str]] = {}
 _ACTIVE_CONVERSATION_RUNS: Dict[str, str] = {}
 _CONVERSATION_STOP_LOCK = threading.Lock()
+_SERVER_SHUTTING_DOWN = False
+
+
+def server_shutting_down() -> bool:
+    """进程正在退出（Ctrl+C / 托盘退出）；用于打断 SSE 与 LLM 流式读。"""
+    return _SERVER_SHUTTING_DOWN
+
+
+def abort_all_conversation_runs_on_shutdown() -> None:
+    """uvicorn 关闭时标记所有活跃 run 为停止，避免 graceful shutdown 被 SSE 挂死。"""
+    global _SERVER_SHUTTING_DOWN
+    _SERVER_SHUTTING_DOWN = True
+    with _CONVERSATION_STOP_LOCK:
+        for cid, run_id in list(_ACTIVE_CONVERSATION_RUNS.items()):
+            if run_id:
+                _CONVERSATION_STOP_FLAGS.setdefault(cid, set()).add(run_id)
 
 
 def _begin_conversation_run(cid: str) -> Optional[str]:

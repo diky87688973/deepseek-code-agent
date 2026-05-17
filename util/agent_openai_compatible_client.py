@@ -189,6 +189,13 @@ def chat_completion_stream(payload: dict) -> Iterator[dict]:
         raise HTTPException(status_code=502, detail="stream open failed")
     try:
         while True:
+            try:
+                from agent_v2.live_state import server_shutting_down
+
+                if server_shutting_down():
+                    break
+            except ImportError:
+                pass
             raw_line = stream.readline()
             if not raw_line:
                 break

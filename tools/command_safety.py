@@ -125,6 +125,15 @@ def _check_command_blacklist(command: str) -> Optional[str]:
                 f"请使用专用工具（如 read_file、write_file、read_write、web_fetch）处理文件内容。\n"
                 f"图片预览请用 `![图片](url)` 格式，不要用 data URI/base64。"
             )
+    # 内容层面拦截：绕过 kling_generate 工具直接调可灵 API（必须走确认拦截流程）
+    _kling_inline_patterns = ["api-beijing.klingai.com", "klingai.com", "AGENT_KLING_API_KEY", "AGENT_KLING_SECRET_KEY", "KLING_API_KEY", "KLING_SECRET_KEY"]
+    for _pat in _kling_inline_patterns:
+        if _pat in command.lower():
+            return (
+                f"命令黑名单拦截：命令中包含 '{_pat}'。\n"
+                f"禁止通过 run_command/python_inline 直接调用可灵 API。\n"
+                f"请使用 kling_generate 工具并走用户确认流程后生成。"
+            )
     for blk in sorted(_CMD_BLACKLIST, key=len, reverse=True):
         if " " in blk and command.strip().lower().startswith(blk):
             advice = _BLACKLIST_ADVICE.get(blk, "禁止使用此命令")

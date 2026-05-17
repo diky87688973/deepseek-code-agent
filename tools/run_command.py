@@ -36,6 +36,21 @@ def agent_main(
         if block_reason is not None:
             return {"ok": False, "data": None, "error": {"type": "CommandBlacklisted", "message": block_reason}}
 
+        # 如果命令引用了 .py 文件，读取文件内容一并检查黑名单
+        import re
+        _py_files_in_cmd = re.findall(r'[\'"]?([a-zA-Z]:[^\'"\s]+\.py)[\'"]?', command)
+        if not _py_files_in_cmd:
+            _py_files_in_cmd = re.findall(r'([^\'"\s]+\.py)', command)
+        for _pyf in _py_files_in_cmd:
+            _pyf = _pyf.strip('\'" ')
+            try:
+                _py_content = Path(_pyf).read_text('utf-8', errors='replace')
+                _file_block = _check_command_blacklist(_py_content)
+                if _file_block is not None:
+                    return {"ok": False, "data": None, "error": {"type": "CommandBlacklisted", "message": f"脚本文件 {_pyf} 包含被拦截内容：{_file_block}"}}
+            except Exception:
+                pass
+
         if safe_mode:
             _validate_safe_command(command)
 

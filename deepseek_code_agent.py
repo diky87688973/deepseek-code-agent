@@ -71,6 +71,22 @@ from util.agent_prompt_constants import (
 from util.agent_model_dispatch import ALLOWED_MODELS, default_model_from_env, effective_model, set_conversation_model
 from util.agent_deepseek_pricing import get_model_pricing_snapshot
 from util.agent_openai_compatible_client import chat_completion_request, chat_completion_stream
+from util.session_crypto import (
+    decrypt_session_payload as _decrypt_session_payload,
+    encrypt_session_payload as _encrypt_session_payload,
+)
+from util.session_persist import (
+    append_raw_message as _append_raw_message,
+    bootstrap_raw_from_messages as _bootstrap_raw_from_messages,
+    cache_session_json_path as _cache_session_json_path,
+    ensure_conversation_message_ids_v1 as _ensure_conversation_message_ids_v1,
+    excerpt_meta_message_ids as _excerpt_meta_message_ids,
+    message_ids_from_messages as _message_ids_from_messages,
+    remove_messages_by_message_ids as _remove_messages_by_message_ids,
+    load_messages_from_raw as _load_messages_from_raw,
+    resolve_session_json_path as _resolve_session_json_path,
+    stamp_message_v1 as _stamp_message_v1,
+)
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -217,6 +233,7 @@ CONTEXT_FULL_USER_ROUNDS = int(_CONTEXT_CFG["AGENT_CONTEXT_FULL_USER_ROUNDS"])
 CONTEXT_PURE_USER_ROUNDS = int(_CONTEXT_CFG["AGENT_CONTEXT_PURE_USER_ROUNDS"])
 _SUMMARY_THINK_RAW = str(_CONTEXT_CFG["AGENT_SUMMARY_THINKING"]).strip().lower()
 SUMMARY_THINKING_ENABLED = _SUMMARY_THINK_RAW not in ("", "0", "false", "no", "off", "disabled")
+SUMMARY_OUTPUT_MAX_CHARS = int(_CONTEXT_CFG["AGENT_SUMMARY_OUTPUT_MAX_CHARS"])
 # AGENT_CONTEXT_TOKEN_METHOD：config.ini 预留，当前未参与分支（仅 estimate）
 TOKEN_ESTIMATE_EN_PER_CHAR = float(_CONTEXT_CFG["AGENT_TOKEN_ESTIMATE_EN_PER_CHAR"])
 TOKEN_ESTIMATE_ZH_PER_CHAR = float(_CONTEXT_CFG["AGENT_TOKEN_ESTIMATE_ZH_PER_CHAR"])
@@ -626,112 +643,6 @@ def _best_message_reasoning_field(last_message: Dict[str, Any]) -> str:
     return best
 
 
-def _dpapi_crypt(data: bytes, protect: bool) -> bytes:
-    if os.name != "nt":
-        raise RuntimeError("DPAPI is only available on Windows")
-    import ctypes
-    from ctypes import wintypes
-
-    class DATA_BLOB(ctypes.Structure):
-        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
-
-    in_buf = ctypes.create_string_buffer(data)
-    in_blob = DATA_BLOB(len(data), ctypes.cast(in_buf, ctypes.POINTER(ctypes.c_char)))
-    entropy_buf = ctypes.create_string_buffer(SESSION_APP_ENTROPY)
-    entropy_blob = DATA_BLOB(len(SESSION_APP_ENTROPY), ctypes.cast(entropy_buf, ctypes.POINTER(ctypes.c_char)))
-    out_blob = DATA_BLOB()
-    crypt32 = ctypes.windll.crypt32
-    kernel32 = ctypes.windll.kernel32
-    fn = crypt32.CryptProtectData if protect else crypt32.CryptUnprotectData
-    ok = fn(ctypes.byref(in_blob), None, ctypes.byref(entropy_blob), None, None, 0, ctypes.byref(out_blob))
-    if not ok:
-        raise ctypes.WinError()
-    try:
-        return ctypes.string_at(out_blob.pbData, out_blob.cbData)
-    finally:
-        kernel32.LocalFree(out_blob.pbData)
-
-
-def _session_key_material() -> bytes:
-    SESSION_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if SESSION_KEY_FILE.is_file():
-        val = SESSION_KEY_FILE.read_text(encoding="ascii").strip()
-        return base64.urlsafe_b64decode(val.encode("ascii"))
-    key = os.urandom(32)
-    SESSION_KEY_FILE.write_text(base64.urlsafe_b64encode(key).decode("ascii"), encoding="ascii")
-    try:
-        os.chmod(str(SESSION_KEY_FILE), 0o600)
-    except Exception:
-        pass
-    return key
-
-
-def _session_fallback_key() -> bytes:
-    # Cross-platform default for macOS/Linux, and Windows when DPAPI is disabled/unavailable.
-    # The app entropy means the raw local key file alone is not the complete decrypt key.
-    return hmac.new(SESSION_APP_ENTROPY, _session_key_material(), hashlib.sha256).digest()
-
-
-def _xor_stream(data: bytes, key: bytes, nonce: bytes) -> bytes:
-    out = bytearray()
-    counter = 0
-    while len(out) < len(data):
-        block = hmac.new(key, nonce + counter.to_bytes(8, "big"), hashlib.sha256).digest()
-        out.extend(block)
-        counter += 1
-    return bytes(a ^ b for a, b in zip(data, out[:len(data)]))
-
-
-def _encrypt_session_payload(plain: bytes) -> Dict[str, Any]:
-    mode = str(AGENT_CONFIG["AGENT_SESSION_ENCRYPTION"]).strip().lower()
-    if mode not in {"auto", "dpapi", "local", "none"}:
-        mode = "none"
-    if mode == "none":
-        return None  # 通知调用方直接存明文
-    if os.name == "nt" and mode in {"auto", "dpapi"}:
-        try:
-            data = _dpapi_crypt(plain, True)
-            return {
-                SESSION_ENCRYPTION_MAGIC: 1,
-                "alg": "dpapi-user-v1",
-                "data": base64.b64encode(data).decode("ascii"),
-            }
-        except Exception as exc:
-            if mode == "dpapi":
-                raise
-            print(f"WARN: DPAPI session encryption failed, using local key fallback: {exc}", file=sys.stderr, flush=True)
-    key = _session_fallback_key()
-    nonce = os.urandom(16)
-    cipher = _xor_stream(plain, key, nonce)
-    tag = hmac.new(key, nonce + cipher, hashlib.sha256).digest()
-    return {
-        SESSION_ENCRYPTION_MAGIC: 1,
-        "alg": "local-hmac-sha256-stream-v1",
-        "nonce": base64.b64encode(nonce).decode("ascii"),
-        "data": base64.b64encode(cipher).decode("ascii"),
-        "tag": base64.b64encode(tag).decode("ascii"),
-    }
-
-
-def _decrypt_session_payload(raw: Any) -> Optional[bytes]:
-    if not isinstance(raw, dict) or raw.get(SESSION_ENCRYPTION_MAGIC) != 1:
-        return None
-    alg = str(raw.get("alg") or "")
-    if alg == "dpapi-user-v1":
-        data = base64.b64decode(str(raw.get("data") or "").encode("ascii"))
-        return _dpapi_crypt(data, False)
-    if alg == "local-hmac-sha256-stream-v1":
-        key = _session_fallback_key()
-        nonce = base64.b64decode(str(raw.get("nonce") or "").encode("ascii"))
-        cipher = base64.b64decode(str(raw.get("data") or "").encode("ascii"))
-        tag = base64.b64decode(str(raw.get("tag") or "").encode("ascii"))
-        expected = hmac.new(key, nonce + cipher, hashlib.sha256).digest()
-        if not hmac.compare_digest(tag, expected):
-            raise ValueError("session encryption tag mismatch")
-        return _xor_stream(cipher, key, nonce)
-    raise ValueError(f"unsupported session encryption alg: {alg}")
-
-
 def _session_date_group_from_path(fp: Path) -> str:
     parent = fp.parent.name
     return parent if re.match(r"^\d{4}-\d{2}-\d{2}$", parent) else ""
@@ -794,11 +705,31 @@ def _save_title_file(cid: str, title: str) -> None:
 
 
 def _conversation_file_for_save(cid: str) -> Path:
-    existing = _find_conversation_file(cid)
-    if existing is not None:
-        return existing
-    day = time.strftime("%Y-%m-%d", time.localtime())
-    return SESSION_DIR / day / f"{cid}.json"
+    def _default_for_new(c: str) -> Path:
+        day = time.strftime("%Y-%m-%d", time.localtime())
+        return SESSION_DIR / day / f"{c}.json"
+
+    return _resolve_session_json_path(cid, _find_conversation_file, _default_for_new)
+
+
+def _append_session_message_v1(
+    cid: str,
+    messages: List[Dict[str, Any]],
+    msg: Dict[str, Any],
+) -> str:
+    mid = _stamp_message_v1(msg)
+    messages.append(msg)
+    if cid:
+        try:
+            fp = _conversation_file_for_save(cid)
+            _append_raw_message(fp, msg)
+        except Exception as e:
+            print(
+                f"WARN: append session .raw failed cid={cid}: {e}",
+                file=sys.stderr,
+                flush=True,
+            )
+    return mid
 
 
 def _save_conversation(cid: str, messages: List[Dict[str, Any]], title: str = "") -> None:
@@ -808,6 +739,7 @@ def _save_conversation(cid: str, messages: List[Dict[str, Any]], title: str = ""
         SESSION_DIR.mkdir(parents=True, exist_ok=True)
         fp = _conversation_file_for_save(cid)
         fp.parent.mkdir(parents=True, exist_ok=True)
+        _bootstrap_raw_from_messages(fp, messages)
         # 仅存储 messages JSON，不再内嵌标题
         plain = json.dumps(messages, ensure_ascii=False)
         envelope = _encrypt_session_payload(plain.encode("utf-8"))
@@ -836,9 +768,30 @@ def _load_conversation(cid: str) -> Optional[List[Dict[str, Any]]]:
             raw_text = decrypted.decode("utf-8")
             raw = json.loads(raw_text)
         if isinstance(raw, list) and all(isinstance(m, dict) for m in raw):
+            _cache_session_json_path(cid, fp)
+            _ensure_conversation_message_ids_v1(raw)
+            try:
+                _bootstrap_raw_from_messages(fp, raw)
+            except Exception as boot_exc:
+                print(
+                    f"WARN: bootstrap .raw failed cid={cid}: {boot_exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            if not _chat_history_from_messages(raw):
+                recovered = _load_messages_from_raw(fp)
+                if recovered and _chat_history_from_messages(recovered):
+                    print(
+                        f"INFO: restored session messages from .raw cid={cid}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    _ensure_conversation_message_ids_v1(recovered)
+                    return recovered
             return raw
         return None
-    except Exception:
+    except Exception as load_exc:
+        print(f"WARN: load conversation failed cid={cid}: {load_exc}", file=sys.stderr, flush=True)
         return None
 
 
@@ -1941,12 +1894,18 @@ def _resolve_conversation_mode(conversation_id: str, user_text: str, mode_hint: 
 _KB_MAX_FILE_SIZE = int(AGENT_CONFIG["AGENT_KB_MAX_FILE_SIZE"])
 
 
+def _kb_rel_has_hidden_segment(rel: str) -> bool:
+    """路径任一分段以 . 开头视为隐藏（.svn、.git、.env 等），不参与列表与勾选。"""
+    parts = [p for p in str(rel or "").replace("\\", "/").split("/") if p and p != "."]
+    return any(p.startswith(".") for p in parts)
+
+
 def _kb_safe_resolve_rel(rel: str) -> Optional[Path]:
     """将相对路径解析为 KB 根下的真实文件路径；禁止 .. 与越界。"""
     if not KB_BASE_DIR:
         return None
     raw = str(rel or "").strip().replace("\\", "/")
-    if not raw or raw.startswith("/"):
+    if not raw or raw.startswith("/") or _kb_rel_has_hidden_segment(raw):
         return None
     parts = [p for p in raw.split("/") if p and p != "."]
     if any(p == ".." for p in parts):
@@ -1964,6 +1923,13 @@ def _kb_safe_resolve_rel(rel: str) -> Optional[Path]:
 
 def _kb_file_allowed_when_checked(fpath: Path) -> bool:
     """勾选时校验：存在、大小上限；表格类需已安装 openpyxl。"""
+    if KB_BASE_DIR:
+        try:
+            rel = fpath.resolve().relative_to(KB_BASE_DIR.resolve())
+            if _kb_rel_has_hidden_segment(str(rel).replace("\\", "/")):
+                return False
+        except (ValueError, OSError):
+            return False
     try:
         if fpath.stat().st_size > _KB_MAX_FILE_SIZE:
             return False
@@ -2221,20 +2187,20 @@ def _fold_pure_window_for_api(msgs: List[Dict[str, Any]]) -> List[Dict[str, Any]
 
 
 def _strip_tool_trace_for_summary(msgs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """摘要模型输入：去掉 tool 与 assistant 的 tool_calls / reasoning_content。"""
+    """摘要模型输入：去掉 tool 消息；user/assistant/system 仅保留 content，不截断正文。"""
     out: List[Dict[str, Any]] = []
     for m in msgs:
         r = m.get("role")
         if r == "tool":
             continue
         if r == "user":
-            out.append({"role": "user", "content": str(m.get("content") or "")[:8000]})
+            out.append({"role": "user", "content": str(m.get("content") or "")})
         elif r == "assistant":
-            out.append({"role": "assistant", "content": str(m.get("content") or "")[:6000]})
+            out.append({"role": "assistant", "content": str(m.get("content") or "")})
         elif r == "system":
-            out.append({"role": "system", "content": str(m.get("content") or "")[:4000]})
+            out.append({"role": "system", "content": str(m.get("content") or "")})
         else:
-            out.append({"role": str(r or "user"), "content": str(m.get("content") or "")[:4000]})
+            out.append({"role": str(r or "user"), "content": str(m.get("content") or "")})
     return out
 
 
@@ -2475,39 +2441,211 @@ def _parse_excerpt_file(raw: str) -> Tuple[dict, str]:
     return meta, body
 
 
-def _merge_pending_excerpts_for_conversation(cid: str, messages: List[Dict[str, Any]]) -> None:
+def _excerpt_disk_paths_for_cid(cid: str) -> List[Path]:
+    if not cid or not EXCERPTS_DIR.is_dir():
+        return []
+    return sorted(p for p in EXCERPTS_DIR.glob(f"{cid}_*.md") if p.is_file())
+
+
+def _excerpt_file_needs_merge(p: Path) -> bool:
+    try:
+        raw = p.read_text(encoding="utf-8")
+        blob, _ = _parse_excerpt_file(raw)
+        if not isinstance(blob, dict):
+            return True
+        am = blob.get("agent_excerpt_meta")
+        if isinstance(am, dict) and am.get("merged"):
+            return False
+    except Exception:
+        return True
+    return True
+
+
+def _mark_excerpt_merged(p: Path) -> None:
+    try:
+        raw = p.read_text(encoding="utf-8")
+        blob, body = _parse_excerpt_file(raw)
+        if not isinstance(blob, dict):
+            return
+        am = blob.get("agent_excerpt_meta")
+        if not isinstance(am, dict):
+            return
+        am = dict(am)
+        am["merged"] = True
+        am["merged_at"] = int(time.time() * 1000)
+        header = "---\n" + json.dumps({"agent_excerpt_meta": am}, ensure_ascii=False) + "\n---\n\n"
+        p.write_text(header + body, encoding="utf-8")
+    except Exception as exc:
+        print(f"WARN: mark excerpt merged failed {p}: {exc}", file=sys.stderr, flush=True)
+
+
+def _range_is_only_summaries(messages: List[Dict[str, Any]], s: int, e: int) -> bool:
+    if s >= e or s < 0:
+        return True
+    e = min(e, len(messages))
+    for i in range(s, e):
+        m = messages[i]
+        if m.get("role") != "system" or not m.get("_agent_summary"):
+            return False
+    return True
+
+
+def _insert_summary_message_v1(
+    cid: str, messages: List[Dict[str, Any]], body: str
+) -> None:
+    fu = _find_first_user_index(messages)
+    ins = fu if fu is not None else len(messages)
+    summary_msg = {
+        "role": "system",
+        "content": "【历史摘要】\n" + str(body or "").strip(),
+        "_agent_summary": True,
+    }
+    messages.insert(ins, summary_msg)
+    if cid:
+        try:
+            fp = _conversation_file_for_save(cid)
+            _append_raw_message(fp, summary_msg)
+        except Exception as e:
+            print(
+                f"WARN: append summary to .raw failed cid={cid}: {e}",
+                file=sys.stderr,
+                flush=True,
+            )
+
+
+def _merge_one_excerpt_file(p: Path, messages: List[Dict[str, Any]], cid: str = "") -> bool:
+    try:
+        raw = p.read_text(encoding="utf-8")
+    except Exception:
+        return False
+    blob, body = _parse_excerpt_file(raw)
+    am = blob.get("agent_excerpt_meta") if isinstance(blob, dict) else None
+    if not isinstance(am, dict):
+        return False
+    message_ids = _excerpt_meta_message_ids({"agent_excerpt_meta": am})
+    if message_ids:
+        n_before = len(messages)
+        _remove_messages_by_message_ids(messages, message_ids)
+        if len(messages) == n_before:
+            return False
+        _insert_summary_message_v1(cid, messages, body)
+        return True
+    try:
+        s = int(am["start_idx"])
+        e = int(am["end_idx"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    if e > len(messages) or s >= len(messages):
+        return False
+    s, e = _adjust_excerpt_range_half_open(messages, s, e)
+    if s >= len(messages):
+        return False
+    if s >= e or _range_is_only_summaries(messages, s, e):
+        return False
+    e = min(e, len(messages))
+    del messages[s:e]
+    _insert_summary_message_v1(cid, messages, body)
+    return True
+
+
+def _collect_excerpt_paths_to_merge(cid: str) -> List[Path]:
     with _SUMMARY_STATE_LOCK:
-        paths = list(PENDING_EXCERPT_PATHS.pop(cid, []) or [])
-    for path_str in paths:
+        pending = list(PENDING_EXCERPT_PATHS.pop(cid, []) or [])
+    seen: Set[str] = set()
+    out: List[Path] = []
+    for path_str in pending:
         p = Path(path_str)
         if not p.is_file():
             continue
-        try:
-            raw = p.read_text(encoding="utf-8")
-        except Exception:
+        key = str(p.resolve())
+        if key in seen:
             continue
-        blob, body = _parse_excerpt_file(raw)
-        am = blob.get("agent_excerpt_meta") if isinstance(blob, dict) else None
-        if not isinstance(am, dict):
+        seen.add(key)
+        out.append(p)
+    for p in _excerpt_disk_paths_for_cid(cid):
+        if not _excerpt_file_needs_merge(p):
             continue
-        try:
-            s = int(am["start_idx"])
-            e = int(am["end_idx"])
-        except (KeyError, TypeError, ValueError):
+        key = str(p.resolve())
+        if key in seen:
             continue
-        s, e = _adjust_excerpt_range_half_open(messages, s, e)
-        if s >= e or s >= len(messages):
-            continue
-        e = min(e, len(messages))
-        del messages[s:e]
-        fu = _find_first_user_index(messages)
-        ins = fu if fu is not None else len(messages)
-        summary_msg = {
-            "role": "system",
-            "content": "【历史摘要】\n" + str(body or "").strip(),
-            "_agent_summary": True,
+        seen.add(key)
+        out.append(p)
+
+    out.sort(key=lambda path: path.name, reverse=True)
+    return out
+
+
+def _merge_pending_excerpts_for_conversation(
+    cid: str, messages: List[Dict[str, Any]], *, persist: bool = True
+) -> None:
+    if not cid:
+        return
+    try:
+        _merge_pending_excerpts_for_conversation_impl(cid, messages, persist=persist)
+    except Exception as exc:
+        print(
+            f"WARN: merge pending excerpts failed cid={cid}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
+def _merge_pending_excerpts_for_conversation_impl(
+    cid: str, messages: List[Dict[str, Any]], *, persist: bool = True
+) -> None:
+    paths = _collect_excerpt_paths_to_merge(cid)
+    if not paths:
+        return
+    changed = False
+    for p in paths:
+        mid_present = {
+            str(m.get("_agent_message_id") or "").strip()
+            for m in messages
+            if isinstance(m, dict) and m.get("_agent_message_id")
         }
-        messages.insert(ins, summary_msg)
+        if _merge_one_excerpt_file(p, messages, cid):
+            _mark_excerpt_merged(p)
+            changed = True
+        elif not _excerpt_file_needs_merge(p):
+            continue
+        else:
+            try:
+                raw = p.read_text(encoding="utf-8")
+                blob, _ = _parse_excerpt_file(raw)
+                am = blob.get("agent_excerpt_meta") if isinstance(blob, dict) else None
+                if isinstance(am, dict):
+                    message_ids = _excerpt_meta_message_ids({"agent_excerpt_meta": am})
+                    if message_ids and not any(mid in mid_present for mid in message_ids):
+                        _mark_excerpt_merged(p)
+                        continue
+                    s = int(am.get("start_idx", 0))
+                    e = int(am.get("end_idx", 0))
+                    round_ids = _excerpt_meta_round_ids({"agent_excerpt_meta": am})
+                    if (
+                        s >= len(messages)
+                        or s >= e
+                        or (not message_ids and not round_ids and e > len(messages))
+                    ):
+                        _mark_excerpt_merged(p)
+            except Exception:
+                pass
+    if changed:
+        CONVERSATIONS[cid] = messages
+        if persist:
+            _save_conversation(cid, messages)
+
+
+def messages_for_history_api(cid: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    _ensure_conversation_loaded(cid)
+    stored = list(CONVERSATIONS.get(cid) or [])
+    if not stored:
+        loaded = _load_conversation(cid)
+        if loaded:
+            stored = list(loaded)
+            CONVERSATIONS[cid] = loaded
+    layout_preview = copy.deepcopy(stored)
+    _merge_pending_excerpts_for_conversation(cid, layout_preview, persist=False)
+    return stored, layout_preview
 
 
 def _ephemeral_mode_system_tail(mode: str) -> Dict[str, Any]:
@@ -2652,30 +2790,19 @@ def _summarize_messages_slice_with_llm(slice_msgs: List[Dict[str, Any]], cid: st
         "3) 事实粒度：保留可执行信息——路径、命令、版本号、明确数字、用户硬性约束（必须/禁止等）。\n"
         "4) 未完成：单独列出仍待处理或待用户确认的事项；已放弃的方案一句话带过即可。\n"
         "5) 输出：纯文本中文；建议分节（背景 / 关键结论 / 约束与约定 / 未完成与待确认 / 风险与注意点）；"
-        "总篇幅控制在约 800～1200 字以内，避免过长反噬后续上下文。\n"
+        f"总篇幅不超过约 {SUMMARY_OUTPUT_MAX_CHARS} 字，在限制内尽量保留关键细节与可执行信息。\n"
         "6) 脉络连贯：关注「用户要什么 → 做了什么 → 得到什么结论」的因果链，不要只罗列事实；对每个关键结论尽量保留。\n"
         "7) 禁止编造：不得引入记录中未出现的文件名、结论或数字；不确定处请写「未在记录中明确」。\n"
         "8) 若剔除噪声后确实无可保留的实质信息：请仅输出「摘要为空」五个字（不要加标点或换行），"
         "使全文总字符数少于 10；不要输出其它占位或解释。"
     )
-    compact: List[Dict[str, Any]] = []
-    for m in slice_msgs:
-        r = m.get("role")
-        if r == "tool":
-            continue
-        if r == "user":
-            compact.append({"role": "user", "content": str(m.get("content") or "")[:8000]})
-        elif r == "assistant":
-            compact.append({"role": "assistant", "content": str(m.get("content") or "")[:6000]})
-        elif r == "system":
-            compact.append({"role": "system", "content": str(m.get("content") or "")[:4000]})
     reff = _get_reasoning_effort(cid)
     th_type = "enabled" if SUMMARY_THINKING_ENABLED else "disabled"
     payload = {
         "model": default_model_from_env(),
         "messages": [
             {"role": "system", "content": sys_h},
-            {"role": "user", "content": json.dumps(compact, ensure_ascii=False)},
+            {"role": "user", "content": json.dumps(slice_msgs, ensure_ascii=False)},
         ],
         "reasoning_effort": reff,
         "thinking": {"type": th_type},
@@ -2709,7 +2836,9 @@ def _maybe_schedule_summarization(cid: str, messages: List[Dict[str, Any]]) -> N
         s_adj, e_adj = rng[0], rng[1]
         if s_adj >= e_adj:
             return
-        slice_copy = copy.deepcopy(messages[s_adj:e_adj])
+        excerpt_src = messages[s_adj:e_adj]
+        excerpt_message_ids = _message_ids_from_messages(excerpt_src)
+        slice_copy = copy.deepcopy(excerpt_src)
         slice_copy = _strip_tool_trace_for_summary(slice_copy)
         SUMMARY_IN_PROGRESS[cid] = time.time() + SUMMARY_IN_PROGRESS_TTL_SEC
 
@@ -2721,7 +2850,13 @@ def _maybe_schedule_summarization(cid: str, messages: List[Dict[str, Any]]) -> N
             ts = int(time.time() * 1000)
             EXCERPTS_DIR.mkdir(parents=True, exist_ok=True)
             path = EXCERPTS_DIR / f"{cid}_{ts}.md"
-            meta = {"start_idx": s_adj, "end_idx": e_adj, "conversation_id": cid, "end_exclusive": True}
+            meta = {
+                "message_ids": excerpt_message_ids,
+                "conversation_id": cid,
+                "end_exclusive": True,
+                "start_idx": s_adj,
+                "end_idx": e_adj,
+            }
             header = "---\n" + json.dumps({"agent_excerpt_meta": meta}, ensure_ascii=False) + "\n---\n\n"
             path.write_text(header + text, encoding="utf-8")
             with _SUMMARY_STATE_LOCK:
@@ -2757,9 +2892,13 @@ def run_agent_turn(
         _normalize_persisted_conversation(messages)
         _merge_pending_excerpts_for_conversation(conversation_id, messages)
         rollback_messages = copy.deepcopy(messages)
-        messages.append({"role": "user", "content": user_text})
+        _ensure_conversation_message_ids_v1(messages)
+        _append_session_message_v1(
+            conversation_id, messages, {"role": "user", "content": user_text}
+        )
     else:
         _normalize_persisted_conversation(messages)
+        _ensure_conversation_message_ids_v1(messages)
         rollback_messages = copy.deepcopy(messages)
     user_text_for_preview = user_text
     if resume_after_user_confirm:
@@ -2849,7 +2988,7 @@ def run_agent_turn(
                 "tool_calls": tcalls,
                 "reasoning_content": reasoning_content or "",
             }
-            messages.append(assistant_msg)
+            _append_session_message_v1(conversation_id, messages, assistant_msg)
             direct_preview_content: List[str] = []
             turn_stop_after_this_batch = False
             for tc in tcalls:
@@ -3115,11 +3254,15 @@ def run_agent_turn(
                     if _preview:
                         direct_preview_content.append(_preview)
                 turn_tool_records.append({"api_name": api_name, "script": script or "(unknown)", "ok": bool(result.get("ok"))})
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.get("id"),
-                    "content": _truncate_tool_result(result),
-                })
+                _append_session_message_v1(
+                    conversation_id,
+                    messages,
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.get("id"),
+                        "content": _truncate_tool_result(result),
+                    },
+                )
                 yield _context_layout_event(conversation_id, messages)
                 if turn_stop_after_this_batch:
                     yield _finish_conversation_stopped(conversation_id, rollback_messages)
@@ -3131,7 +3274,11 @@ def run_agent_turn(
                 return
             if direct_preview_content:
                 combined = "\n\n".join(direct_preview_content)
-                messages.append({"role": "assistant", "content": combined, "reasoning_content": ""})
+                _append_session_message_v1(
+                    conversation_id,
+                    messages,
+                    {"role": "assistant", "content": combined, "reasoning_content": ""},
+                )
                 if not content_parts:
                     yield {"type": "assistant", "content": combined}
                 yield _context_layout_event(conversation_id, messages)
@@ -3141,13 +3288,17 @@ def run_agent_turn(
         assistant_msg = {"role": "assistant", "content": content}
         if reasoning_content:
             assistant_msg["reasoning_content"] = reasoning_content
-        messages.append(assistant_msg)
+        _append_session_message_v1(conversation_id, messages, assistant_msg)
         if content and not content_parts:
             yield {"type": "assistant", "content": content}
         break
     else:
         max_rounds_rollback_messages = copy.deepcopy(rollback_messages)
-        messages.append({"role": "user", "content": AGENT_MAX_TOOL_ROUNDS_USER_HINT})
+        _append_session_message_v1(
+            conversation_id,
+            messages,
+            {"role": "user", "content": AGENT_MAX_TOOL_ROUNDS_USER_HINT},
+        )
         if _consume_conversation_stop_requested(conversation_id, run_id):
             yield _finish_conversation_stopped(conversation_id, max_rounds_rollback_messages)
             return
@@ -3220,7 +3371,7 @@ def run_agent_turn(
                 "已达到工具调用次数上限；模型在收尾时仍尝试调用工具。请把任务拆成更小步骤或在本对话中追问。"
             )
         assistant_msg = {"role": "assistant", "content": content, "reasoning_content": reasoning_content or ""}
-        messages.append(assistant_msg)
+        _append_session_message_v1(conversation_id, messages, assistant_msg)
         if content and not content_parts:
             yield {"type": "assistant", "content": content}
 
@@ -3301,6 +3452,13 @@ async def _agent_lifespan(app):
         yield
     except asyncio.CancelledError:
         pass  # uvicorn 关闭时正常行为，不需要 traceback
+    finally:
+        try:
+            from agent_v2.live_state import abort_all_conversation_runs_on_shutdown
+
+            abort_all_conversation_runs_on_shutdown()
+        except ImportError:
+            pass
 
 
 app = FastAPI(title="Code Web agent", lifespan=_agent_lifespan)
@@ -3554,13 +3712,8 @@ def chat_history(conversation_id: str = ""):
     cid = str(conversation_id or "").strip()
     if not cid:
         raise HTTPException(400, "empty conversation_id")
-    _ensure_conversation_loaded(cid)
-    messages = CONVERSATIONS.get(cid)
-    if not messages:
-        messages = []
-    # 与发 LLM 前一致：先合并 pending 摘要，再算上下文视图（与 agent_v2 /api/chat/history 对齐）
-    _merge_pending_excerpts_for_conversation(cid, messages)
-    context_layout = _context_layout_event(cid, messages)
+    stored, layout_messages = messages_for_history_api(cid)
+    context_layout = _context_layout_event(cid, layout_messages)
     # 附带当前待办清单，供前端刷新页面后恢复 Todo 显示
     todo_list = None
     try:
@@ -3572,7 +3725,7 @@ def chat_history(conversation_id: str = ""):
     return {
         "ok": True,
         "conversation_id": cid,
-        "items": _chat_history_from_messages(messages),
+        "items": _chat_history_from_messages(stored),
         "todo_list": todo_list,
         "context_layout": context_layout,
     }
@@ -3702,12 +3855,16 @@ def kb_files():
             return {"ok": True, "enabled": False, "files": []}
     result = []
     for p in sorted(KB_BASE_DIR.rglob("*")):
-        if not p.is_file():
+        if not p.is_file() or "__pycache__" in p.parts:
             continue
-        if "__pycache__" in p.parts:
+        try:
+            rel = p.relative_to(KB_BASE_DIR)
+        except ValueError:
             continue
-        rel = str(p.relative_to(KB_BASE_DIR)).replace("\\", "/")
-        result.append({"path": rel, "name": p.name, "mtime": p.stat().st_mtime})
+        rel_s = str(rel).replace("\\", "/")
+        if _kb_rel_has_hidden_segment(rel_s):
+            continue
+        result.append({"path": rel_s, "name": p.name, "mtime": p.stat().st_mtime})
     return {"ok": True, "enabled": True, "files": result}
 
 
@@ -3975,7 +4132,12 @@ def main():
         print("⚠️  WARNING: API Key 未配置或为空！请在 config.ini 的 [model] 节设置 api_key 或环境变量 CHAT_API_KEY", file=sys.stderr, flush=True)
         print("⚠️  或通过环境变量 CHAT_API_KEY 设置", file=sys.stderr, flush=True)
 
-    uvicorn.run(app, host=AGENT_CONFIG["AGENT_SERVER_HOST"], port=int(port_str))
+    uvicorn.run(
+        app,
+        host=AGENT_CONFIG["AGENT_SERVER_HOST"],
+        port=int(port_str),
+        timeout_graceful_shutdown=5,
+    )
 
 
 if __name__ == "__main__":

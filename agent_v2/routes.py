@@ -67,13 +67,8 @@ def chat_history(conversation_id: str = "") -> dict[str, Any]:
     cid = str(conversation_id or "").strip()
     if not cid:
         raise HTTPException(400, "empty conversation_id")
-    core._ensure_conversation_loaded(cid)
-    messages = core.CONVERSATIONS.get(cid)
-    if not messages:
-        messages = []
-    # 与发 LLM 前一致：先合并 pending 摘要，再算上下文视图
-    core._context_manager_v2(cid).try_load_pending_mem_file(messages, core._merge_pending_excerpts_for_conversation)
-    context_layout = rh.context_layout_event(cid, messages)
+    stored, layout_messages = core.messages_for_history_api(cid)
+    context_layout = rh.context_layout_event(cid, layout_messages)
     todo_list = None
     try:
         todo_r = core._todo_list_mod.execute(cid, {"action": "query"})
@@ -84,7 +79,7 @@ def chat_history(conversation_id: str = "") -> dict[str, Any]:
     return {
         "ok": True,
         "conversation_id": cid,
-        "items": core._chat_history_from_messages(messages),
+        "items": core._chat_history_from_messages(stored),
         "todo_list": todo_list,
         "context_layout": context_layout,
     }
@@ -229,15 +224,7 @@ def kb_files() -> dict[str, Any]:
             core.KB_BASE_DIR.mkdir(parents=True, exist_ok=True)
         except Exception:
             return {"ok": True, "enabled": False, "files": []}
-    result = []
-    for p in sorted(core.KB_BASE_DIR.rglob("*")):
-        if not p.is_file():
-            continue
-        if "__pycache__" in p.parts:
-            continue
-        rel = str(p.relative_to(core.KB_BASE_DIR)).replace("\\", "/")
-        result.append({"path": rel, "name": p.name, "mtime": p.stat().st_mtime})
-    return {"ok": True, "enabled": True, "files": result}
+    return {"ok": True, "enabled": True, "files": core.list_kb_files_for_api()}
 
 
 @router.get("/api/kb/checked")
@@ -410,6 +397,13 @@ def chat_user_confirm_stream(inp: ChatUserConfirmIn, request: Request) -> Stream
                 core._log_agent_console_sse(cid, ev2)
                 yield f"data: {json.dumps(ev2, ensure_ascii=False)}\n\n"
         except Exception as _exc:
+            import traceback
+
+            print(
+                f"ERROR: chat stream failed cid={cid}: {_exc}\n{traceback.format_exc()}",
+                file=sys.stderr,
+                flush=True,
+            )
             _err_ev = {"type": "error", "conversation_id": cid, "where": "server", "detail": str(_exc)}
             yield f"data: {json.dumps(_err_ev, ensure_ascii=False)}\n\n"
         finally:
@@ -520,6 +514,13 @@ def chat_stream(inp: ChatIn, request: Request) -> StreamingResponse:
                 core._log_agent_console_sse(cid, ev2)
                 yield f"data: {json.dumps(ev2, ensure_ascii=False)}\n\n"
         except Exception as _exc:
+            import traceback
+
+            print(
+                f"ERROR: chat stream failed cid={cid}: {_exc}\n{traceback.format_exc()}",
+                file=sys.stderr,
+                flush=True,
+            )
             _err_ev = {"type": "error", "conversation_id": cid, "where": "server", "detail": str(_exc)}
             yield f"data: {json.dumps(_err_ev, ensure_ascii=False)}\n\n"
         finally:

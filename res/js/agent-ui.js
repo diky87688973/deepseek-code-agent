@@ -109,7 +109,7 @@ else if(ev.type==="usage"){const u=ev.usage||{};const inTok=Number(u.prompt_toke
 else if(ev.type==="context_layout"){_ctxTab.lastContextLayout=ev;if(renderingContextVisible&&packetCid===normalizeConversationId(activeConversationId))_updateUsageBottom();}
 else if(ev.type==="tool_start")onToolStart(ev);
 else if(ev.type==="tool_progress")onToolProgress(ev);
-else if(ev.type==="tool_end"){onToolEnd(ev);if(ev.todo_list&&ev.todo_list_data){var _td=ev.todo_list_data;renderTodoListFromEvent({items:_td.items||[],all_done:Array.isArray(_td.items)&&_td.items.every(function(it){return !!it.done;}),collapsed:!!_td.collapsed,close:!!_td.close},packetCid);scrollMsgsToBottom();}}
+else if(ev.type==="tool_end"){onToolEnd(ev);if(ev.todo_list&&ev.todo_list_data){var _td=ev.todo_list_data;renderTodoListFromEvent({items:_td.items||[],all_done:Array.isArray(_td.items)&&_td.items.every(function(it){return !!it.done;}),collapsed:!!_td.collapsed,close:!!_td.close},packetCid);scrollToBottomAfterLayout(msgs,true);}}
 else if(ev.type==="tool_preview_update"){var tid2=String(ev.tool_call_id||"").trim();if(tid2){var card=findStepCardForToolCall(tid2);if(card){var pb2=card.querySelector("pre.tool-res");if(pb2){try{var _pj2=JSON.parse(ev.preview||"{}");pb2.textContent=JSON.stringify(_pj2,null,2);}catch(e2){pb2.textContent=String(ev.preview||"");}var lb2=pb2.previousElementSibling;if(lb2&&lb2.classList&&lb2.classList.contains("lbl"))lb2.style.display="block";pb2.style.display="block";}var tag2=card.querySelector(".ch .tag");if(tag2){try{var _pj3=JSON.parse(ev.preview||"{}");if(_pj3&&_pj3.ok){tag2.textContent="Done";tag2.className="tag ok";}else{tag2.textContent="Fail";tag2.className="tag bad";}}catch(e3){}}}}}
 else if(ev.type==="assistant_delta"){if(anyToolThisTurn){flushPendingSteps();}appendAssistantDelta(ev.delta||"");}
 else if(ev.type==="reasoning_delta")appendReasoningDelta(ev);
@@ -129,7 +129,7 @@ else if(ev.type==="assistant"){if(anyToolThisTurn){flushPendingSteps();}if(!fina
 else if(ev.type==="done"){finalizeAssistantStream("");}
 else if(ev.type==="stopped"){markCurrentTurnStoped();resetTurnState();hideChatLoading();if(ev.message)add("a",ev.message);}
 else if(ev.type==="paused_for_user_confirm"){hideChatLoading();endedAwaitingUserConfirm=true;}
-else if(ev.type==="todo_list"){renderTodoListFromEvent(ev,packetCid);scrollMsgsToBottom();}
+else if(ev.type==="todo_list"){renderTodoListFromEvent(ev,packetCid);scrollToBottomAfterLayout(msgs,true);}
 else if(ev.type==="error"){hideChatLoading();abortPendingToolTags();if(lastLlm){finishLlmTitle(false);lastLlm.tag.className="tag bad";lastLlm.tag.textContent="Fail";lastLlm=null;}
 if(!anyToolThisTurn){discardPendingSteps();}else{pendingStepEls=[];}
 add("a","错误: "+JSON.stringify(ev.detail||ev));}});
@@ -248,7 +248,7 @@ function loadRuntimeStateFromTab(t){selectedMode=t.selectedMode||selectedMode||"
 function moveVisibleToTab(t){while(stepsRoot.firstChild)t.stepsHost.appendChild(stepsRoot.firstChild);if(t.conversationPane&&conversationMount&&t.conversationPane.parentNode===conversationMount){conversationMount.removeChild(t.conversationPane);}saveRuntimeStateToTab(t);}
 function moveTabToVisible(t){while(t.stepsHost.firstChild)stepsRoot.appendChild(t.stepsHost.firstChild);if(conversationMount&&t.conversationPane){while(conversationMount.firstChild){conversationMount.removeChild(conversationMount.firstChild);}conversationMount.appendChild(t.conversationPane);}msgsRoot=t.msgsHost;msgs=msgsRoot;todoListArea=t.todoArea;todoListBody=todoListArea?todoListArea.querySelector(".todo-list-body"):null;todoListCount=todoListArea?todoListArea.querySelector(".todo-list-count"):null;steps=stepsRoot;loadRuntimeStateFromTab(t);}
 function saveActiveConversationView(){moveVisibleToTab(getActiveTab());}
-function restoreConversationView(t){moveTabToVisible(t);if(cid)cid.textContent=t.id.slice(0,8);applyMode(selectedMode);applyModel(selectedModel);if(typeof updateTaskControls==="function")updateTaskControls();_updateUsageBottom();scrollToBottom(msgs,true);scrollToBottom(stepsRoot,true);renderKbPanel();}
+function restoreConversationView(t){moveTabToVisible(t);if(cid)cid.textContent=t.id.slice(0,8);applyMode(selectedMode);applyModel(selectedModel);if(typeof updateTaskControls==="function")updateTaskControls();_updateUsageBottom();scrollToBottom(stepsRoot,true);renderKbPanel();if(t&&t.historyLoaded){scrollToBottomAfterLayout(msgs,true);}}
 function withConversationContext(conversationId,fn){var target=ensureConversationTab(conversationId);var prevTab=getActiveTab(),prevMsgs=msgs,prevSteps=steps,prevTodo=todoListArea,prevTodoBody=todoListBody,prevTodoCount=todoListCount,prevRenderingVisible=renderingContextVisible;saveRuntimeStateToTab(prevTab);renderingContextVisible=target.id===activeConversationId;if(target.id===activeConversationId){msgsRoot=target.msgsHost;msgs=msgsRoot;steps=stepsRoot;todoListArea=target.todoArea;todoListBody=todoListArea?todoListArea.querySelector(".todo-list-body"):null;todoListCount=todoListArea?todoListArea.querySelector(".todo-list-count"):null;}else{msgs=target.msgsHost;steps=target.stepsHost;todoListArea=target.todoArea;todoListBody=todoListArea?todoListArea.querySelector(".todo-list-body"):null;todoListCount=todoListArea?todoListArea.querySelector(".todo-list-count"):null;}loadRuntimeStateFromTab(target);try{return fn(target);}finally{saveRuntimeStateToTab(target);renderingContextVisible=prevRenderingVisible;msgs=prevMsgs;steps=prevSteps;todoListArea=prevTodo;todoListBody=prevTodoBody;todoListCount=prevTodoCount;loadRuntimeStateFromTab(prevTab);if(cid)cid.textContent=(prevTab?prevTab.id:activeConversationId).slice(0,8);if(typeof _updateUsageBottom==="function")_updateUsageBottom();}}
 var _layoutPersistTimer=null;
 function conversationLayoutPayload(){var tabs=conversationTabs.slice(-8).map(function(t){return {id:t.id,title:t.title||("会话 "+t.id.slice(0,8))};});if(activeConversationId&&!tabs.some(function(t){return t.id===activeConversationId;})){tabs=tabs.length>=8?tabs.slice(1):tabs;tabs.push({id:activeConversationId,title:(findConversationTab(activeConversationId)||{}).title||("会话 "+activeConversationId.slice(0,8))});}return {active_conversation_id:activeConversationId,tabs:tabs};}
@@ -261,7 +261,8 @@ async function refreshConversationTitle(id){var t=findConversationTab(id);if(!t|
 function renderHistoryItems(items){items=Array.isArray(items)?items:[];for(var i=0;i<items.length;i++){var it=items[i]||{};if(it.role==="user")add("u",String(it.content||""));else if(it.role==="assistant")add("a",String(it.content||""));}}
 function applyContextLayoutFromHistory(t,j){if(!t||!j)return;if(j.context_layout)t.lastContextLayout=j.context_layout;if(j.context_layout&&normalizeConversationId(t.id)===normalizeConversationId(activeConversationId))_updateUsageBottom();}
 async function refreshConversationContextLayout(t){if(!t||!normalizeConversationId(t.id)||t.abortController)return;try{var r=await fetch("/api/chat/history?"+new URLSearchParams({conversation_id:t.id}));if(!r.ok)return;var j=await r.json();if(!j||j.ok!==true)return;applyContextLayoutFromHistory(t,j);}catch(e){}}
-async function loadConversationHistory(t){if(!t||t.abortController)return;if(t.historyLoaded){void refreshConversationContextLayout(t);return;}t.historyLoaded=true;try{var r=await fetch("/api/chat/history?"+new URLSearchParams({conversation_id:t.id}));if(!r.ok)return;var j=await r.json();if(!j||j.ok!==true)return;var items=j.items||[];applyContextLayoutFromHistory(t,j);withConversationContext(t.id,function(){if(items.length&&msgs.childNodes.length<=1){while(msgs.firstChild)msgs.removeChild(msgs.firstChild);renderHistoryItems(items);}else if(msgs.childNodes.length===0){renderHistoryItems(items);}scrollToBottom(msgs,true);if(j.todo_list&&j.todo_list.length){renderTodoListFromEvent({items:j.todo_list,all_done:j.todo_list.every(function(it){return !!it.done;}),collapsed:false},t.id);scrollToBottom(msgs,true);}});}catch(e){}}
+function scrollToBottomAfterLayout(el,force){if(!el)return;requestAnimationFrame(function(){requestAnimationFrame(function(){scrollToBottom(el,force);});});}
+async function loadConversationHistory(t){if(!t||t.abortController)return;if(t.historyLoaded){void refreshConversationContextLayout(t);return;}t.historyLoaded=true;try{var r=await fetch("/api/chat/history?"+new URLSearchParams({conversation_id:t.id}));if(!r.ok)return;var j=await r.json();if(!j||j.ok!==true)return;var items=j.items||[];applyContextLayoutFromHistory(t,j);withConversationContext(t.id,function(){var isActive=normalizeConversationId(t.id)===normalizeConversationId(activeConversationId);if(j.todo_list&&j.todo_list.length){renderTodoListFromEvent({items:j.todo_list,all_done:j.todo_list.every(function(it){return !!it.done;}),collapsed:false},t.id);}else{hideTodoList();}if(items.length&&msgs.childNodes.length<=1){while(msgs.firstChild)msgs.removeChild(msgs.firstChild);renderHistoryItems(items);}else if(msgs.childNodes.length===0){renderHistoryItems(items);}if(isActive){scrollToBottomAfterLayout(msgs,true);}});}catch(e){}}
 async function restoreConversationLayoutFromServer(){try{var r=await fetch("/api/chat/ui-state");if(!r.ok)return;var j=await r.json();var st=j&&j.state;if(!st||!Array.isArray(st.tabs)||!st.tabs.length){for(var i0=0;i0<conversationTabs.length;i0++)loadConversationHistory(conversationTabs[i0]);return;}saveActiveConversationView();conversationTabs=st.tabs.slice(-8).map(function(x){var id=normalizeConversationId(x&&x.id);var t=makeConversationTab(id||newConversationId());t.title=String(x&&x.title||"").slice(0,80)||t.title;return t;});var immPref=normalizeConversationId(function(){try{return sessionStorage.getItem(CONVERSATION_STORAGE_KEY)||"";}catch(e1){return"";}}());if(immPref&&!findConversationTab(immPref))ensureConversationTab(immPref);var srvA=normalizeConversationId(st.active_conversation_id)||(conversationTabs[0]&&conversationTabs[0].id)||"";var _idMap={};for(var _ti=0;_ti<conversationTabs.length;_ti++)_idMap[conversationTabs[_ti].id]=1;activeConversationId=(immPref&&_idMap[immPref])?immPref:srvA;sessionId=activeConversationId;conv=activeConversationId;storeConversationId(activeConversationId);restoreConversationView(getActiveTab());renderChatTabs();storeConversationLayoutLocal();for(var i=0;i<conversationTabs.length;i++)loadConversationHistory(conversationTabs[i]);}catch(e){for(var j2=0;j2<conversationTabs.length;j2++)loadConversationHistory(conversationTabs[j2]);}}
 function syncTodoUnreadBadgeForConversation(cid){cid=normalizeConversationId(cid||"");if(!cid)return;var tb=findConversationTab(cid);if(!tb||!chatTabs)return;var want=!!tb.todoUnread;var b;var ch=chatTabs.children;var ui=0;for(;ui<ch.length;ui++){if(ch[ui]&&ch[ui].getAttribute("data-tab-id")===cid){b=ch[ui];break;}}if(!b){if(typeof renderChatTabs==="function")renderChatTabs();return;}if(b.classList.contains("chat-tab-todo-unread")===want)return;b.classList.toggle("chat-tab-todo-unread",want);renderChatTabs._sig=null;}
 function renderChatTabs(){if(!chatTabs)return;var sig=conversationTabs.map(function(t){return String(t.id)+"\t"+String(t.title||"")+"\t"+(t.id===activeConversationId?1:0)+"\t"+(t.todoUnread?1:0);}).join("|");if(renderChatTabs._sig===sig&&chatTabs.children.length===conversationTabs.length){var mz=conversationTabs.length;for(var zp=0;zp<mz;zp++){var el=chatTabs.children[zp];if(!el||el.getAttribute("data-tab-id")!==conversationTabs[zp].id)break;}if(zp===mz)return;}renderChatTabs._sig=sig;var wc=conversationTabs.length>1;var pi,tid,t,btn,lab,labT,cn,ft,cur,kj,nel,xc;for(pi=0;pi<conversationTabs.length;pi++){t=conversationTabs[pi];tid=t.id;cur=chatTabs.children[pi];if(cur&&cur.getAttribute("data-tab-id")===tid)continue;btn=null;if(cur){for(kj=pi;kj<chatTabs.children.length;kj++){if(chatTabs.children[kj]&&chatTabs.children[kj].getAttribute("data-tab-id")===tid){btn=chatTabs.children[kj];break;}}}if(!btn){for(kj=0;kj<chatTabs.children.length;kj++){if(chatTabs.children[kj]&&chatTabs.children[kj].getAttribute("data-tab-id")===tid){btn=chatTabs.children[kj];break;}}}if(!btn){nel=document.createElement("button");nel.type="button";nel.setAttribute("role","tab");nel.setAttribute("data-tab-id",tid);(function(cid){nel.onclick=function(){switchConversationTab(cid);};})(tid);lab=document.createElement("span");lab.className="chat-tab-label";nel.appendChild(lab);btn=nel;}chatTabs.insertBefore(btn,cur||null);}while(chatTabs.children.length>conversationTabs.length){chatTabs.removeChild(chatTabs.lastChild);}for(pi=0;pi<conversationTabs.length;pi++){t=conversationTabs[pi];tid=t.id;btn=chatTabs.children[pi];if(!btn)continue;labT=t.title||("会话 "+t.id.slice(0,8));cn="chat-tab"+((t.id===activeConversationId)?" active":"")+(t.todoUnread?" chat-tab-todo-unread":"");ft="标题: "+labT+"\n会话ID: "+t.id;lab=btn.querySelector(".chat-tab-label");if(lab&&lab.textContent!==labT)lab.textContent=labT;if(btn.className!==cn)btn.className=cn;if(btn.title!==ft)btn.title=ft;xc=btn.querySelector(".chat-tab-close");if(wc){if(!xc){xc=document.createElement("button");xc.type="button";xc.className="chat-tab-close";xc.textContent="×";xc.title="关闭会话";btn.appendChild(xc);}(function(cid2){xc.onclick=function(ev){ev.stopPropagation();closeConversationTab(cid2);};})(tid);}else{if(xc)xc.remove();}}}
@@ -613,6 +614,7 @@ if(/^@@/.test(L))continue;
 if(/^\s*#/.test(L))continue;
 if(/^-/.test(L)&&!/^---/.test(L))oldL.push(L.slice(1));
 else if(/^\+/.test(L)&&!/^\+\+\+/.test(L))newL.push(L.slice(1));
+else if(/^ /.test(L)){var c=L.slice(1);oldL.push(c);newL.push(c);}
 }
 return {oldT:oldL.join('\n'),newT:newL.join('\n')};
 }
@@ -627,13 +629,18 @@ if(m)return baseNameOnly(m[1].trim());
 }
 return "文件";
 }
+function diffRowInnerHtml(r){
+var g=r.t==='-'?'−':(r.t==='+'?'+':' ');
+var gs=r.t==='-'?'d-gutter-del':(r.t==='+'?'d-gutter-add':'d-gutter-eq');
+return '<span class="d-gutter '+gs+'">'+escapeHtml(g)+'</span><span class="d-code">'+escapeHtml(r.l)+'</span>';
+}
 function buildDiffRowsHtml(oldT,newT){
 var rows=linesDiff(oldT,newT);
 var html='';
 for(var ri=0;ri<rows.length;ri++){
 var r=rows[ri];
 var cls=r.t==='-'?'d-del':(r.t==='+'?'d-add':'d-eq');
-html+='<div class="'+cls+'">'+escapeHtml(r.t+' '+r.l)+'</div>';
+html+='<div class="'+cls+'">'+diffRowInnerHtml(r)+'</div>';
 }
 return html;
 }
@@ -644,7 +651,7 @@ var cap='<div class="chat-diff-cap">'+escapeHtml(fn)+' · diff';
 if(st.del>0)cap+=' <span class="chat-diff-neg">-'+st.del+'</span>';
 if(st.add>0)cap+=' <span class="chat-diff-pos">+'+st.add+'</span>';
 cap+='</div>';
-var box='<div class="diff-unified">'+buildDiffRowsHtml(oldT,newT)+'</div>';
+var box='<div class="diff-unified diff-surface-light">'+buildDiffRowsHtml(oldT,newT)+'</div>';
 return '<div class="chat-diff-card">'+cap+box+'</div>';
 }
 function renderMarkdown(md){
@@ -1132,7 +1139,7 @@ const d=document.createElement("div");
 if(r.t==="-")d.className="d-del";
 else if(r.t==="+")d.className="d-add";
 else d.className="d-eq";
-d.textContent=r.t+" "+r.l;
+d.innerHTML=diffRowInnerHtml(r);
 container.appendChild(d);
 }}
 function unifiedDiffRowClass(raw){
@@ -1148,7 +1155,12 @@ container.innerHTML="";
 if(!Array.isArray(lines))return;
 for(var i=0;i<lines.length;i++){
 var L=lines[i]==null?"":String(lines[i]);var cls=unifiedDiffRowClass(L);
-var el=document.createElement("div");el.className=cls;el.textContent=L;
+var el=document.createElement("div");
+el.className=cls;
+if(cls==="d-meta"){el.textContent=L;}
+else if(L.charAt(0)==="-"){el.innerHTML=diffRowInnerHtml({t:"-",l:L.replace(/^-\s?/,"")});}
+else if(L.charAt(0)==="+"){el.innerHTML=diffRowInnerHtml({t:"+",l:L.replace(/^\+\s?/,"")});}
+else{el.innerHTML=diffRowInnerHtml({t:" ",l:L.replace(/^\s/,"")});}
 container.appendChild(el);}}
 // 全局滚动代理 — document 捕获阶段统一处理所有 scroll，无需对元素逐个注册
 (function(){
@@ -1187,6 +1199,7 @@ function isNearBottom(el,threshold=60){
   return el.scrollHeight-el.scrollTop-el.clientHeight<threshold;
 }
 function scrollMsgsToBottom(){scrollToBottom(msgs);}
+function scrollMsgsToBottomAfterLayout(){scrollToBottomAfterLayout(msgs,true);}
 function calcDiffStats(oldT,newT){var A=String(oldT??'').split('\n'),B=String(newT??'').split('\n');var a=0,d=0,i=0,j=0;while(i<A.length||j<B.length){if(i<A.length&&j<B.length&&A[i]===B[j]){i++;j++;}else if(j<B.length&&(i>=A.length||A[i]!==B[j])){a++;j++;}else if(i<A.length){d++;i++;}else{a++;j++;}}return {add:a,del:d};}
 function diffLabel(s){return(s.del>0?' <span style="color:#f48771">-'+s.del+'</span>':'')+(s.add>0?' <span style="color:#89d185">+'+s.add+'</span>':'');}
 function diffLabelPlain(s){return(s.del>0?' -'+s.del:'')+(s.add>0?' +'+s.add:'');}
@@ -1215,12 +1228,12 @@ o.previewSlot.appendChild(cap);o.previewSlot.appendChild(pr);
 var testContent=out||"(空输出, raw="+_raw.slice(0,200)+")";
 var cmdName=(o.args||{}).command||"命令行";
 if(typeof cmdName==="string"&&cmdName.trim())cmdName=cmdName.trim().slice(0,60);
-var cardHtml='<div class="chat-diff-card"><div class="chat-diff-cap">'+escapeHtml(cmdName)+'</div><div class="diff-unified"><pre style="margin:0;padding:4px 8px;max-height:200px;overflow:auto;font-size:11px">'+escapeHtml(testContent)+'</pre></div></div>';
+var cardHtml='<div class="chat-diff-card"><div class="chat-diff-cap">'+escapeHtml(cmdName)+'</div><div class="diff-unified diff-surface-light"><pre style="margin:0;padding:4px 8px;max-height:200px;overflow:auto;font-size:11px">'+escapeHtml(testContent)+'</pre></div></div>';
 var chatDiv=document.createElement("div");chatDiv.className="b a";chatDiv.innerHTML=cardHtml;
 //
 }catch(e){
 if(window.DEBUG)console.error("fillToolPreview: error",e);
-var errCard='<div class="chat-diff-card"><div class="chat-diff-cap">❌ 渲染异常</div><div class="diff-unified"><pre style="margin:0;padding:4px 8px;font-size:11px">'+escapeHtml(e.message)+'</pre></div></div>';
+var errCard='<div class="chat-diff-card"><div class="chat-diff-cap">❌ 渲染异常</div><div class="diff-unified diff-surface-light"><pre style="margin:0;padding:4px 8px;font-size:11px">'+escapeHtml(e.message)+'</pre></div></div>';
 var errDiv=document.createElement("div");errDiv.className="b a";errDiv.innerHTML=errCard;
 }
 return;}
@@ -1237,7 +1250,7 @@ var _rlPre=document.createElement("pre");_rlPre.className="sub";
 _rlPre.innerHTML=_rlData.snippets.map(function(s){return escapeHtml(s);}).join("\n");
 o.previewSlot.appendChild(_rlCap);o.previewSlot.appendChild(_rlPre);
 // 推送到对话区：卡片插在流式气泡下方，气泡移到卡片后继续流式
-var _rlCardHtml='<div class="chat-diff-card"><div class="chat-diff-cap">快速查找 · 共 '+_rlData.count+' 处</div><div class="diff-unified"><pre style="margin:0;padding:4px 8px;font-size:11px;line-height:1.4;max-height:200px">'+escapeHtml(_rlData.snippets.join("\n"))+'</pre></div></div>';
+var _rlCardHtml='<div class="chat-diff-card"><div class="chat-diff-cap">快速查找 · 共 '+_rlData.count+' 处</div><div class="diff-unified diff-surface-light"><pre style="margin:0;padding:4px 8px;font-size:11px;line-height:1.4;max-height:200px">'+escapeHtml(_rlData.snippets.join("\n"))+'</pre></div></div>';
 var _rlDiv=document.createElement("div");_rlDiv.className="b a";_rlDiv.innerHTML=_rlCardHtml;
 if(streamAssistantEl){streamAssistantEl.after(_rlDiv);streamAssistantEl=null;streamAssistantText="";}else{msgs.appendChild(_rlDiv);}
 scrollMsgsToBottom();
@@ -1252,7 +1265,7 @@ const _dj=JSON.parse(ev.preview||"{}");
 const arr=(_dj&&_dj.data&&Array.isArray(_dj.data.diff))?_dj.data.diff:null;
 if(arr&&arr.length){o.previewSlot.style.display="block";
 const _cap=document.createElement("p");_cap.textContent="unified diff 预览";
-const _box=document.createElement("div");_box.className="diff-unified";
+const _box=document.createElement("div");_box.className="diff-unified diff-surface-light";
 renderUnifiedDiffRows(_box,arr);
 o.previewSlot.appendChild(_cap);o.previewSlot.appendChild(_box);}
 }catch(_e){}
@@ -1266,7 +1279,7 @@ const dt=(j&&j.data&&typeof j.data.diffText==="string")?j.data.diffText:"";
 if(dt&&dt.trim()){
 o.previewSlot.style.display="block";
 const cap=document.createElement("p");cap.textContent="替换 diff 预览";
-const box=document.createElement("div");box.className="diff-unified";
+const box=document.createElement("div");box.className="diff-unified diff-surface-light";
 renderUnifiedDiffRows(box,dt.split(/\r?\n/));
 o.previewSlot.appendChild(cap);o.previewSlot.appendChild(box);
 }

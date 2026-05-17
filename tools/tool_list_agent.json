@@ -3034,7 +3034,7 @@
     {
       "name": "kling_generate.py",
       "path": "tools/kling_generate.py",
-      "purpose": "⚠️ 可灵 Kling AI 全能力工具（消耗积分）。支持文生视频/图生视频/多模态/多图参考/动作控制/视频延长/对口型/数字人/文生图/图生图/虚拟试穿/文生音效。生成类操作由agent层统一拦截确认。查询结果(query_result)不消耗积分。",
+      "purpose": "⚠️ 可灵 Kling AI 全能力工具（消耗积分）。支持文生视频/图生视频/多模态视频/多图参考生视频/动作控制/视频延长/对口型/数字人/文生图/图生图/Omni图像/多图参考生图/虚拟试穿/文生音效/视频配音效/语音合成/视频特效/扩图/智能补全主体图/图像识别/自定义音色/主体管理/账号信息查询。生成类操作由agent层统一拦截确认。查询结果(query_result)和账号信息(account_info)不消耗积分。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -3047,61 +3047,61 @@
           "flag": "--action",
           "type": "string",
           "required": false,
-          "description": "操作类型：text2video(文生视频) / image2video(图生视频) / multimodal2video(多模态视频) / multi_image2video(多图参考生视频) / motion_control(动作控制) / video_extend(视频延长) / lip_sync(对口型) / avatar(数字人) / text2image(文生图) / image2image(图生图) / omni_image(Omni图像) / virtual_try_on(虚拟试穿) / text2audio(文生音效) / query_result(查询结果)。"
+          "description": "操作类型：text2video(文生视频) / image2video(图生视频) / multimodal2video(多模态视频) / multi_image2video(多图参考生视频) / motion_control(动作控制) / video_extend(视频延长) / lip_sync(对口型) / avatar(数字人) / text2image(文生图) / image2image(图生图) / omni_image(Omni图像) / multi_image2image(多图参考生图) / virtual_try_on(虚拟试穿) / text2audio(文生音效) / video_to_audio(视频配音效) / tts(语音合成) / video_effect(视频特效) / image_expansion(扩图) / ai_multi_shot(智能补全主体图) / image_recognize(图像识别) / custom_voice_create(创建自定义音色) / custom_voice_delete(删除自定义音色) / element_create(创建主体) / account_info(账号信息查询，免费) / query_result(查询结果)."
         },
         {
           "flag": "--prompt",
           "type": "string",
           "required": false,
-          "description": "提示词。"
+          "description": "提示词，最长2500字符。支持 <<<image_1>>>、<<<element_1>>> 等引用语法（Omni模型）。"
         },
         {
           "flag": "--model_name",
           "type": "string",
           "required": false,
-          "description": "模型名称，默认kling-v1。"
+          "description": "模型名称。可选：kling-v1, kling-v1-5, kling-v1-6, kling-v2-master, kling-v2-1, kling-v2-5-turbo, kling-v2-6, kling-v3, kling-video-o1, kling-v3-omni。默认kling-v3。"
         },
         {
           "flag": "--duration",
           "type": "string",
           "required": false,
-          "description": "时长(秒)，默认5。"
+          "description": "时长(秒)，可选 3-15（不同模型支持范围不同），默认5。"
         },
         {
           "flag": "--mode",
           "type": "string",
           "required": false,
-          "description": "生成模式：std / pro / 4k。默认std。"
+          "description": "生成模式：std / pro / 4k。默认std。4k仅部分模型支持（kling-v3/v3-omni）。"
         },
         {
           "flag": "--sound",
           "type": "string",
           "required": false,
-          "description": "是否生成声音：on/off。默认off。"
+          "description": "是否生成声音：on/off。默认off。使用 voice_list 引用音色时必须设为 on。"
         },
         {
           "flag": "--aspect_ratio",
           "type": "string",
           "required": false,
-          "description": "画面比例：16:9 / 9:16 / 1:1。默认16:9。"
+          "description": "画面比例：16:9 / 9:16 / 1:1（视频），图像额外支持 4:3 / 3:4 / 3:2 / 2:3 / 21:9。默认16:9。"
         },
         {
           "flag": "--negative_prompt",
           "type": "string",
           "required": false,
-          "description": "负向提示词，可选。"
+          "description": "负向提示词，最长2500字符。"
         },
         {
           "flag": "--cfg_scale",
           "type": "number",
           "required": false,
-          "description": "自由度(0-1)，默认0.5。"
+          "description": "自由度(0-1)，默认0.5。kling-v2.x 模型不支持此参数。"
         },
         {
           "flag": "--multi_shot",
           "type": "boolean",
           "required": false,
-          "description": "是否多镜头，默认false。"
+          "description": "是否多镜头，默认false。true 时 prompt 参数无效。"
         },
         {
           "flag": "--shot_type",
@@ -3113,13 +3113,13 @@
           "flag": "--multi_prompt",
           "type": "array",
           "required": false,
-          "description": "各分镜提示词数组（仅text2video多镜头时使用）。"
+          "description": "各分镜提示词数组，格式 [{\"index\":1,\"prompt\":\"...\",\"duration\":\"5\"}]（text2video/image2video/multimodal2video 多镜头时使用）。"
         },
         {
           "flag": "--camera_control",
           "type": "object",
           "required": false,
-          "description": "运镜控制，如 {\"type\":\"down_back\"} 或 {\"type\":\"simple\",\"config\":{\"horizontal\":5}}。"
+          "description": "运镜控制。type可选：simple/down_back/forward_up/right_turn_forward/left_turn_forward。simple 时需传 config（horizontal/vertical/pan/tilt/roll/zoom 六选一，值范围-10~10）。"
         },
         {
           "flag": "--watermark_enabled",
@@ -3143,31 +3143,157 @@
           "flag": "--task_id",
           "type": "string",
           "required": false,
-          "description": "查询任务ID（query_result action时使用）。"
+          "description": "任务ID。query_result 时查询用；custom_voice_delete 时传 voice_id 用。"
         },
         {
           "flag": "--image_url",
           "type": "string",
           "required": false,
-          "description": "图片URL（图生视频/图生图/虚拟试穿必填）"
+          "description": "图片URL。image2video/motion_control/image2image 必填；虚拟试穿/image_expansion/ai_multi_shot/element_create/image_recognize 也用到。注意：image2video/motion_control 的API字段名为 image，传参用 image_url 即可。"
+        },
+        {
+          "flag": "--image_tail",
+          "type": "string",
+          "required": false,
+          "description": "尾帧控制图片URL（image2video 时可选）"
+        },
+        {
+          "flag": "--video_url",
+          "type": "string",
+          "required": false,
+          "description": "视频URL（motion_control 必填，video_to_audio 可选）"
+        },
+        {
+          "flag": "--keep_original_sound",
+          "type": "string",
+          "required": false,
+          "description": "保留原声 yes/no（motion_control 和 omni-video 的 video_list 中可选）"
+        },
+        {
+          "flag": "--character_orientation",
+          "type": "string",
+          "required": false,
+          "description": "人物朝向 image/video（motion_control 必填）"
+        },
+        {
+          "flag": "--element_list",
+          "type": "array",
+          "required": false,
+          "description": "主体参考列表，格式 [{\"element_id\": 123}]"
+        },
+        {
+          "flag": "--voice_list",
+          "type": "array",
+          "required": false,
+          "description": "音色参考列表，格式 [{\"voice_id\": \"id\"}]"
+        },
+        {
+          "flag": "--resolution",
+          "type": "string",
+          "required": false,
+          "description": "分辨率（文生图/图生图/OmniImage），可选 1k / 2k / 4k。默认1k。"
+        },
+        {
+          "flag": "--scene_image",
+          "type": "string",
+          "required": false,
+          "description": "场景参考图URL（multi_image2image 可选）"
+        },
+        {
+          "flag": "--style_image",
+          "type": "string",
+          "required": false,
+          "description": "风格参考图URL（multi_image2image 可选）"
+        },
+        {
+          "flag": "--sound_effect_prompt",
+          "type": "string",
+          "required": false,
+          "description": "音效生成提示词（video_to_audio 可选），最长200字符。"
+        },
+        {
+          "flag": "--bgm_prompt",
+          "type": "string",
+          "required": false,
+          "description": "配乐生成提示词（video_to_audio 可选），最长200字符。"
+        },
+        {
+          "flag": "--asmr_mode",
+          "type": "boolean",
+          "required": false,
+          "description": "ASMR模式（video_to_audio 可选），true=开启，false=关闭。增强细节音效。"
+        },
+        {
+          "flag": "--up_ratio",
+          "type": "number",
+          "required": false,
+          "description": "向上扩充比例（image_expansion），范围0-2，基于原图高度倍数。"
+        },
+        {
+          "flag": "--down_ratio",
+          "type": "number",
+          "required": false,
+          "description": "向下扩充比例（image_expansion），范围0-2，基于原图高度倍数。"
+        },
+        {
+          "flag": "--left_ratio",
+          "type": "number",
+          "required": false,
+          "description": "向左扩充比例（image_expansion），范围0-2，基于原图宽度倍数。"
+        },
+        {
+          "flag": "--right_ratio",
+          "type": "number",
+          "required": false,
+          "description": "向右扩充比例（image_expansion），范围0-2，基于原图宽度倍数。"
+        },
+        {
+          "flag": "--result_type",
+          "type": "string",
+          "required": false,
+          "description": "生成结果类型（omni_image），single=单图，series=组图。"
+        },
+        {
+          "flag": "--series_amount",
+          "type": "string",
+          "required": false,
+          "description": "组图数量（omni_image result_type=series时使用），可选 2-9 或 auto。"
+        },
+        {
+          "flag": "--voice_id",
+          "type": "string",
+          "required": false,
+          "description": "音色ID（TTS必填，也用于视频生成引用音色）。"
+        },
+        {
+          "flag": "--voice_language",
+          "type": "string",
+          "required": false,
+          "description": "音色语种（TTS必填），zh=中文，en=英文。"
+        },
+        {
+          "flag": "--voice_speed",
+          "type": "number",
+          "required": false,
+          "description": "语速（TTS可选），范围0.8-2.0，默认1.0。"
         },
         {
           "flag": "--image_list",
           "type": "array",
           "required": false,
-          "description": "多图列表，格式 [{\"image\":\"url1\"},{\"image\":\"url2\"}]（多模态/多图参考/图生图时使用）。"
+          "description": "多图列表，格式 [{\"image\":\"url\"}]（multi-image2video / omni-video(用image_url) / 首尾帧 / 图生图等）。注意：multi_image2image 用 subject_image_list 不是此参数。"
         },
         {
           "flag": "--num_images",
           "type": "integer",
           "required": false,
-          "description": "生成图片数量（文生图/图生图），默认1，最大9。"
+          "description": "生成图片数量，默认1，最大9（文生图/图生图/image_expansion/omni_image/multi_image2image）。"
         },
         {
           "flag": "--video_id",
           "type": "string",
           "required": false,
-          "description": "视频ID（视频延长/对口型必填）。"
+          "description": "视频ID（视频延长/对口型必填；custom_voice_create/video_to_audio 可选）。"
         },
         {
           "flag": "--audio_url",

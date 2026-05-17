@@ -56,7 +56,17 @@ _API_ENDPOINTS: Dict[str, str] = {
     "omni_image":        "/v1/images/omni-image",
     "virtual_try_on":    "/v1/images/kolors-virtual-try-on",
     "text2audio":        "/v1/audio/text-to-audio",
+    "video_to_audio":    "/v1/audio/video-to-audio",
+    "tts":               "/v1/audio/tts",
+    "image_expansion":   "/v1/images/editing/expand",
+    "ai_multi_shot":     "/v1/general/ai-multi-shot",
+    "image_recognize":   "/v1/videos/image-recognize",
+    "custom_voice_create": "/v1/general/custom-voices",
+    "custom_voice_delete": "/v1/general/delete-voices",
+    "video_effect":       "/v1/videos/effects",
+    "element_create":     "/v1/general/advanced-custom-elements",
 }
+_ACCOUNT_INFO_PATH = "/account/costs"
 _QUERY_PATHS: Dict[str, str] = {
     "text2video":        "/v1/videos/text2video",
     "image2video":       "/v1/videos/image2video",
@@ -72,6 +82,15 @@ _QUERY_PATHS: Dict[str, str] = {
     "omni_image":        "/v1/images/omni-image",
     "virtual_try_on":    "/v1/images/kolors-virtual-try-on",
     "text2audio":        "/v1/audio/text-to-audio",
+    "video_to_audio":    "/v1/audio/video-to-audio",
+    "tts":               "/v1/audio/tts",
+    "image_expansion":   "/v1/images/editing/expand",
+    "ai_multi_shot":     "/v1/general/ai-multi-shot",
+    "image_recognize":   "/v1/videos/image-recognize",
+    "custom_voice_create": "/v1/general/custom-voices",
+    "custom_voice_delete": "/v1/general/delete-voices",
+    "video_effect":       "/v1/videos/effects",
+    "element_create":     "/v1/general/advanced-custom-elements",
 }
 _GENERATE_ACTIONS = set(_API_ENDPOINTS.keys())
 
@@ -148,6 +167,17 @@ def _action_label(action: str) -> str:
         "text2image": "文生图", "image2image": "图生图",
         "omni_image": "Omni 图像", "multi_image2image": "多图参考生图", "virtual_try_on": "虚拟试穿",
         "text2audio": "文生音效",
+        "video_to_audio": "视频配音效",
+        "account_info": "账号信息查询",
+        "tts": "语音合成",
+        "image_expansion": "扩图",
+        "ai_multi_shot": "智能补全主体图",
+        "image_recognize": "图像识别",
+        "custom_voice_create": "创建自定义音色",
+        "custom_voice_delete": "删除自定义音色",
+        "video_effect": "视频特效",
+        "element_create": "创建主体",
+        "query_result": "查询结果",
     }
     return labels.get(action, action)
 
@@ -173,15 +203,20 @@ def _action_query_result(task_id: str = "", external_task_id: str = "",
             _save_result_meta(ret_task_id, r["data"])
         videos = tr.get("videos", [])
         images = tr.get("images", [])
-        medias = videos or images
+        audios = tr.get("audios", [])
+        medias = videos or images or audios
         if medias:
-            urls = [m.get("url", "") for m in medias if m.get("url")]
+            urls = []
+            for m in medias:
+                url = m.get("url", "") or m.get("url_mp3", "") or m.get("url_wav", "")
+                if url:
+                    urls.append(url)
             r["data"]["media_urls"] = urls
             if urls:
                 md_parts = [f"✅ **生成成功！**\n"]
                 for u in urls:
                     if auto_download:
-                        lp = _download_media(u, ret_task_id, is_video=bool(videos))
+                        lp = _download_media(u, ret_task_id, is_video=bool(videos), is_audio=bool(audios))
                         if lp:
                             md_parts.append(f"📁 已保存: `{lp}`")
                             try:
@@ -190,6 +225,8 @@ def _action_query_result(task_id: str = "", external_task_id: str = "",
                                 _rel_url = f"/workspace/kling_tasks/{ret_task_id}/{_fname}"
                                 if videos:
                                     md_parts.append(f"![播放视频]({_rel_url})")
+                                elif audios:
+                                    md_parts.append(f"🔊 [播放音频]({_rel_url})")
                                 else:
                                     md_parts.append(f"![图片]({_rel_url})")
                             except Exception:
@@ -227,7 +264,7 @@ def _guess_action_from_task_id(task_id: str) -> str:
     return "text2video"
 
 
-def _download_media(url: str, task_id: str, is_video: bool = True) -> str:
+def _download_media(url: str, task_id: str, is_video: bool = True, is_audio: bool = False) -> str:
     try:
         from pathlib import Path
         ws_str = _get_cfg("AGENT_WORKSPACE_DIR")
@@ -235,7 +272,12 @@ def _download_media(url: str, task_id: str, is_video: bool = True) -> str:
             return ""
         task_dir = Path(ws_str) / "kling_tasks" / (task_id or "unknown")
         task_dir.mkdir(parents=True, exist_ok=True)
-        ext = ".mp4" if is_video else ".png"
+        if is_audio:
+            ext = ".mp3"
+        elif is_video:
+            ext = ".mp4"
+        else:
+            ext = ".png"
         fname = f"kling_{task_id}{ext}"
         local_path = task_dir / fname
         if local_path.exists():
@@ -280,8 +322,26 @@ def _save_create_meta(task_id: str, prompt: str, body: dict, action: str):
         pass
 
 
+def _action_account_info(start_time: str = "", end_time: str = "") -> dict:
+    """查询账号下资源包列表及余量（免费接口）。"""
+    import time
+    now_ms = int(time.time() * 1000)
+    params = {}
+    params["start_time"] = start_time or str(now_ms - 86400000 * 30)  # 默认近30天
+    params["end_time"] = end_time or str(now_ms)
+    qs = "&".join(f"{k}={v}" for k, v in params.items())
+    r = _kling_request("GET", f"{_ACCOUNT_INFO_PATH}?{qs}", timeout=30)
+    if r.get("ok"):
+        d = r.get("data", {})
+        r["data"] = {
+            "action": "account_info",
+            "data": d.get("data", d),
+        }
+    return r
+
+
 def agent_main(*, action: str = "text2video", prompt: str = "",
-               model_name: str = "kling-v1", duration: str = "5",
+               model_name: str = "kling-v3", duration: str = "5",
                mode: str = "std", sound: str = "off",
                aspect_ratio: str = "16:9",
                negative_prompt: str = "", cfg_scale: float = 0.5,
@@ -291,11 +351,30 @@ def agent_main(*, action: str = "text2video", prompt: str = "",
                callback_url: str = "",
                camera_control: Optional[dict] = None,
                watermark_enabled: Optional[bool] = None,
-               image_url: str = "",
+               image_url: str = "", image_tail: str = "",
                image_list: Optional[list] = None,
                num_images: int = 1,
-               video_id: str = "",
+               video_id: str = "", video_url: str = "",
                audio_url: str = "",
+               element_list: Optional[list] = None,
+               voice_list: Optional[list] = None,
+               keep_original_sound: str = "",
+               character_orientation: str = "",
+               resolution: str = "",
+               scene_image: str = "",
+               style_image: str = "",
+               sound_effect_prompt: str = "",
+               bgm_prompt: str = "",
+               up_ratio: float = 0.1,
+               down_ratio: float = 0.1,
+               left_ratio: float = 0.1,
+               right_ratio: float = 0.1,
+               asmr_mode: bool = False,
+               result_type: str = "",
+               series_amount: str = "",
+               voice_id: str = "",
+               voice_language: str = "",
+               voice_speed: float = 1.0,
                query_action: str = "",
                run_type: str = "") -> dict:
     try:
@@ -303,20 +382,67 @@ def agent_main(*, action: str = "text2video", prompt: str = "",
             return {"ok": False, "data": None, "error": {"type": "ConfigError", "message": "config.ini [kling] api_key/secret_key 未配置"}}
         if action in _GENERATE_ACTIONS and run_type == "plan":
             return {"ok": False, "data": None, "error": {"type": "ModeConflict", "message": "当前为 Plan 模式，禁止执行生成操作（会消耗积分）。请先切换为 Execute 模式或得到用户明确授权后再执行。"}}
+        if action == "account_info":
+            return _action_account_info(start_time="", end_time="")
         if action == "query_result":
             return _action_query_result(task_id, external_task_id, query_action=query_action)
+        if action == "image_recognize":
+            if not image_url:
+                return ac.err(ValueError("图像识别需要提供 image_url"))
+            r = _kling_request("POST", "/v1/videos/image-recognize", {"image": image_url}, timeout=30)
+            if r.get("ok"):
+                d = r.get("data", {})
+                r["data"] = {"action": "image_recognize", "data": d.get("data", d.get("task_result", d))}
+            return r
+        if action == "custom_voice_create":
+            if not image_url and not video_id:
+                return ac.err(ValueError("创建自定义音色需要提供 voice_url(image_url) 或 video_id"))
+            body = {}
+            if image_url: body["voice_url"] = image_url
+            if video_id: body["video_id"] = video_id
+            body["voice_name"] = prompt or "自定义音色"
+            if callback_url: body["callback_url"] = callback_url
+            if external_task_id: body["external_task_id"] = external_task_id
+            r = _kling_request("POST", "/v1/general/custom-voices", body, timeout=120)
+            if r.get("ok"):
+                d = r.get("data", {})
+                r["data"] = {"action": "custom_voice_create", "task_id": d.get("data", {}).get("task_id", ""), "task_status": d.get("data", {}).get("task_status", "")}
+            return r
+        if action == "custom_voice_delete":
+            if not task_id:
+                return ac.err(ValueError("删除自定义音色需要提供 task_id(voice_id)"))
+            r = _kling_request("POST", "/v1/general/delete-voices", {"voice_id": task_id}, timeout=30)
+            return r
         if action in _GENERATE_ACTIONS:
+            # 硬编码：单分镜提示词不得少于450字，不足直接拒绝
+            _prompts_to_check = []
+            if prompt:
+                _prompts_to_check.append(prompt)
+            if multi_prompt:
+                _prompts_to_check.extend(multi_prompt)
+            for pi, pp in enumerate(_prompts_to_check):
+                if len(pp) < 450:
+                    _label = f"第{pi+1}个分镜" if len(_prompts_to_check) > 1 else "分镜"
+                    return {"ok": False, "data": None, "error": {"type": "PromptTooShort", "message": f"{_label}提示词内容仅{len(pp)}字，不满足最少450字要求。请丰富细节（景别、焦段、光圈、景深、焦点运动、构图、光位、背景、动作、转场、环境一致性、物理检查等12维专业描述），补充后再提交。"}}
             body = _build_body_for_action(action, prompt, model_name, duration, mode, sound,
                                           aspect_ratio, negative_prompt, cfg_scale,
                                           multi_shot, shot_type, multi_prompt,
                                           external_task_id, callback_url, camera_control,
                                           watermark_enabled, image_url, image_list,
-                                          num_images, video_id, audio_url)
+                                          num_images, video_id, audio_url,
+                                          image_tail, element_list, voice_list,
+                                          video_url, keep_original_sound, character_orientation,
+                                          scene_image, style_image,
+                                          sound_effect_prompt, bgm_prompt, asmr_mode,
+                                          up_ratio, down_ratio, left_ratio, right_ratio,
+                                          resolution, result_type, series_amount,
+                                          voice_id, voice_language, voice_speed)
             if action == "text2video":
                 return _action_text2video(prompt, model_name, duration, mode, sound, aspect_ratio,
                                           negative_prompt, cfg_scale, multi_shot, shot_type,
                                           multi_prompt, external_task_id, callback_url,
-                                          camera_control, watermark_enabled)
+                                          camera_control, watermark_enabled,
+                                          element_list, voice_list)
             return _action_create_task(action, body)
         return ac.err(ValueError(f"不支持的 action：{action}"))
     except Exception as e:
@@ -328,7 +454,14 @@ def _build_body_for_action(action, prompt, model_name, duration, mode, sound,
                            multi_shot, shot_type, multi_prompt,
                            external_task_id, callback_url, camera_control,
                            watermark_enabled, image_url, image_list,
-                           num_images, video_id, audio_url) -> dict:
+                           num_images, video_id, audio_url,
+                           image_tail="", element_list=None, voice_list=None,
+                           video_url="", keep_original_sound="", character_orientation="",
+                           scene_image="", style_image="",
+                           sound_effect_prompt="", bgm_prompt="", asmr_mode=False,
+                           up_ratio=0.1, down_ratio=0.1, left_ratio=0.1, right_ratio=0.1,
+                           resolution="", result_type="", series_amount="",
+                           voice_id="", voice_language="", voice_speed=1.0) -> dict:
     if action == "text2video":
         body = {"model_name": model_name, "prompt": prompt, "duration": duration,
                 "mode": mode, "sound": sound, "aspect_ratio": aspect_ratio, "cfg_scale": cfg_scale}
@@ -340,96 +473,228 @@ def _build_body_for_action(action, prompt, model_name, duration, mode, sound,
         if callback_url: body["callback_url"] = callback_url
         if camera_control: body["camera_control"] = camera_control
         if watermark_enabled is not None: body["watermark_info"] = {"enabled": watermark_enabled}
+        if element_list: body["element_list"] = element_list
+        if voice_list: body["voice_list"] = voice_list
         return body
     if action == "image2video":
-        return _build_image2video_body(prompt, image_url, image_list, model_name, duration, mode,
-                                       aspect_ratio, negative_prompt, cfg_scale, camera_control,
-                                       watermark_enabled, callback_url)
-    if action in ("multimodal2video", "omni_image"):
-        return _build_multimodal_body(prompt, image_list, model_name, duration, mode, callback_url)
+        return _build_image2video_body(prompt, image_url, image_list, image_tail, model_name, duration, mode,
+                                       aspect_ratio, negative_prompt, cfg_scale, camera_control, sound,
+                                       watermark_enabled, callback_url, external_task_id,
+                                       multi_shot, shot_type, multi_prompt, element_list, voice_list)
+    if action == "multimodal2video":
+        return _build_multimodal_body(prompt, image_list, model_name, duration, mode, sound, aspect_ratio,
+                                       multi_shot, shot_type, multi_prompt, element_list, None,
+                                       callback_url, external_task_id, watermark_enabled, voice_list)
+    if action == "omni_image":
+        return _build_omni_image_body(prompt, image_list, element_list, model_name, aspect_ratio, num_images,
+                                       resolution, result_type, series_amount, callback_url, external_task_id, watermark_enabled)
     if action == "multi_image2video":
-        return _build_multi_image2video_body(prompt, image_list, model_name, duration, mode, aspect_ratio, callback_url)
+        return _build_multi_image2video_body(prompt, image_list, model_name, duration, mode, aspect_ratio,
+                                             negative_prompt, callback_url, external_task_id, watermark_enabled)
     if action == "motion_control":
-        return _build_motion_control_body(prompt, image_url, image_list, model_name, duration, mode, camera_control, callback_url)
+        return _build_motion_control_body(prompt, image_url, image_list, video_url, keep_original_sound, character_orientation, element_list, model_name, mode, {"enabled": watermark_enabled} if watermark_enabled is not None else None, callback_url, external_task_id)
     if action == "video_extend":
-        return _build_video_extend_body(video_id, duration)
+        return _build_video_extend_body(video_id, prompt, negative_prompt, cfg_scale, callback_url, external_task_id, watermark_enabled)
     if action == "lip_sync":
         return _build_lip_sync_body(video_id, audio_url, prompt)
     if action == "avatar":
-        return _build_avatar_body(prompt, image_url, model_name, mode, callback_url)
+        return _build_avatar_body(prompt, image_url, model_name, mode, callback_url, external_task_id)
     if action == "text2image":
-        return _build_text2image_body(prompt, model_name, aspect_ratio, num_images, negative_prompt, callback_url)
+        return _build_text2image_body(prompt, model_name, aspect_ratio, num_images, negative_prompt, callback_url,
+                                       external_task_id, watermark_enabled)
     if action == "image2image":
-        return _build_image2image_body(prompt, image_url, image_list, model_name, aspect_ratio, num_images, callback_url)
+        return _build_image2image_body(prompt, image_url, image_list, model_name, aspect_ratio, num_images, callback_url,
+                                        external_task_id, watermark_enabled)
     if action == "multi_image2image":
-        return _build_image2image_multi_body(prompt, image_list, model_name, aspect_ratio, 1, callback_url)
+        return _build_image2image_multi_body(prompt, image_list, model_name, aspect_ratio, num_images, callback_url,
+                                              scene_image, style_image)
     if action == "virtual_try_on":
-        return _build_try_on_body(image_url, image_list)
+        return _build_try_on_body(image_url, image_list, model_name, callback_url, external_task_id)
     if action == "text2audio":
         return _build_text2audio_body(prompt, duration)
+    if action == "video_to_audio":
+        return _build_video_to_audio_body(video_id, video_url, sound_effect_prompt, bgm_prompt, asmr_mode, callback_url, external_task_id)
+    if action == "tts":
+        return _build_tts_body(prompt, voice_id, voice_language, voice_speed, callback_url, external_task_id)
+    if action == "image_expansion":
+        return _build_image_expansion_body(image_url, up_ratio, down_ratio, left_ratio, right_ratio, prompt, num_images, callback_url, external_task_id, watermark_enabled)
+    if action == "ai_multi_shot":
+        return _build_ai_multi_shot_body(image_url, callback_url, external_task_id)
+    if action == "image_recognize":
+        if not image_url:
+            raise ValueError("图像识别需要提供 image_url")
+        r = _kling_request("POST", "/v1/videos/image-recognize", {"image": image_url}, timeout=30)
+        if r.get("ok"):
+            d = r.get("data", {})
+            r["data"] = {"action": "image_recognize", "data": d.get("data", d.get("task_result", d))}
+        return r
+    if action == "custom_voice_create":
+        if not image_url and not video_id:
+            raise ValueError("创建自定义音色需要提供 voice_url(image_url) 或 video_id")
+        body = {}
+        if image_url: body["voice_url"] = image_url
+        if video_id: body["video_id"] = video_id
+        body["voice_name"] = prompt or "自定义音色"
+        if callback_url: body["callback_url"] = callback_url
+        if external_task_id: body["external_task_id"] = external_task_id
+        r = _kling_request("POST", "/v1/general/custom-voices", body, timeout=120)
+        if r.get("ok"):
+            d = r.get("data", {})
+            r["data"] = {"action": "custom_voice_create", "task_id": d.get("data", {}).get("task_id", ""), "task_status": d.get("data", {}).get("task_status", "")}
+        return r
+    if action == "custom_voice_delete":
+        if not task_id:
+            raise ValueError("删除自定义音色需要提供 task_id(voice_id)")
+        r = _kling_request("POST", "/v1/general/delete-voices", {"voice_id": task_id}, timeout=30)
+        return r
+    if action == "video_effect":
+        if not image_url and not image_list:
+            raise ValueError("视频特效需要提供 image_url 或 image_list")
+        input_data = {}
+        if image_url: input_data["image"] = image_url
+        if image_list: input_data["images"] = image_list
+        body = {"effect_scene": prompt or "color_mixing", "input": input_data}
+        if callback_url: body["callback_url"] = callback_url
+        if external_task_id: body["external_task_id"] = external_task_id
+        return _action_create_task(action, body)
+    if action == "element_create":
+        if not image_url:
+            raise ValueError("创建主体需要提供 image_url(正面参考图)")
+        body = {
+            "element_name": prompt or "自定义主体",
+            "element_description": negative_prompt or "由AI生成的主体",
+            "reference_type": "image_refer",
+            "element_image_list": {"frontal_image": image_url}
+        }
+        if callback_url: body["callback_url"] = callback_url
+        if external_task_id: body["external_task_id"] = external_task_id
+        return _action_create_task(action, body)
     raise ValueError(f"不支持的操作: {action}")
 
 
-def _build_image2video_body(prompt, image_url, image_list, model_name, duration, mode,
-                            aspect_ratio, negative_prompt, cfg_scale, camera_control,
-                            watermark_enabled, callback_url):
-    if not image_url and not image_list:
-        raise ValueError("图生视频需要提供 image_url 或 image_list")
+def _build_image2video_body(prompt, image_url, image_list, image_tail, model_name, duration, mode,
+                            aspect_ratio, negative_prompt, cfg_scale, camera_control, sound,
+                            watermark_enabled, callback_url, external_task_id,
+                            multi_shot=False, shot_type="", multi_prompt=None,
+                            element_list=None, voice_list=None):
+    if not image_url and not image_list and not image_tail:
+        raise ValueError("图生视频需要提供 image_url/image_list/image_tail 之一")
     body = _base_video_body(prompt, model_name, duration, mode, aspect_ratio, negative_prompt, cfg_scale, callback_url)
-    if image_url: body["image_url"] = image_url
+    if image_url: body["image"] = image_url
+    if image_tail: body["image_tail"] = image_tail
     if image_list: body["image_list"] = image_list
     if camera_control: body["camera_control"] = camera_control
+    if sound: body["sound"] = sound
     if watermark_enabled is not None: body["watermark_info"] = {"enabled": watermark_enabled}
+    if external_task_id: body["external_task_id"] = external_task_id
+    if multi_shot:
+        body["multi_shot"] = True
+        if shot_type: body["shot_type"] = shot_type
+        if multi_prompt: body["multi_prompt"] = multi_prompt
+    if element_list: body["element_list"] = element_list
+    if voice_list: body["voice_list"] = voice_list
     return body
 
 
-def _build_image2image_multi_body(prompt, image_list, model_name, aspect_ratio, num_images, callback_url):
+def _build_image2image_multi_body(prompt, image_list, model_name, aspect_ratio, num_images, callback_url,
+                                  scene_image="", style_image=""):
     if not image_list:
-        raise ValueError("多图参考生图需要提供图片列表")
-    body: dict = {"image_list": image_list}
+        raise ValueError("多图参考生图需要提供 subject_image_list")
+    body: dict = {"subject_image_list": image_list}
     if prompt: body["prompt"] = prompt
     if model_name: body["model_name"] = model_name
     if aspect_ratio: body["aspect_ratio"] = aspect_ratio
     if callback_url: body["callback_url"] = callback_url
+    if scene_image: body["scene_image"] = scene_image
+    if style_image: body["style_image"] = style_image
     body["n"] = max(1, int(num_images))
     return body
 
 
-def _build_multimodal_body(prompt, image_list, model_name, duration, mode, callback_url):
-    if not prompt and not image_list:
-        raise ValueError("多模态需要提供 prompt 或 image_list")
+def _build_omni_image_body(prompt, image_list, element_list, model_name, aspect_ratio, num_images,
+                            resolution, result_type, series_amount, callback_url, external_task_id,
+                            watermark_enabled):
+    if not prompt:
+        raise ValueError("OmniImage 需要提供 prompt")
+    body: dict = {"prompt": prompt}
+    if image_list: body["image_list"] = image_list
+    if element_list: body["element_list"] = element_list
+    if model_name: body["model_name"] = model_name
+    if aspect_ratio: body["aspect_ratio"] = aspect_ratio
+    if resolution: body["resolution"] = resolution
+    if result_type: body["result_type"] = result_type
+    if series_amount: body["series_amount"] = series_amount
+    if callback_url: body["callback_url"] = callback_url
+    if external_task_id: body["external_task_id"] = external_task_id
+    if watermark_enabled is not None: body["watermark_info"] = {"enabled": watermark_enabled}
+    body["n"] = max(1, int(num_images))
+    return body
+
+
+def _build_multimodal_body(prompt, image_list, model_name, duration, mode, sound, aspect_ratio,
+                            multi_shot, shot_type, multi_prompt, element_list, video_list,
+                            callback_url, external_task_id, watermark_enabled, voice_list=None):
+    if not prompt and not image_list and not video_list:
+        raise ValueError("多模态需要提供 prompt/image_list/video_list 至少一项")
     body: dict = {}
     if prompt: body["prompt"] = prompt
     if image_list: body["image_list"] = image_list
     if model_name: body["model_name"] = model_name
     if duration: body["duration"] = duration
     if mode: body["mode"] = mode
+    if sound: body["sound"] = sound
+    if aspect_ratio: body["aspect_ratio"] = aspect_ratio
+    if multi_shot: body["multi_shot"] = True
+    if shot_type: body["shot_type"] = shot_type
+    if multi_prompt: body["multi_prompt"] = multi_prompt
+    if element_list: body["element_list"] = element_list
+    if video_list: body["video_list"] = video_list
+    if voice_list: body["voice_list"] = voice_list
     if callback_url: body["callback_url"] = callback_url
+    if external_task_id: body["external_task_id"] = external_task_id
+    if watermark_enabled is not None: body["watermark_info"] = {"enabled": watermark_enabled}
     return body
 
 
-def _build_multi_image2video_body(prompt, image_list, model_name, duration, mode, aspect_ratio, callback_url):
+def _build_multi_image2video_body(prompt, image_list, model_name, duration, mode, aspect_ratio,
+                                  negative_prompt, callback_url, external_task_id, watermark_enabled):
     if not image_list or len(image_list) < 2:
         raise ValueError("多图参考生视频至少需要 2 张图")
-    body = _base_video_body(prompt, model_name, duration, mode, aspect_ratio, "", 0.5, callback_url)
+    body = _base_video_body(prompt, model_name, duration, mode, aspect_ratio, negative_prompt or "", 0.5, callback_url)
     body["image_list"] = image_list
+    if external_task_id: body["external_task_id"] = external_task_id
+    if watermark_enabled is not None: body["watermark_info"] = {"enabled": watermark_enabled}
     return body
 
 
-def _build_motion_control_body(prompt, image_url, image_list, model_name, duration, mode, camera_control, callback_url):
-    if not image_url and not image_list:
-        raise ValueError("动作控制需要提供图片")
-    body = _base_video_body(prompt, model_name, duration, mode, "16:9", "", 0.5, callback_url)
-    if image_url: body["image_url"] = image_url
-    if image_list: body["image_list"] = image_list
-    if camera_control: body["camera_control"] = camera_control
+def _build_motion_control_body(prompt, image_url, image_list, video_url, keep_original_sound, character_orientation, element_list, model_name, mode, watermark_info, callback_url, external_task_id):
+    if not image_url:
+        raise ValueError("动作控制需要提供 image_url")
+    if not video_url:
+        raise ValueError("动作控制需要提供 video_url")
+    body = {"image": image_url, "video_url": video_url, "mode": mode or "pro"}
+    if model_name: body["model_name"] = model_name
+    if prompt: body["prompt"] = prompt
+    if keep_original_sound: body["keep_original_sound"] = keep_original_sound
+    if character_orientation: body["character_orientation"] = character_orientation
+    if element_list: body["element_list"] = element_list
+    if watermark_info is not None: body["watermark_info"] = watermark_info
+    if callback_url: body["callback_url"] = callback_url
+    if external_task_id: body["external_task_id"] = external_task_id
     return body
 
 
-def _build_video_extend_body(video_id, duration):
+def _build_video_extend_body(video_id, prompt, negative_prompt, cfg_scale, callback_url, external_task_id, watermark_enabled):
     if not video_id:
         raise ValueError("视频延长需要提供 video_id")
-    return {"video_id": video_id, "duration": duration or "5"}
+    body = {"video_id": video_id}
+    if prompt: body["prompt"] = prompt
+    if negative_prompt: body["negative_prompt"] = negative_prompt
+    if cfg_scale is not None: body["cfg_scale"] = cfg_scale
+    if callback_url: body["callback_url"] = callback_url
+    if external_task_id: body["external_task_id"] = external_task_id
+    if watermark_enabled is not None: body["watermark_info"] = {"enabled": watermark_enabled}
+    return body
 
 
 def _build_lip_sync_body(video_id, audio_url, prompt):
@@ -440,16 +705,18 @@ def _build_lip_sync_body(video_id, audio_url, prompt):
     return body
 
 
-def _build_avatar_body(prompt, image_url, model_name, mode, callback_url):
+def _build_avatar_body(prompt, image_url, model_name, mode, callback_url, external_task_id=""):
     if not image_url:
         raise ValueError("数字人需要提供 image_url")
-    body = {"image_url": image_url, "model_name": model_name or "kling-v1", "mode": mode or "pro"}
+    body = {"image_url": image_url, "model_name": model_name or "kling-v3", "mode": mode or "pro"}
     if prompt: body["prompt"] = prompt
     if callback_url: body["callback_url"] = callback_url
+    if external_task_id: body["external_task_id"] = external_task_id
     return body
 
 
-def _build_text2image_body(prompt, model_name, aspect_ratio, num_images, negative_prompt, callback_url):
+def _build_text2image_body(prompt, model_name, aspect_ratio, num_images, negative_prompt, callback_url,
+                            external_task_id="", watermark_enabled=None):
     if not prompt:
         raise ValueError("文生图需要提供 prompt")
     body: dict = {"prompt": prompt, "n": max(1, int(num_images))}
@@ -457,40 +724,94 @@ def _build_text2image_body(prompt, model_name, aspect_ratio, num_images, negativ
     if aspect_ratio: body["aspect_ratio"] = aspect_ratio
     if negative_prompt: body["negative_prompt"] = negative_prompt
     if callback_url: body["callback_url"] = callback_url
+    if external_task_id: body["external_task_id"] = external_task_id
+    if watermark_enabled is not None: body["watermark_info"] = {"enabled": watermark_enabled}
     return body
 
 
-def _build_image2image_body(prompt, image_url, image_list, model_name, aspect_ratio, num_images, callback_url):
+def _build_image2image_body(prompt, image_url, image_list, model_name, aspect_ratio, num_images, callback_url,
+                             external_task_id="", watermark_enabled=None):
     if not prompt:
         raise ValueError("文生图/图生图需要提供 prompt")
     if not image_url and not image_list:
-        raise ValueError("图生图需要提供原图")
+        raise ValueError("图生图需要提供 image_url 或 image_list")
     body: dict = {"prompt": prompt, "n": max(1, int(num_images))}
     if image_url:
-        body["image"] = image_url  # 官方API参数名为 image
+        body["image"] = image_url  # 可灵API字段名为 image（对应工具参数 image_url）
         body["image_reference"] = "subject"  # 默认人物长相参考
     if image_list:
         body["image_list"] = image_list
     if model_name: body["model_name"] = model_name
     if aspect_ratio: body["aspect_ratio"] = aspect_ratio
     if callback_url: body["callback_url"] = callback_url
+    if external_task_id: body["external_task_id"] = external_task_id
+    if watermark_enabled is not None: body["watermark_info"] = {"enabled": watermark_enabled}
     return body
 
 
-def _build_try_on_body(image_url, image_list):
+def _build_try_on_body(image_url, image_list, model_name, callback_url, external_task_id):
     if not image_url and not image_list:
         raise ValueError("虚拟试穿需要提供人物图 + 服装图")
     body: dict = {}
-    if image_url: body["person_image_url"] = image_url
+    if model_name: body["model_name"] = model_name
+    if image_url: body["human_image"] = image_url
     if image_list:
         for img in image_list:
             if isinstance(img, dict):
-                if img.get("type") == "person":
-                    body.setdefault("person_image_url", img.get("url", ""))
-                elif img.get("type") == "garment":
-                    body.setdefault("garment_image_url", img.get("url", ""))
-    if not body.get("person_image_url") or not body.get("garment_image_url"):
-        raise ValueError("虚拟试穿需要同时提供人物图(person)和服装图(garment)")
+                if img.get("type") in ("person", "human"):
+                    body.setdefault("human_image", img.get("url", ""))
+                elif img.get("type") in ("garment", "cloth"):
+                    body.setdefault("cloth_image", img.get("url", ""))
+    if not body.get("human_image") or not body.get("cloth_image"):
+        raise ValueError("虚拟试穿需要同时提供人物图(human_image)和服装图(cloth_image)")
+    if callback_url: body["callback_url"] = callback_url
+    if external_task_id: body["external_task_id"] = external_task_id
+    return body
+
+
+def _build_video_to_audio_body(video_id, video_url, sound_effect_prompt, bgm_prompt, asmr_mode, callback_url, external_task_id):
+    if not video_id and not video_url:
+        raise ValueError("视频生音效需要提供 video_id 或 video_url")
+    body: dict = {}
+    if video_id: body["video_id"] = video_id
+    if video_url: body["video_url"] = video_url
+    if sound_effect_prompt: body["sound_effect_prompt"] = sound_effect_prompt
+    if bgm_prompt: body["bgm_prompt"] = bgm_prompt
+    if asmr_mode: body["asmr_mode"] = True
+    if callback_url: body["callback_url"] = callback_url
+    if external_task_id: body["external_task_id"] = external_task_id
+    return body
+
+
+def _build_image_expansion_body(image_url, up_ratio, down_ratio, left_ratio, right_ratio, prompt, num_images, callback_url, external_task_id, watermark_enabled):
+    if not image_url:
+        raise ValueError("扩图需要提供 image_url")
+    body = {"image": image_url, "up_expansion_ratio": up_ratio, "down_expansion_ratio": down_ratio,
+            "left_expansion_ratio": left_ratio, "right_expansion_ratio": right_ratio}
+    if prompt: body["prompt"] = prompt
+    if callback_url: body["callback_url"] = callback_url
+    if external_task_id: body["external_task_id"] = external_task_id
+    if watermark_enabled is not None: body["watermark_info"] = {"enabled": watermark_enabled}
+    body["n"] = max(1, int(num_images))
+    return body
+
+
+def _build_ai_multi_shot_body(image_url, callback_url, external_task_id):
+    if not image_url:
+        raise ValueError("智能补全主体图需要提供 image_url")
+    body = {"element_frontal_image": image_url}
+    if callback_url: body["callback_url"] = callback_url
+    if external_task_id: body["external_task_id"] = external_task_id
+    return body
+
+
+def _build_tts_body(text, voice_id, voice_language, voice_speed, callback_url, external_task_id):
+    if not text or not voice_id or not voice_language:
+        raise ValueError("TTS需要提供 text, voice_id, voice_language")
+    body = {"text": text, "voice_id": voice_id, "voice_language": voice_language}
+    if voice_speed is not None: body["voice_speed"] = voice_speed
+    if callback_url: body["callback_url"] = callback_url
+    if external_task_id: body["external_task_id"] = external_task_id
     return body
 
 
@@ -510,14 +831,16 @@ def _base_video_body(prompt, model_name, duration, mode, aspect_ratio, negative_
     return body
 
 
-def _action_text2video(prompt: str, model_name: str = "kling-v1", duration: str = "5",
+def _action_text2video(prompt: str, model_name: str = "kling-v3", duration: str = "5",
                        mode: str = "std", sound: str = "off", aspect_ratio: str = "16:9",
                        negative_prompt: str = "", cfg_scale: float = 0.5,
                        multi_shot: bool = False, shot_type: str = "",
                        multi_prompt: Optional[list] = None,
                        external_task_id: str = "", callback_url: str = "",
                        camera_control: Optional[dict] = None,
-                       watermark_enabled: Optional[bool] = None) -> dict:
+                       watermark_enabled: Optional[bool] = None,
+                       element_list: Optional[list] = None,
+                       voice_list: Optional[list] = None) -> dict:
     if not prompt and not multi_shot:
         return ac.err(ValueError("缺少 prompt 参数"))
     body = {"model_name": model_name, "prompt": prompt, "duration": duration,
@@ -535,6 +858,8 @@ def _action_text2video(prompt: str, model_name: str = "kling-v1", duration: str 
     if callback_url: body["callback_url"] = callback_url
     if camera_control: body["camera_control"] = camera_control
     if watermark_enabled is not None: body["watermark_info"] = {"enabled": watermark_enabled}
+    if element_list: body["element_list"] = element_list
+    if voice_list: body["voice_list"] = voice_list
     r = _kling_request("POST", "/v1/videos/text2video", body, timeout=120)
     if r.get("ok") and isinstance(r.get("data"), dict):
         d = r["data"].get("data", {})
@@ -549,7 +874,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description="可灵 Kling AI 全能力工具")
     p.add_argument("--action", default="text2video", help="操作类型")
     p.add_argument("--prompt", default="", help="提示词")
-    p.add_argument("--model_name", default="kling-v1", help="模型名称")
+    p.add_argument("--model_name", default="kling-v3", help="模型名称")
     p.add_argument("--duration", default="5", help="时长(秒)")
     p.add_argument("--mode", default="std", help="模式：std/pro/4k")
     p.add_argument("--sound", default="off", help="声音：on/off")

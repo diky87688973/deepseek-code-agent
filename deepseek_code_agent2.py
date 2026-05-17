@@ -29,7 +29,12 @@ def main() -> None:
             flush=True,
         )
         print("⚠️  或通过环境变量 CHAT_API_KEY 设置", file=sys.stderr, flush=True)
-    uvicorn.run(app, host=_core.AGENT_CONFIG["AGENT_SERVER_HOST"], port=int(port_str))
+    uvicorn.run(
+        app,
+        host=_core.AGENT_CONFIG["AGENT_SERVER_HOST"],
+        port=int(port_str),
+        timeout_graceful_shutdown=5,
+    )
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ DeepSeek Code Agent - 系统托盘启动器
 from __future__ import annotations
 
 import os
+import signal
 import socket
 import sys
 import threading
@@ -177,7 +178,14 @@ def start_server():
         )
     try:
         # log_config=None 禁用 uvicorn 默认日志配置（兼容 --noconsole 无控制台环境）
-        config = uvicorn.Config(app, host=HOST, port=PORT, log_config=None, reload=False)
+        config = uvicorn.Config(
+            app,
+            host=HOST,
+            port=PORT,
+            log_config=None,
+            reload=False,
+            timeout_graceful_shutdown=5,
+        )
         uvicorn_server = uvicorn.Server(config)
         _log(f"uvicorn 配置完成: {HOST}:{PORT}")
         uvicorn_server.run()
@@ -251,8 +259,28 @@ def on_exit(icon, item=None):
     icon.stop()
 
 
+def _handle_console_interrupt(signum, frame):
+    """命令行 Ctrl+C：先中止 SSE/LLM，再停 uvicorn，避免卡在 graceful shutdown。"""
+    _log("收到 Ctrl+C，正在停止服务…")
+    try:
+        from agent_v2.live_state import abort_all_conversation_runs_on_shutdown
+
+        abort_all_conversation_runs_on_shutdown()
+    except Exception:
+        pass
+    stop_server()
+    _clean_temp_dir()
+    _unlock_agent_root()
+    shutdown_event.set()
+    raise SystemExit(0)
+
+
 def main():
     import time
+    try:
+        signal.signal(signal.SIGINT, _handle_console_interrupt)
+    except (ValueError, OSError):
+        pass
     _log(f"启动 DeepSeek Code Agent v2")
     _log(f"服务器地址: {SERVER_URL}")
     _log(f"AGENT_ROOT: {BASE_DIR}")

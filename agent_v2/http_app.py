@@ -11,8 +11,8 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from agent_v2 import agent_core as core
+from agent_v2.live_state import abort_all_conversation_runs_on_shutdown
 from agent_v2.routes import router as agent_http_router
-
 
 @asynccontextmanager
 async def agent_lifespan(app: FastAPI):
@@ -21,6 +21,8 @@ async def agent_lifespan(app: FastAPI):
         yield
     except asyncio.CancelledError:
         pass
+    finally:
+        abort_all_conversation_runs_on_shutdown()
 
 
 def create_app() -> FastAPI:

@@ -150,17 +150,16 @@
   font-size: 12px;
   color: var(--imm-diff-cap-text);
 }
-.chat-diff-neg { color: #f48771; font-weight: 600; }
-.chat-diff-pos { color: #89d185; font-weight: 600; }
+.chat-diff-neg { color: #cf222e; font-weight: 600; }
+.chat-diff-pos { color: #1a7f37; font-weight: 600; }
 .diff-unified {
   max-height: 220px;
   overflow: auto;
   font-family: Consolas, ui-monospace, monospace;
   font-size: 11px;
+  line-height: 1.45;
+  padding: 0;
 }
-.diff-unified .d-del { color: #f48771; }
-.diff-unified .d-add { color: #89d185; }
-.diff-unified .d-eq { color: #8b949e; }
 .imm-col-todo {
   flex: 0 0 auto;
   border-top: 1px solid var(--imm-border);
@@ -198,31 +197,72 @@
 .imm-todo-text { flex: 1; min-width: 0; word-break: break-word; }
 .imm-todo-text.done { color: var(--imm-muted); text-decoration: line-through; }
 
-/* ── diff 卡片行背景（夜间） ── */
-.diff-unified {
-  padding: 6px;
-  border: 1px solid var(--imm-diff-card-border);
-  border-radius: 4px;
-  background: var(--imm-diff-card-bg);
+/* diff 正文：夜间界面内固定 GitHub 浅色可读区（与 agent-ui.css .diff-surface-light 一致） */
+.imm-msgs .diff-unified.diff-surface-light {
+  background: #fff;
+  border: 0;
+  border-top: 1px solid #d0d7de;
+  color: #24292f;
 }
-.diff-unified .d-del {
-  color: #f48771;
-  background: #2d1b1e;
-  border-left: 3px solid #f85149;
-  padding-left: 6px;
+.imm-msgs .diff-unified.diff-surface-light > div {
+  display: flex;
+  align-items: stretch;
+  border-left: 4px solid transparent;
+  min-height: 1.5em;
 }
-.diff-unified .d-add {
-  color: #89d185;
-  background: #1b2d1e;
-  border-left: 3px solid #3daf3f;
-  padding-left: 6px;
+.imm-msgs .diff-unified.diff-surface-light .d-gutter {
+  flex: 0 0 26px;
+  text-align: center;
+  padding: 1px 0;
+  font-weight: 600;
+  user-select: none;
+  font-size: 12px;
+  line-height: 1.5;
 }
-.diff-unified .d-eq,
-.diff-unified .d-meta {
-  color: #8b949e;
-  background: #222426;
-  border-left: 3px solid rgba(148,164,182,.28);
-  padding-left: 6px;
+.imm-msgs .diff-unified.diff-surface-light .d-code {
+  flex: 1;
+  padding: 1px 12px 1px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #24292f;
+}
+.imm-msgs .diff-unified.diff-surface-light .d-del {
+  background: #ffeef0;
+  border-left-color: #cf222e;
+}
+.imm-msgs .diff-unified.diff-surface-light .d-del .d-gutter {
+  color: #9a1c1c;
+  background: #ffd7d5;
+}
+.imm-msgs .diff-unified.diff-surface-light .d-add {
+  background: #e6ffed;
+  border-left-color: #1a7f37;
+}
+.imm-msgs .diff-unified.diff-surface-light .d-add .d-gutter {
+  color: #116329;
+  background: #ccffd8;
+}
+.imm-msgs .diff-unified.diff-surface-light .d-eq .d-code { color: #57606a; }
+.imm-msgs .diff-unified.diff-surface-light .d-eq .d-gutter {
+  color: #8c959f;
+  background: #f6f8fa;
+}
+.imm-msgs .diff-unified.diff-surface-light .d-meta {
+  display: block;
+  padding: 3px 12px;
+  color: #57606a;
+  background: #f6f8fa;
+  border-left: 4px solid #d0d7de;
+  font-size: 11px;
+}
+.imm-msgs .diff-unified.diff-surface-light .d-meta .d-gutter,
+.imm-msgs .diff-unified.diff-surface-light .d-meta .d-code {
+  display: none;
+}
+.imm-msgs .b.a .chat-diff-card .diff-unified.diff-surface-light {
+  max-height: 280px;
+  border-radius: 0;
+  background: #fff;
 }
 
 /* 与经典页 chat-run-* 对齐：执行命令 stdout 卡片（需高于 .imm-msgs .b.a pre 的变量背景） */
@@ -282,21 +322,39 @@ html[data-ui-theme="light"] .diff-unified {
   background: #f8f9fa;
   border-color: #d0dae8;
 }
-html[data-ui-theme="light"] .diff-unified .d-del {
-  color: #cb2431;
+html[data-ui-theme="light"] .imm-msgs .diff-unified .d-del {
   background: #ffeef0;
-  border-left-color: #f85149;
+  border-left-color: #cf222e;
 }
-html[data-ui-theme="light"] .diff-unified .d-add {
-  color: #22863a;
+html[data-ui-theme="light"] .imm-msgs .diff-unified .d-del .d-gutter {
+  color: #cf222e;
+  background: #ffd7d5;
+}
+html[data-ui-theme="light"] .imm-msgs .diff-unified .d-del .d-code {
+  color: #24292f;
+}
+html[data-ui-theme="light"] .imm-msgs .diff-unified .d-add {
   background: #e6ffed;
-  border-left-color: #34d058;
+  border-left-color: #1a7f37;
 }
-html[data-ui-theme="light"] .diff-unified .d-eq,
-html[data-ui-theme="light"] .diff-unified .d-meta {
-  color: #5a6474;
-  background: #f0f2f4;
-  border-left-color: #c8d4e8;
+html[data-ui-theme="light"] .imm-msgs .diff-unified .d-add .d-gutter {
+  color: #1a7f37;
+  background: #ccffd8;
+}
+html[data-ui-theme="light"] .imm-msgs .diff-unified .d-add .d-code {
+  color: #24292f;
+}
+html[data-ui-theme="light"] .imm-msgs .diff-unified .d-eq .d-code {
+  color: #57606a;
+}
+html[data-ui-theme="light"] .imm-msgs .diff-unified .d-eq .d-gutter {
+  color: #8c959f;
+  background: #f6f8fa;
+}
+html[data-ui-theme="light"] .imm-msgs .diff-unified .d-meta {
+  color: #57606a;
+  background: #f6f8fa;
+  border-left-color: #d0d7de;
 }
 html[data-ui-theme="light"] .imm-msgs .b.a .chat-diff-card .diff-unified {
   background: #f8f9fa;

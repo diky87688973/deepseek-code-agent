@@ -56,9 +56,16 @@ def _emit_envelope_file_and_stdout(args: argparse.Namespace, envelope: dict) -> 
 
 
 def _forbid_inline_search(code: str) -> bool:
-    """禁止在胶水代码里使用 file_search/grep_files/base64（搜索走服务端，base64 浪费 token）。"""
+    """禁止在胶水代码里使用 file_search/grep_files/base64/kling API（搜索走服务端，base64 浪费 token，kling 须走确认）。"""
     s = code or ""
-    return "file_search" in s or "grep_files" in s or "base64" in s
+    if "file_search" in s or "grep_files" in s or "base64" in s:
+        return True
+    # 禁止绕过 kling_generate 直接调可灵 API
+    _kling_pats = ["api-beijing.klingai.com", "klingai.com", "AGENT_KLING_API_KEY", "AGENT_KLING_SECRET_KEY", "KLING_API_KEY", "KLING_SECRET_KEY"]
+    for _kp in _kling_pats:
+        if _kp in s.lower():
+            return True
+    return False
 
 
 def agent_main(

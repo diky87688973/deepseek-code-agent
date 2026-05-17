@@ -24,10 +24,11 @@ CHUNK_ORDER = (CHUNK_SYSTEM, CHUNK_KB, CHUNK_MEM, CHUNK_PURE, CHUNK_FULL, CHUNK_
 class Round:
     """一轮对话：从一条 user 起，到下一 user 之前（与伪代码 Round 一致，消息为 OpenAI dict）。"""
 
-    __slots__ = ("messages",)
+    __slots__ = ("messages", "round_id")
 
-    def __init__(self) -> None:
+    def __init__(self, round_id: Optional[str] = None) -> None:
         self.messages: List[Dict[str, Any]] = []
+        self.round_id = round_id
 
     def append_message_dict(self, msg: Dict[str, Any]) -> None:
         self.messages.append(msg)
@@ -81,6 +82,9 @@ def _flat_messages_to_user_rounds(msgs: List[Dict[str, Any]]) -> List[Round]:
             i += 1
             continue
         r = Round()
+        rid = str(msgs[i].get("_agent_round_id") or "").strip() or None
+        if rid:
+            r.round_id = rid
         while i < n:
             r.append_message_dict(msgs[i])
             i += 1
@@ -94,7 +98,7 @@ def _copy_round_list(src: List[Round], start: int, count: int) -> List[Round]:
     out: List[Round] = []
     end = min(len(src), start + max(0, count))
     for j in range(start, end):
-        nr = Round()
+        nr = Round(round_id=src[j].round_id)
         for m in src[j].messages:
             nr.messages.append(copy.deepcopy(m))
         out.append(nr)
