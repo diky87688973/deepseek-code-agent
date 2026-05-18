@@ -793,6 +793,11 @@ if(key==="knowledge"||key==="summary"||key==="pure"||key==="full_recent"){
 var cnt=(sg.count!==undefined&&sg.count!==null)?Math.max(0,Math.floor(Number(sg.count)||0)):null;
 if(cnt!==null)mid=String(cnt)+"个";
 }
+if(key==="skill"){
+var cnt=(sg.count!==undefined&&sg.count!==null)?Math.max(0,Math.floor(Number(sg.count)||0)):0;
+var ac=sg.auto_load_count!==undefined?Math.max(0,Math.floor(Number(sg.auto_load_count)||0)):0;
+mid=ac+"/"+cnt;
+}
 var meta=pct+"% | "+mid+" | "+tok.toLocaleString()+" tokens";
 parts.push(
 '<div class="ctx-tip-line">'+
@@ -848,7 +853,7 @@ var barHost=document.createElement("div");barHost.className="ctx-bar-host";
 var tabCtx=typeof getActiveTab==="function"?getActiveTab():null;
 var lay=tabCtx&&tabCtx.lastContextLayout;
 var segs=lay&&Array.isArray(lay.segments)?lay.segments:[];
-var colors={system:"#a68b32",knowledge:"#0d3a66",summary:"#7a1f1f",pure:"#156b4a",full_recent:"#124a3a",mode:"#455a64",remaining:"#4a4e55"};
+var colors={system:"#a68b32",knowledge:"#0d3a66",summary:"#7a1f1f",skill:"#9c27b0",pure:"#156b4a",full_recent:"#124a3a",mode:"#455a64",remaining:"#4a4e55"};
 if(!segs.length){var empty=document.createElement("span");empty.className="ctx-bar-empty";empty.textContent="—";barHost.appendChild(empty);}
 else{var bar=document.createElement("div");bar.className="ctx-bar";
 for(var si=0;si<segs.length;si++){var sg=segs[si];if(!sg)continue;

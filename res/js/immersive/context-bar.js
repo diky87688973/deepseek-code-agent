@@ -6,6 +6,7 @@
     system: "#a68b32",
     knowledge: "#0d3a66",
     summary: "#7a1f1f",
+    skill: "#9c27b0",
     pure: "#156b4a",
     full_recent: "#124a3a",
     mode: "#455a64",
@@ -54,6 +55,17 @@
             ? Math.max(0, Math.floor(Number(sg.count) || 0))
             : null;
         if (cnt !== null) mid = String(cnt) + "个";
+      }
+      if (key === "skill") {
+        var cnt =
+          sg.count !== undefined && sg.count !== null
+            ? Math.max(0, Math.floor(Number(sg.count) || 0))
+            : 0;
+        var ac =
+          sg.auto_load_count !== undefined
+            ? Math.max(0, Math.floor(Number(sg.auto_load_count) || 0))
+            : 0;
+        mid = ac + "/" + cnt;
       }
       var meta = pct + "% | " + mid + " | " + tok.toLocaleString() + " tokens";
       parts.push(

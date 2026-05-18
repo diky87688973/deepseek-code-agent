@@ -123,7 +123,7 @@ html[data-ui-theme="light"] #immT::placeholder {
 /* 与经典 .ctx-layout-tooltip 一致（挂到 body） */
 .ctx-layout-tooltip {
   box-sizing: border-box;
-  max-width: min(420px, 92vw);
+  max-width: min(640px, 92vw);
   padding: 8px 10px;
   background: var(--imm-pop-bg);
   border: 1px solid var(--imm-pop-border);

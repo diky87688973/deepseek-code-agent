@@ -272,7 +272,7 @@ html[data-ui-theme="light"] .user-confirm-opts .uc-check.uc-on {
 .usage-bottom .ctx-seg{display:block;min-height:10px;min-width:2px;cursor:inherit;box-sizing:border-box}
 .usage-bottom .ctx-bar-empty{color:#6e7681;font-size:10px;white-space:nowrap}
 .usage-bottom .ctx-seg-remaining{box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
-.ctx-layout-tooltip{box-sizing:border-box;max-width:min(420px,92vw);padding:8px 10px;background:#252526;border:1px solid #3c3c3c;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.45);font-size:11px;line-height:1.55;color:#d0d7de;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+.ctx-layout-tooltip{box-sizing:border-box;max-width:min(640px,92vw);padding:8px 10px;background:#252526;border:1px solid #3c3c3c;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.45);font-size:11px;line-height:1.55;color:#d0d7de;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
 .ctx-layout-tooltip .ctx-tip-line{display:grid;grid-template-columns:5.5rem 120px minmax(0,1fr);align-items:center;column-gap:8px;margin:4px 0}
 .ctx-layout-tooltip .ctx-tip-br{color:#e6edf3;font-weight:600;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .ctx-layout-tooltip .ctx-tip-track{display:flex;width:120px;height:8px;flex-shrink:0;background:#2a2d32;border-radius:3px;overflow:hidden;box-sizing:border-box}
@@ -660,4 +660,31 @@ html[data-ui-theme="light"] .todo-text.done {
 html[data-ui-theme="light"] .chat-run-pre--cmd code,
 html[data-ui-theme="light"] .chat-run-pre--out code {
   color: inherit;
+}
+/* ── 白天模式：Auto+ 菜单模型选择文字颜色 ── */
+html[data-ui-theme="light"] .mode-item[data-mode="auto"] { color: #2c5585; }
+html[data-ui-theme="light"] .mode-item[data-mode="plan"] { color: #8a6a20; }
+html[data-ui-theme="light"] .mode-item[data-mode="execute"] { color: #7a3eb0; }
+html[data-ui-theme="light"] .mode-submenu .mode-item.model-current {
+  background: #e8edf5;
+  box-shadow: inset 0 0 0 1px #569cd6;
+}
+html[data-ui-theme="light"] .mode-submenu .model-choice {
+  color: #1a2233;
+}
+/* ── 白天模式：上下文视图悬浮弹窗 ── */
+html[data-ui-theme="light"] .ctx-layout-tooltip {
+  background: #ffffff;
+  border-color: #c8d4e8;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1);
+  color: #1a2233;
+}
+html[data-ui-theme="light"] .ctx-layout-tooltip .ctx-tip-br {
+  color: #0a1220;
+}
+html[data-ui-theme="light"] .ctx-layout-tooltip .ctx-tip-rest {
+  color: #5a6474;
+}
+html[data-ui-theme="light"] .ctx-layout-tooltip .ctx-tip-track {
+  background: #e4e9f2;
 }
