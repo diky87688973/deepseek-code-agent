@@ -127,6 +127,12 @@
   padding: 0;
   border-radius: 0;
 }
+.imm-msgs .b.a code[data-lang="json"],
+.imm-msgs .b.a pre code[data-lang="json"] {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+}
 .imm-spinner {
   display: inline-block;
   width: 14px;
@@ -143,22 +149,108 @@
   border-radius: 8px;
   background: var(--imm-diff-card-bg);
   margin: 6px 0;
+  overflow: hidden;
 }
 .chat-diff-cap {
   padding: 6px 10px;
   border-bottom: 1px solid var(--imm-diff-cap-border);
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 400;
   color: var(--imm-diff-cap-text);
+  background: var(--diff-cap-bg, var(--diff-surface-bg));
+  font-weight: 500;
+  line-height: 1.35;
+  border-radius: 0;
 }
-.chat-diff-neg { color: #cf222e; font-weight: 600; }
-.chat-diff-pos { color: #1a7f37; font-weight: 600; }
+.chat-diff-cap--sect {
+  border-top: 1px solid var(--imm-diff-cap-border);
+  border-radius: 0;
+}
+.chat-diff-neg { color: var(--diff-stat-del); font-weight: 600; }
+.chat-diff-pos { color: var(--diff-stat-add); font-weight: 600; }
 .diff-unified {
-  max-height: 220px;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
   font-family: Consolas, ui-monospace, monospace;
   font-size: 11px;
   line-height: 1.45;
   padding: 0;
+}
+/* diff 正文：随主题变量，与卡片背景一致 */
+.diff-unified.diff-surface-adaptive {
+  background: var(--diff-surface-bg);
+  border: 0;
+  border-top: 0;
+  color: var(--diff-surface-text);
+}
+.chat-diff-card > .diff-unified.diff-surface-adaptive:not(:first-child) {
+  border-top: 1px solid var(--diff-cap-border);
+}
+.diff-unified.diff-surface-adaptive > div {
+  display: flex;
+  align-items: stretch;
+  border-left: 4px solid transparent;
+  min-height: 1.5em;
+}
+.diff-unified.diff-surface-adaptive .d-gutter {
+  flex: 0 0 26px;
+  text-align: center;
+  padding: 1px 0;
+  font-weight: 600;
+  user-select: none;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.diff-unified.diff-surface-adaptive .d-code {
+  flex: 1;
+  padding: 1px 12px 1px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--diff-surface-text);
+}
+.diff-unified.diff-surface-adaptive .d-del {
+  background: var(--diff-del-bg);
+  border-left-color: var(--diff-del-border);
+}
+.diff-unified.diff-surface-adaptive .d-del .d-gutter {
+  color: var(--diff-del-gutter-text);
+  background: var(--diff-del-gutter-bg);
+}
+.diff-unified.diff-surface-adaptive .d-add {
+  background: var(--diff-add-bg);
+  border-left-color: var(--diff-add-border);
+}
+.diff-unified.diff-surface-adaptive .d-add .d-gutter {
+  color: var(--diff-add-gutter-text);
+  background: var(--diff-add-gutter-bg);
+}
+.diff-unified.diff-surface-adaptive .d-eq .d-code { color: var(--diff-eq-text); }
+.diff-unified.diff-surface-adaptive .d-eq .d-gutter {
+  color: var(--diff-eq-text);
+  background: var(--diff-eq-gutter-bg);
+}
+.diff-unified.diff-surface-adaptive .d-meta {
+  display: block;
+  padding: 3px 12px;
+  color: var(--diff-meta-text);
+  background: var(--diff-meta-bg);
+  border-left: 4px solid var(--diff-meta-border);
+  font-size: 11px;
+}
+.diff-unified.diff-surface-adaptive .d-meta .d-gutter,
+.diff-unified.diff-surface-adaptive .d-meta .d-code {
+  display: none;
+}
+.b.a .chat-diff-card .diff-unified.diff-surface-adaptive {
+  max-height: none;
+  overflow: visible;
+  border-radius: 0;
+  background: var(--diff-surface-bg);
+}
+.b.a .chat-diff-card pre,
+.b.a .chat-diff-card pre.chat-run-pre {
+  max-height: none;
+  overflow: visible;
 }
 .imm-col-todo {
   flex: 0 0 auto;
@@ -197,183 +289,49 @@
 .imm-todo-text { flex: 1; min-width: 0; word-break: break-word; }
 .imm-todo-text.done { color: var(--imm-muted); text-decoration: line-through; }
 
-/* diff 正文：夜间界面内固定 GitHub 浅色可读区（与 agent-ui.css .diff-surface-light 一致） */
-.imm-msgs .diff-unified.diff-surface-light {
-  background: #fff;
-  border: 0;
-  border-top: 1px solid #d0d7de;
-  color: #24292f;
+/* 与经典页 chat-run-* 对齐 */
+.imm-msgs .b.a .chat-run-wrap { overflow: inherit; }
+.imm-msgs .chat-diff-card .chat-run-cmd-block {
+  background: var(--diff-run-cmd-bg, rgba(0, 0, 0, 0.22));
+  border-bottom: 0;
 }
-.imm-msgs .diff-unified.diff-surface-light > div {
-  display: flex;
-  align-items: stretch;
-  border-left: 4px solid transparent;
-  min-height: 1.5em;
+.imm-msgs .chat-diff-card pre.chat-run-pre--out {
+  background: var(--diff-surface-bg);
+  color: var(--diff-surface-text);
 }
-.imm-msgs .diff-unified.diff-surface-light .d-gutter {
-  flex: 0 0 26px;
-  text-align: center;
-  padding: 1px 0;
-  font-weight: 600;
-  user-select: none;
-  font-size: 12px;
-  line-height: 1.5;
-}
-.imm-msgs .diff-unified.diff-surface-light .d-code {
-  flex: 1;
-  padding: 1px 12px 1px 8px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: #24292f;
-}
-.imm-msgs .diff-unified.diff-surface-light .d-del {
-  background: #ffeef0;
-  border-left-color: #cf222e;
-}
-.imm-msgs .diff-unified.diff-surface-light .d-del .d-gutter {
-  color: #9a1c1c;
-  background: #ffd7d5;
-}
-.imm-msgs .diff-unified.diff-surface-light .d-add {
-  background: #e6ffed;
-  border-left-color: #1a7f37;
-}
-.imm-msgs .diff-unified.diff-surface-light .d-add .d-gutter {
-  color: #116329;
-  background: #ccffd8;
-}
-.imm-msgs .diff-unified.diff-surface-light .d-eq .d-code { color: #57606a; }
-.imm-msgs .diff-unified.diff-surface-light .d-eq .d-gutter {
-  color: #8c959f;
-  background: #f6f8fa;
-}
-.imm-msgs .diff-unified.diff-surface-light .d-meta {
-  display: block;
-  padding: 3px 12px;
-  color: #57606a;
-  background: #f6f8fa;
-  border-left: 4px solid #d0d7de;
-  font-size: 11px;
-}
-.imm-msgs .diff-unified.diff-surface-light .d-meta .d-gutter,
-.imm-msgs .diff-unified.diff-surface-light .d-meta .d-code {
-  display: none;
-}
-.imm-msgs .b.a .chat-diff-card .diff-unified.diff-surface-light {
-  max-height: 280px;
-  border-radius: 0;
-  background: #fff;
-}
-
-/* 与经典页 chat-run-* 对齐：执行命令 stdout 卡片（需高于 .imm-msgs .b.a pre 的变量背景） */
-.imm-msgs .b.a .chat-run-wrap {
-  overflow: inherit;
-}
-.imm-msgs .b.a .chat-run-out-border {
-  border-top: 1px solid #2a2a2a;
-}
-.imm-msgs .b.a pre.chat-run-pre {
+.imm-msgs .chat-diff-card pre,
+.imm-msgs .chat-diff-card pre.chat-run-pre {
   margin: 0;
-  padding: 4px 8px;
+  padding: 8px 10px;
   font-size: 11px;
-  line-height: 1.4;
-  max-height: 200px;
-  overflow: auto;
+  line-height: 1.45;
+  max-height: none;
+  overflow: visible;
   font-family: Consolas, ui-monospace, monospace;
   white-space: pre-wrap;
   word-break: break-word;
   box-sizing: border-box;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--diff-surface-text);
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
 }
-.imm-msgs .b.a pre.chat-run-pre--cmd {
-  background: #0d0d0d;
-  border: 1px solid #2a2a2a;
-  border-radius: 4px;
-  color: #e6edf3;
-}
-.imm-msgs .b.a pre.chat-run-pre--cmd code {
-  color: #e6edf3;
+.imm-msgs .chat-diff-card pre.chat-run-pre--cmd code,
+.imm-msgs .chat-diff-card pre.chat-run-pre--out code {
+  color: inherit;
   background: transparent;
   padding: 0;
   border-radius: 0;
   font-size: inherit;
   line-height: inherit;
 }
-.imm-msgs .b.a pre.chat-run-pre--out {
-  background: transparent;
-  color: #c9d1d9;
-}
-.imm-msgs .b.a pre.chat-run-pre--out code {
-  color: #c9d1d9;
+.imm-msgs pre code.hljs,
+.imm-msgs .chat-diff-card pre code.hljs {
   background: transparent;
   padding: 0;
   border-radius: 0;
-  font-size: inherit;
-  line-height: inherit;
-}
-
-/* ── diff 卡片白天 ── */
-html[data-ui-theme="light"] .chat-diff-neg {
-  color: #d73a49;
-}
-html[data-ui-theme="light"] .chat-diff-pos {
-  color: #2ea043;
-}
-html[data-ui-theme="light"] .diff-unified {
-  background: #f8f9fa;
-  border-color: #d0dae8;
-}
-html[data-ui-theme="light"] .imm-msgs .diff-unified .d-del {
-  background: #ffeef0;
-  border-left-color: #cf222e;
-}
-html[data-ui-theme="light"] .imm-msgs .diff-unified .d-del .d-gutter {
-  color: #cf222e;
-  background: #ffd7d5;
-}
-html[data-ui-theme="light"] .imm-msgs .diff-unified .d-del .d-code {
-  color: #24292f;
-}
-html[data-ui-theme="light"] .imm-msgs .diff-unified .d-add {
-  background: #e6ffed;
-  border-left-color: #1a7f37;
-}
-html[data-ui-theme="light"] .imm-msgs .diff-unified .d-add .d-gutter {
-  color: #1a7f37;
-  background: #ccffd8;
-}
-html[data-ui-theme="light"] .imm-msgs .diff-unified .d-add .d-code {
-  color: #24292f;
-}
-html[data-ui-theme="light"] .imm-msgs .diff-unified .d-eq .d-code {
-  color: #57606a;
-}
-html[data-ui-theme="light"] .imm-msgs .diff-unified .d-eq .d-gutter {
-  color: #8c959f;
-  background: #f6f8fa;
-}
-html[data-ui-theme="light"] .imm-msgs .diff-unified .d-meta {
-  color: #57606a;
-  background: #f6f8fa;
-  border-left-color: #d0d7de;
-}
-html[data-ui-theme="light"] .imm-msgs .b.a .chat-diff-card .diff-unified {
-  background: #f8f9fa;
-}
-html[data-ui-theme="light"] .imm-msgs .b.a .chat-run-out-border {
-  border-top-color: #d0dae8;
-}
-html[data-ui-theme="light"] .imm-msgs .b.a pre.chat-run-pre--cmd {
-  background: #f0f4fa;
-  border-color: #c8d4e8;
-  color: #0d1117;
-}
-html[data-ui-theme="light"] .imm-msgs .b.a pre.chat-run-pre--cmd code {
-  color: #0d1117;
-}
-html[data-ui-theme="light"] .imm-msgs .b.a pre.chat-run-pre--out {
-  background: #ffffff;
-  color: #24292f;
-}
-html[data-ui-theme="light"] .imm-msgs .b.a pre.chat-run-pre--out code {
-  color: #24292f;
+  display: block;
+  overflow: visible;
 }

@@ -1,5 +1,5 @@
 // 调试：控制台执行 window.DEBUG=1（或 DEBUG=1）后输出 SSE / 预览等 console 日志
-(function(w){"use strict";var KEY="codeWebAgent.uiTheme";function get(){try{return localStorage.getItem(KEY)==="light"?"light":"dark";}catch(e){return"dark";}}function set(t){t=t==="light"?"light":"dark";try{localStorage.setItem(KEY,t);}catch(e){}document.documentElement.setAttribute("data-ui-theme",t);syncButtons();}function toggle(){set(get()==="light"?"dark":"light");}function apply(){document.documentElement.setAttribute("data-ui-theme",get());syncButtons();}function syncButtons(){var dark=get()==="dark";var label=dark?"白天模式":"夜间模式";var title=dark?"切换为白天界面":"切换为夜间界面";["hdrThemeBtn","immThemeBtn"].forEach(function(id){var b=document.getElementById(id);if(b){b.textContent=label;b.title=title;}});}w.themeUi={get:get,set:set,toggle:toggle,apply:apply,syncButtons:syncButtons};})(window);
+// 主题与全页只读选区：见 theme-ui.js（经典页内联包首部已包含）
 const CONVERSATION_STORAGE_KEY="codeWebAgent.activeConversationId";
 const CONVERSATION_TABS_STORAGE_KEY="codeWebAgent.openConversationTabs";
 function newConversationId(){return crypto.randomUUID?crypto.randomUUID():'xxxxxxxxxxxx4xxxyxxxxxxxxxxxxxxx'.replace(/[xy]/g,function(c){const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16);});}
@@ -454,29 +454,25 @@ function escapeHtml(s){
 return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 function highlightJson(s){
+if(window.codeHighlight)return window.codeHighlight.highlightCode(s,'json');
 var t=String(s||'');try{var o=JSON.parse(t);t=JSON.stringify(o,null,2);}catch(e){}
 return t.replace(/("(?:\\.|[^"\\])*")\s*:/g,'<span style="color:#ce9178;">$1</span>:')
 .replace(/:\s*("(?:\\.|[^"\\])*")/g,':<span style="color:#ce9178;">$1</span>')
 .replace(/:\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,':<span style="color:#b5cea8;">$1</span>')
 .replace(/:\s*(true|false|null)/g,':<span style="color:#569cd6;">$1</span>');}
 function highlightCode(s,lang){
+if(window.codeHighlight)return window.codeHighlight.highlightCode(s,lang);
 var t=String(s||'');
 if(String(lang||'').toLowerCase()==='json'||(!lang&&/^\s*[\[{]/.test(t)))return highlightJson(t);
-var langMap={'py':'python','js':'javascript','ts':'typescript','html':'html','css':'css','sh':'bash','bash':'bash','shell':'bash','json':'json','yaml':'yaml','yml':'yaml','md':'markdown','xml':'xml','sql':'sql','pycon':'python','c':'c','cpp':'cpp','java':'java','go':'go','rust':'rust','diff':'diff','patch':'diff'};
-var langNorm=langMap[String(lang||'').toLowerCase()]||'';
-if(langNorm==='diff'){
-var lines=t.split('\n');
-return lines.map(function(line){
-var e=escapeHtml(line);
-if(/^---/.test(line))return '<span style="color:#808080;">'+e+'</span>';
-if(/^\+\+\+/.test(line))return '<span style="color:#808080;">'+e+'</span>';
-if(/^@@/.test(line))return '<span style="color:#569cd6;">'+e+'</span>';
-if(/^\+/.test(line))return '<span style="color:#6a9955;">'+e+'</span>';
-if(/^-/.test(line))return '<span style="color:#f14c4c;">'+e+'</span>';
-return e;
-}).join('\n');
-}
 return escapeHtml(t);
+}
+function detectScriptLang(code,hint){
+if(window.codeHighlight)return window.codeHighlight.detectScriptLang(code,hint);
+return 'python';
+}
+function hljsCodeClass(lang){
+if(window.codeHighlight)return window.codeHighlight.hljsCodeClass(lang);
+return '';
 }
 function renderInlineMarkdown(s){
 let t=escapeHtml(s||'');
@@ -651,7 +647,7 @@ var cap='<div class="chat-diff-cap">'+escapeHtml(fn)+' · diff';
 if(st.del>0)cap+=' <span class="chat-diff-neg">-'+st.del+'</span>';
 if(st.add>0)cap+=' <span class="chat-diff-pos">+'+st.add+'</span>';
 cap+='</div>';
-var box='<div class="diff-unified diff-surface-light">'+buildDiffRowsHtml(oldT,newT)+'</div>';
+var box='<div class="diff-unified diff-surface-adaptive">'+buildDiffRowsHtml(oldT,newT)+'</div>';
 return '<div class="chat-diff-card">'+cap+box+'</div>';
 }
 function renderMarkdown(md){
@@ -670,10 +666,10 @@ const pr=parseUnifiedDiffBodyForRows(inner);
 if(pr.oldT!==''||pr.newT!==''){
 html+=buildChatDiffCardHtml(pr.oldT,pr.newT,diffFileNameFromBody(inner));
 }else{
-html+='<pre><code'+(lang?' data-lang="'+escapeHtml(lang)+'"':'')+'>'+highlightCode(inner,lang)+'</code></pre>';
+var _hc=hljsCodeClass(lang);html+='<pre><code'+(_hc?' class="'+_hc+'"':'')+(lang?' data-lang="'+escapeHtml(lang)+'"':'')+'>'+highlightCode(inner,lang)+'</code></pre>';
 }
 }else{
-html+='<pre><code'+(lang?' data-lang="'+escapeHtml(lang)+'"':'')+'>'+highlightCode(inner,lang)+'</code></pre>';
+var _hc2=hljsCodeClass(lang);html+='<pre><code'+(_hc2?' class="'+_hc2+'"':'')+(lang?' data-lang="'+escapeHtml(lang)+'"':'')+'>'+highlightCode(inner,lang)+'</code></pre>';
 }
 last=re.lastIndex;
 }
@@ -1228,12 +1224,12 @@ o.previewSlot.appendChild(cap);o.previewSlot.appendChild(pr);
 var testContent=out||"(空输出, raw="+_raw.slice(0,200)+")";
 var cmdName=(o.args||{}).command||"命令行";
 if(typeof cmdName==="string"&&cmdName.trim())cmdName=cmdName.trim().slice(0,60);
-var cardHtml='<div class="chat-diff-card"><div class="chat-diff-cap">'+escapeHtml(cmdName)+'</div><div class="diff-unified diff-surface-light"><pre style="margin:0;padding:4px 8px;max-height:200px;overflow:auto;font-size:11px">'+escapeHtml(testContent)+'</pre></div></div>';
+var cardHtml='<div class="chat-diff-card"><div class="chat-diff-cap">'+escapeHtml(cmdName)+'</div><div class="diff-unified diff-surface-adaptive"><pre style="margin:0;padding:4px 8px;font-size:11px">'+escapeHtml(testContent)+'</pre></div></div>';
 var chatDiv=document.createElement("div");chatDiv.className="b a";chatDiv.innerHTML=cardHtml;
 //
 }catch(e){
 if(window.DEBUG)console.error("fillToolPreview: error",e);
-var errCard='<div class="chat-diff-card"><div class="chat-diff-cap">❌ 渲染异常</div><div class="diff-unified diff-surface-light"><pre style="margin:0;padding:4px 8px;font-size:11px">'+escapeHtml(e.message)+'</pre></div></div>';
+var errCard='<div class="chat-diff-card"><div class="chat-diff-cap">❌ 渲染异常</div><div class="diff-unified diff-surface-adaptive"><pre style="margin:0;padding:4px 8px;font-size:11px">'+escapeHtml(e.message)+'</pre></div></div>';
 var errDiv=document.createElement("div");errDiv.className="b a";errDiv.innerHTML=errCard;
 }
 return;}
@@ -1250,7 +1246,7 @@ var _rlPre=document.createElement("pre");_rlPre.className="sub";
 _rlPre.innerHTML=_rlData.snippets.map(function(s){return escapeHtml(s);}).join("\n");
 o.previewSlot.appendChild(_rlCap);o.previewSlot.appendChild(_rlPre);
 // 推送到对话区：卡片插在流式气泡下方，气泡移到卡片后继续流式
-var _rlCardHtml='<div class="chat-diff-card"><div class="chat-diff-cap">快速查找 · 共 '+_rlData.count+' 处</div><div class="diff-unified diff-surface-light"><pre style="margin:0;padding:4px 8px;font-size:11px;line-height:1.4;max-height:200px">'+escapeHtml(_rlData.snippets.join("\n"))+'</pre></div></div>';
+var _rlCardHtml='<div class="chat-diff-card"><div class="chat-diff-cap">快速查找 · 共 '+_rlData.count+' 处</div><div class="diff-unified diff-surface-adaptive"><pre style="margin:0;padding:4px 8px;font-size:11px;line-height:1.4">'+escapeHtml(_rlData.snippets.join("\n"))+'</pre></div></div>';
 var _rlDiv=document.createElement("div");_rlDiv.className="b a";_rlDiv.innerHTML=_rlCardHtml;
 if(streamAssistantEl){streamAssistantEl.after(_rlDiv);streamAssistantEl=null;streamAssistantText="";}else{msgs.appendChild(_rlDiv);}
 scrollMsgsToBottom();
@@ -1265,7 +1261,7 @@ const _dj=JSON.parse(ev.preview||"{}");
 const arr=(_dj&&_dj.data&&Array.isArray(_dj.data.diff))?_dj.data.diff:null;
 if(arr&&arr.length){o.previewSlot.style.display="block";
 const _cap=document.createElement("p");_cap.textContent="unified diff 预览";
-const _box=document.createElement("div");_box.className="diff-unified diff-surface-light";
+const _box=document.createElement("div");_box.className="diff-unified diff-surface-adaptive";
 renderUnifiedDiffRows(_box,arr);
 o.previewSlot.appendChild(_cap);o.previewSlot.appendChild(_box);}
 }catch(_e){}
@@ -1279,7 +1275,7 @@ const dt=(j&&j.data&&typeof j.data.diffText==="string")?j.data.diffText:"";
 if(dt&&dt.trim()){
 o.previewSlot.style.display="block";
 const cap=document.createElement("p");cap.textContent="替换 diff 预览";
-const box=document.createElement("div");box.className="diff-unified diff-surface-light";
+const box=document.createElement("div");box.className="diff-unified diff-surface-adaptive";
 renderUnifiedDiffRows(box,dt.split(/\r?\n/));
 o.previewSlot.appendChild(cap);o.previewSlot.appendChild(box);
 }
@@ -1516,7 +1512,7 @@ pendingToolTags.push({tag:o.tag,ok:!!ok||!!ev.user_confirm_required});
 if(ev.user_confirm_required){o.tag.textContent="待确认";o.tag.className="tag tag-run";}
 o.resLb.style.display="block";o.resPb.style.display="block";if(ev.user_confirm_required){try{var _pj=JSON.parse(ev.preview||"{}");var _em=_pj&&_pj.error&&_pj.error.message?String(_pj.error.message):"";var _em2=_em.indexOf("\n\n--help:")>=0?_em.split("\n\n--help:")[0].trim():_em;var slim={ok:_pj.ok,data:_pj.data,error:_pj.error?{code:_pj.error.code,type:_pj.error.type,message:_em2,hint:_pj.error.hint,retryable:_pj.error.retryable}:null};o.resPb.textContent=JSON.stringify(slim,null,2);}catch(e){o.resPb.textContent=ev.preview||"";}}else{try{var _pj2=JSON.parse(ev.preview||"{}");o.resPb.textContent=JSON.stringify(_pj2,null,2);}catch(e){o.resPb.textContent=ev.preview||"";}}
 fillToolPreview(o,ev);
-try{var _pp=typeof ev.preview==="string"?JSON.parse(ev.preview):ev.preview;var _so=_pp&&_pp.data&&_pp.data.stdout;if(_so&&typeof _so==="string"&&_so.trim()){var _cardDiv=document.createElement("div");_cardDiv.className="b a";var _cardTitle=(o.stepTitle&&o.stepTitle.trim())?escapeHtml(o.stepTitle.trim()):"执行命令脚本";var _cmdRaw=(o.args&&(o.args.command||o.args.code))||"";_cardDiv.innerHTML='<div class="chat-diff-card"><div class="chat-diff-cap">'+_cardTitle+'</div><div class="diff-unified chat-run-wrap"><pre class="chat-run-pre chat-run-pre--cmd"><code>'+escapeHtml(_cmdRaw)+'</code></pre></div><div class="diff-unified chat-run-wrap chat-run-out-border"><pre class="chat-run-pre chat-run-pre--out"><code>'+escapeHtml(_so)+'</code></pre></div></div>';if(streamAssistantEl){streamAssistantEl.after(_cardDiv);streamAssistantEl=null;streamAssistantText="";}else{msgs.appendChild(_cardDiv);}
+try{var _pp=typeof ev.preview==="string"?JSON.parse(ev.preview):ev.preview;var _so=_pp&&_pp.data&&_pp.data.stdout;if(_so&&typeof _so==="string"&&_so.trim()){var _cardDiv=document.createElement("div");_cardDiv.className="b a";var _cardTitle=(o.stepTitle&&o.stepTitle.trim())?escapeHtml(o.stepTitle.trim()):"执行命令脚本";var _cmdRaw=(o.args&&(o.args.command||o.args.code))||"";var _cmdLang=detectScriptLang(_cmdRaw,(o.args&&(o.args.language||o.args.lang))||"");var _cmdCls=hljsCodeClass(_cmdLang);_cardDiv.innerHTML='<div class="chat-diff-card"><div class="chat-diff-cap">'+_cardTitle+'</div><div class="diff-unified chat-run-wrap chat-run-cmd-block"><pre class="chat-run-pre chat-run-pre--cmd"><code'+(_cmdCls?' class="'+_cmdCls+'"':'')+'>'+highlightCode(_cmdRaw,_cmdLang)+'</code></pre></div><div class="chat-diff-cap chat-diff-cap--sect">执行结果</div><pre class="chat-run-pre chat-run-pre--out"><code>'+escapeHtml(_so)+'</code></pre></div>';if(streamAssistantEl){streamAssistantEl.after(_cardDiv);streamAssistantEl=null;streamAssistantText="";}else{msgs.appendChild(_cardDiv);}
 scrollMsgsToBottom();}}catch(_e3){}
 if(ev.user_confirm_required)openUserConfirmModalFromToolEnd(ev);toolOpen.delete(tid);}
 

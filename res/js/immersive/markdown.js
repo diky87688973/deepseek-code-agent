@@ -6,6 +6,7 @@
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
   function highlightJson(s) {
+    if (w.codeHighlight) return w.codeHighlight.highlightCode(s, "json");
     var t = String(s || "");
     try {
       var o = JSON.parse(t);
@@ -18,47 +19,13 @@
       .replace(/:\s*(true|false|null)/g, ':<span style="color:#569cd6;">$1</span>');
   }
   function highlightCode(s, lang) {
+    if (w.codeHighlight) return w.codeHighlight.highlightCode(s, lang);
     var t = String(s || "");
     if (String(lang || "").toLowerCase() === "json" || (!lang && /^\s*[\[{]/.test(t))) return highlightJson(t);
-    var langMap = {
-      py: "python",
-      js: "javascript",
-      ts: "typescript",
-      html: "html",
-      css: "css",
-      sh: "bash",
-      bash: "bash",
-      shell: "bash",
-      json: "json",
-      yaml: "yaml",
-      yml: "yaml",
-      md: "markdown",
-      xml: "xml",
-      sql: "sql",
-      c: "c",
-      cpp: "cpp",
-      java: "java",
-      go: "go",
-      rust: "rust",
-      diff: "diff",
-      patch: "diff",
-    };
-    var langNorm = langMap[String(lang || "").toLowerCase()] || "";
-    if (langNorm === "diff") {
-      var lines = t.split("\n");
-      return lines
-        .map(function (line) {
-          var e = escapeHtml(line);
-          if (/^---/.test(line)) return '<span style="color:#808080;">' + e + "</span>";
-          if (/^\+\+\+/.test(line)) return '<span style="color:#808080;">' + e + "</span>";
-          if (/^@@/.test(line)) return '<span style="color:#569cd6;">' + e + "</span>";
-          if (/^\+/.test(line)) return '<span style="color:#6a9955;">' + e + "</span>";
-          if (/^-/.test(line)) return '<span style="color:#f14c4c;">' + e + "</span>";
-          return e;
-        })
-        .join("\n");
-    }
     return escapeHtml(t);
+  }
+  function hljsCodeClass(lang) {
+    return w.codeHighlight ? w.codeHighlight.hljsCodeClass(lang) : "";
   }
   function renderInlineMarkdown(s) {
     var t = escapeHtml(s || "");
@@ -379,7 +346,7 @@
     if (st.del > 0) cap += ' <span class="chat-diff-neg">-' + st.del + "</span>";
     if (st.add > 0) cap += ' <span class="chat-diff-pos">+' + st.add + "</span>";
     cap += "</div>";
-    var box = '<div class="diff-unified diff-surface-light">' + buildDiffRowsHtml(oldT, newT) + "</div>";
+    var box = '<div class="diff-unified diff-surface-adaptive">' + buildDiffRowsHtml(oldT, newT) + "</div>";
     return '<div class="chat-diff-card">' + cap + box + "</div>";
   }
   function renderMarkdown(md) {
@@ -398,16 +365,20 @@
         if (pr.oldT !== "" || pr.newT !== "") {
           html += buildChatDiffCardHtml(pr.oldT, pr.newT, diffFileNameFromBody(inner));
         } else {
+          var _hc = hljsCodeClass(lang);
           html +=
             "<pre><code" +
+            (_hc ? ' class="' + escapeHtml(_hc) + '"' : "") +
             (lang ? ' data-lang="' + escapeHtml(lang) + '"' : "") +
             ">" +
             highlightCode(inner, lang) +
             "</code></pre>";
         }
       } else {
+        var _hc2 = hljsCodeClass(lang);
         html +=
           "<pre><code" +
+          (_hc2 ? ' class="' + escapeHtml(_hc2) + '"' : "") +
           (lang ? ' data-lang="' + escapeHtml(lang) + '"' : "") +
           ">" +
           highlightCode(inner, lang) +

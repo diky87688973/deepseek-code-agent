@@ -75,9 +75,10 @@ main{flex:1;display:flex;min-height:0;align-items:stretch}
 .b.a .task-item input{margin:2px 0 0 0;accent-color:#4da3ff}
 .b.a .task-item span{flex:1;min-width:0}
 .b.a blockquote{margin:0 0 8px 0;padding:0 0 0 10px;border-left:3px solid #444;color:#bdbdbd}
-.b.a pre{margin:0 0 8px 0;padding:8px;background:#0d0d0d;border:1px solid #2a2a2a;border-radius:4px;max-height:280px;overflow:auto}
+.b.a pre{margin:0 0 8px 0;padding:8px;background:#212121;border:1px solid #2a2a2a;border-radius:4px;max-height:280px;overflow:auto}
 .b.a code{font-family:Consolas,ui-monospace,monospace;font-size:12px;background:rgba(255,255,255,.06);padding:1px 4px;border-radius:3px}
-.b.a pre code{background:transparent;padding:0;border-radius:0}
+.b.a pre code{background:none;padding:0;border-radius:0}
+.b.a code[data-lang="json"],.b.a pre code[data-lang="json"]{background:none;padding:0;border-radius:0}
 .b.a a{color:#4da3ff;text-decoration:underline}
 .b.a hr{border:0;border-top:1px solid #3c3c3c;margin:8px 0}
 .b.a table{border-collapse:collapse;max-width:100%;margin:0 0 8px 0;font-size:12px}
@@ -157,34 +158,56 @@ pre{margin:0;padding:8px;max-height:220px;overflow:auto;white-space:pre-wrap;wor
 .step-num{color:#8d6912;font-weight:400}
 .step-dots{display:inline-block;min-width:1.35em;color:#888;letter-spacing:0}
 .preview-slot{margin:0 0 8px 0}
-.diff-unified{font-family:Consolas,ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.5;padding:0;max-height:220px;overflow:auto;border-radius:6px}
-.diff-unified:not(.diff-surface-light){background:#0d1117;border:1px solid #30363d;color:#c9d1d9}
-.diff-unified.diff-surface-light{background:#fff;border:1px solid #d0d7de;color:#24292f}
-.diff-unified.diff-surface-light>div{display:flex;align-items:stretch;border-left:4px solid transparent;min-height:1.5em}
-.diff-unified.diff-surface-light .d-gutter{flex:0 0 26px;text-align:center;padding:1px 0;font-weight:600;user-select:none;font-size:12px;line-height:1.5}
-.diff-unified.diff-surface-light .d-code{flex:1;padding:1px 12px 1px 8px;white-space:pre-wrap;word-break:break-word;color:#24292f}
-.diff-unified.diff-surface-light .d-del{background:#ffeef0;border-left-color:#cf222e}
-.diff-unified.diff-surface-light .d-del .d-gutter{color:#9a1c1c;background:#ffd7d5}
-.diff-unified.diff-surface-light .d-add{background:#e6ffed;border-left-color:#1a7f37}
-.diff-unified.diff-surface-light .d-add .d-gutter{color:#116329;background:#ccffd8}
-.diff-unified.diff-surface-light .d-eq .d-code{color:#57606a}
-.diff-unified.diff-surface-light .d-eq .d-gutter{color:#8c959f;background:#f6f8fa}
-.diff-unified.diff-surface-light .d-meta{display:block;padding:3px 12px;color:#57606a;background:#f6f8fa;border-left:4px solid #d0d7de;font-size:11px}
-.diff-unified.diff-surface-light .d-meta .d-gutter,.diff-unified.diff-surface-light .d-meta .d-code{display:none}
-.preview-slot .diff-unified.diff-surface-light{max-height:200px;margin-top:4px}
+:root{
+--diff-surface-bg:#212121;--diff-surface-border:#2a2f37;--diff-surface-text:#d4dae3;
+--diff-eq-text:#8b949e;--diff-eq-gutter-bg:#12151a;
+--diff-del-bg:rgba(248,81,73,.12);--diff-del-border:#c23c3c;--diff-del-gutter-text:#f0a8a4;--diff-del-gutter-bg:rgba(248,81,73,.2);
+--diff-add-bg:rgba(63,185,80,.12);--diff-add-border:#2ea043;--diff-add-gutter-text:#9fdc9f;--diff-add-gutter-bg:rgba(46,160,67,.2);
+--diff-meta-bg:#12151a;--diff-meta-text:#8b949e;--diff-meta-border:#30363d;
+--diff-stat-del:#ff7b72;--diff-stat-add:#7ee787;
+--diff-card-bg:#212121;--diff-card-border:rgba(255,255,255,.09);--diff-cap-bg:#23262b;--diff-cap-border:rgba(255,255,255,.10);--diff-cap-text:#d6dde5;
+--diff-run-cmd-bg:rgba(0,0,0,.22);
+--diff-run-out-bg:rgba(0,0,0,.08);
+--diff-run-sep:rgba(255,255,255,.22);
+}
+.diff-unified{font-family:Consolas,ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.5;padding:0;max-height:none;overflow:visible;border-radius:6px}
+.diff-unified:not(.diff-surface-adaptive){background:#0d1117;border:1px solid #30363d;color:#c9d1d9}
+.diff-unified.diff-surface-adaptive{background:var(--diff-surface-bg);border:1px solid var(--diff-surface-border);color:var(--diff-surface-text)}
+.diff-unified.diff-surface-adaptive>div{display:flex;align-items:stretch;border-left:4px solid transparent;min-height:1.5em}
+.diff-unified.diff-surface-adaptive .d-gutter{flex:0 0 26px;text-align:center;padding:1px 0;font-weight:600;user-select:none;font-size:12px;line-height:1.5}
+.diff-unified.diff-surface-adaptive .d-code{flex:1;padding:1px 12px 1px 8px;white-space:pre-wrap;word-break:break-word;color:var(--diff-surface-text)}
+.diff-unified.diff-surface-adaptive .d-del{background:var(--diff-del-bg);border-left-color:var(--diff-del-border)}
+.diff-unified.diff-surface-adaptive .d-del .d-gutter{color:var(--diff-del-gutter-text);background:var(--diff-del-gutter-bg)}
+.diff-unified.diff-surface-adaptive .d-add{background:var(--diff-add-bg);border-left-color:var(--diff-add-border)}
+.diff-unified.diff-surface-adaptive .d-add .d-gutter{color:var(--diff-add-gutter-text);background:var(--diff-add-gutter-bg)}
+.diff-unified.diff-surface-adaptive .d-eq .d-code{color:var(--diff-eq-text)}
+.diff-unified.diff-surface-adaptive .d-eq .d-gutter{color:var(--diff-eq-text);background:var(--diff-eq-gutter-bg)}
+.diff-unified.diff-surface-adaptive .d-meta{display:block;padding:3px 12px;color:var(--diff-meta-text);background:var(--diff-meta-bg);border-left:4px solid var(--diff-meta-border);font-size:11px}
+.diff-unified.diff-surface-adaptive .d-meta .d-gutter,.diff-unified.diff-surface-adaptive .d-meta .d-code{display:none}
+.preview-slot .diff-unified.diff-surface-adaptive{max-height:none;overflow:visible;margin-top:4px}
 /* 聊天内「执行命令」stdout 卡片：勿用内联深色底，否则白天模式下 .b.a code 的配色会叠出极低对比度 */
 .chat-run-wrap{overflow:inherit}
-.chat-run-out-border{border-top:1px solid #2a2a2a}
-.chat-run-pre{margin:0;padding:4px 8px;font-size:11px;line-height:1.4;max-height:200px;overflow:auto;font-family:Consolas,ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;box-sizing:border-box}
-.chat-run-pre--cmd{background:#0d0d0d;border:1px solid #2a2a2a;border-radius:4px;color:#e6edf3}
-.chat-run-pre--cmd code{color:#e6edf3;background:transparent;padding:0;border-radius:0;font-size:inherit;line-height:inherit}
-.chat-run-pre--out{background:transparent;color:#c9d1d9}
-.chat-run-pre--out code{color:#c9d1d9;background:transparent;padding:0;border-radius:0;font-size:inherit;line-height:inherit}
+.chat-run-pre{margin:0;padding:8px 10px;font-size:11px;line-height:1.45;max-height:none;overflow:visible;font-family:Consolas,ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;box-sizing:border-box;border:0;border-radius:0}
+.chat-run-pre--cmd{background:transparent;color:var(--diff-surface-text,#e6edf3)}
+.chat-run-pre--cmd code{color:inherit;background:transparent;padding:0;border-radius:0;font-size:inherit;line-height:inherit}
+.b.a pre code.hljs,.msgs pre code.hljs,.chat-diff-card pre code.hljs,.chat-run-pre code.hljs{background:transparent;padding:0;border-radius:0;display:block;overflow:visible;color:inherit}
+.b.a pre.hljs,.msgs pre.hljs,.chat-diff-card pre.hljs,.chat-run-pre{background:transparent;padding:0;border:0;margin:0 0 8px 0}
+.b.a pre.hljs code,.msgs pre.hljs code,.chat-diff-card pre.hljs code,.chat-run-pre.hljs code{background:transparent;padding:0}
+.chat-run-pre--out{background:transparent;color:var(--diff-surface-text,#e6edf3)}
+.chat-run-pre--out code{color:inherit;background:transparent;padding:0;border-radius:0;font-size:inherit;line-height:inherit}
+.chat-diff-card .diff-unified,
+.chat-diff-card .diff-unified.diff-surface-adaptive,
+.chat-diff-card .diff-unified.chat-run-wrap{border:0;border-radius:0;background:transparent}
+.chat-diff-card .chat-run-cmd-block{background:var(--diff-run-cmd-bg);border-bottom:0}
+.chat-diff-card pre,
+.chat-diff-card pre.chat-run-pre{border:0;border-radius:0;margin:0;-webkit-font-smoothing:auto;-moz-osx-font-smoothing:auto}
+.chat-diff-card pre.chat-run-pre--out{background:var(--diff-surface-bg);color:var(--diff-surface-text,#e6edf3)}
 .llm-merge-block{margin:10px 0 0 0;padding:10px 0 0 0;border-top:1px dashed #3d4450}
-.chat-diff-card{margin:0 0 10px 0;border:1px solid #30363d;border-radius:6px;background:#161b22;overflow:hidden;max-width:100%}
-.chat-diff-cap{padding:6px 10px;font-size:11px;color:#c9d1d9;border-bottom:1px solid #30363d;background:#0d1117;line-height:1.35}
-.chat-diff-neg{color:#cf222e;font-weight:600}
-.chat-diff-pos{color:#1a7f37;font-weight:600}
+.chat-diff-card{margin:0 0 10px 0;border:1px solid var(--diff-card-border);border-radius:6px;background:var(--diff-card-bg);overflow:hidden;max-width:100%}
+.chat-diff-cap{padding:6px 10px;font-size:11px;font-weight:500;color:var(--diff-cap-text);border-bottom:1px solid var(--diff-cap-border);background:var(--diff-cap-bg);line-height:1.35;border-radius:0}
+.chat-diff-cap--sect{border-top:1px solid var(--diff-cap-border);border-radius:0}
+.chat-diff-neg{color:var(--diff-stat-del);font-weight:600}
+.chat-diff-pos{color:var(--diff-stat-add);font-weight:600}
 .user-confirm-card-outer{align-self:stretch;width:100%;max-width:100%;box-sizing:border-box}
 .user-confirm-card{border-color:#3a3d41;background:#1a1c1f}
 .user-confirm-cap.user-confirm-cap{padding:7px 10px 8px;background:#23262b;border-bottom:1px solid #2f3338}
@@ -221,7 +244,8 @@ html[data-ui-theme="light"] .user-confirm-opts .uc-check.uc-on {
 .user-confirm-actions .mode-plus{border-color:#4a525e;color:#c9d1d9}
 .user-confirm-actions .mode-plus:hover{background:rgba(120,130,145,.10)}
 .user-confirm-actions button{padding:6px 12px;font-size:12px;border-radius:6px}
-.b.a .chat-diff-card .diff-unified.diff-surface-light{max-height:280px;border:0;border-radius:0;background:#fff}
+.b.a .chat-diff-card .diff-unified.diff-surface-adaptive{max-height:none;overflow:visible;border:0;border-radius:0;background:var(--diff-surface-bg)}
+.b.a .chat-diff-card pre,.b.a .chat-diff-card pre.chat-run-pre{max-height:none;overflow:visible;border:0;border-radius:0}
 .done-banner{margin-bottom:8px;padding:10px 12px;border-radius:6px;background:#1e3d2a;border:1px solid #2d5a3d;color:#89d185;font-size:12px;line-height:1.45}
 .dispatch-title{margin-bottom:8px;padding:7px 10px;border-radius:6px;border:1px solid #3c3c3c;background:#202327;color:#cfd6dd;font-size:11px;line-height:1.4}
 
@@ -372,6 +396,18 @@ html[data-ui-theme="light"] .kb-cb.checked {
 }
 
 /* ── 白天模式（html[data-ui-theme="light"]）── */
+html[data-ui-theme="light"]{
+--diff-surface-bg:#212121;--diff-surface-border:#e2e8f4;--diff-surface-text:#24292f;
+--diff-eq-text:#57606a;--diff-eq-gutter-bg:#f6f8fa;
+--diff-del-bg:#ffeef0;--diff-del-border:#cf222e;--diff-del-gutter-text:#9a1c1c;--diff-del-gutter-bg:#ffd7d5;
+--diff-add-bg:#e6ffed;--diff-add-border:#1a7f37;--diff-add-gutter-text:#116329;--diff-add-gutter-bg:#ccffd8;
+--diff-meta-bg:#f6f8fa;--diff-meta-text:#57606a;--diff-meta-border:#d0d7de;
+--diff-stat-del:#d73a49;--diff-stat-add:#2ea043;
+--diff-card-bg:#ffffff;--diff-card-border:#d0dae8;--diff-cap-bg:#f6f8fa;--diff-cap-border:#e8edf4;--diff-cap-text:#2c3545;
+--diff-run-cmd-bg:#f0f4fa;
+--diff-run-out-bg:#fafbfc;
+--diff-run-sep:#c5ceda;
+}
 html[data-ui-theme="light"] * {
   scrollbar-color: rgba(90, 98, 112, 0.22) transparent;
 }
@@ -452,12 +488,25 @@ html[data-ui-theme="light"] .b.a {
 }
 html[data-ui-theme="light"] .b.a pre {
   background: #fafbfc;
-  border-color: #d8e0ea;
+  border: none;
   color: #1a2233;
 }
 html[data-ui-theme="light"] .b.a code {
   background: rgba(9, 105, 218, 0.08);
   color: #0a3069;
+}
+html[data-ui-theme="light"] .b.a pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  color: inherit;
+}
+html[data-ui-theme="light"] .b.a code[data-lang="json"],
+html[data-ui-theme="light"] .b.a pre code[data-lang="json"] {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  color: inherit;
 }
 html[data-ui-theme="light"] .b.a blockquote {
   border-left-color: #b8c5dc;
@@ -481,6 +530,9 @@ html[data-ui-theme="light"] .row {
 html[data-ui-theme="light"] .composer {
   background: #ffffff;
   border-color: #dce3ef;
+}
+html[data-ui-theme="light"] .composer-foot {
+  background: #ffffff;
 }
 html[data-ui-theme="light"] textarea {
   color: #1a2233;
@@ -605,77 +657,7 @@ html[data-ui-theme="light"] .todo-item:hover {
 html[data-ui-theme="light"] .todo-text.done {
   color: #9aa6b8;
 }
-html[data-ui-theme="light"] .chat-diff-card {
-  background: #ffffff;
-  border-color: #d0dae8;
-}
-html[data-ui-theme="light"] .chat-diff-cap {
-  background: #f5f7f9;
-  border-bottom-color: #d0dae8;
-  color: #1a2233;
-}
-html[data-ui-theme="light"] .chat-diff-neg {
-  color: #d73a49;
-}
-html[data-ui-theme="light"] .chat-diff-pos {
-  color: #2ea043;
-}
-html[data-ui-theme="light"] .diff-unified {
-  background: #f8f9fa;
-  border-color: #d0dae8;
-}
-html[data-ui-theme="light"] .diff-unified .d-del {
-  background: #ffeef0;
-  border-left-color: #cf222e;
-}
-html[data-ui-theme="light"] .diff-unified .d-del .d-gutter {
-  color: #cf222e;
-  background: #ffd7d5;
-}
-html[data-ui-theme="light"] .diff-unified .d-del .d-code {
-  color: #24292f;
-}
-html[data-ui-theme="light"] .diff-unified .d-add {
-  background: #e6ffed;
-  border-left-color: #1a7f37;
-}
-html[data-ui-theme="light"] .diff-unified .d-add .d-gutter {
-  color: #1a7f37;
-  background: #ccffd8;
-}
-html[data-ui-theme="light"] .diff-unified .d-add .d-code {
-  color: #24292f;
-}
-html[data-ui-theme="light"] .diff-unified .d-eq .d-code {
-  color: #57606a;
-}
-html[data-ui-theme="light"] .diff-unified .d-eq .d-gutter {
-  color: #8c959f;
-  background: #f6f8fa;
-}
-html[data-ui-theme="light"] .diff-unified .d-meta {
-  color: #57606a;
-  background: #f6f8fa;
-  border-left-color: #d0d7de;
-}
-html[data-ui-theme="light"] .b.a .chat-diff-card .diff-unified {
-  background: #f8f9fa;
-}
-html[data-ui-theme="light"] .chat-run-out-border {
-  border-top-color: #d0dae8;
-}
-html[data-ui-theme="light"] .chat-run-pre--cmd {
-  background: #f0f4fa;
-  border-color: #c8d4e8;
-  color: #0d1117;
-}
-html[data-ui-theme="light"] .chat-run-pre--cmd code {
-  color: #0d1117;
-}
-html[data-ui-theme="light"] .chat-run-pre--out {
-  background: #ffffff;
-  color: #24292f;
-}
+html[data-ui-theme="light"] .chat-run-pre--cmd code,
 html[data-ui-theme="light"] .chat-run-pre--out code {
-  color: #24292f;
+  color: inherit;
 }

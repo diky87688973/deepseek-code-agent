@@ -13,12 +13,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # 块名与 ContextState.java / 前端 context_layout 标签一致
 CHUNK_SYSTEM = "系统提示词"
+CHUNK_SKILL = "Skills"
 CHUNK_KB = "知识库"
 CHUNK_MEM = "记忆文件"
 CHUNK_PURE = "远期记忆"
 CHUNK_FULL = "近期记忆"
 CHUNK_MODE = "模式"
-CHUNK_ORDER = (CHUNK_SYSTEM, CHUNK_KB, CHUNK_MEM, CHUNK_PURE, CHUNK_FULL, CHUNK_MODE)
+CHUNK_ORDER = (CHUNK_SYSTEM, CHUNK_SKILL, CHUNK_KB, CHUNK_MEM, CHUNK_PURE, CHUNK_FULL, CHUNK_MODE)
 
 
 class Round:
@@ -103,6 +104,14 @@ def _copy_round_list(src: List[Round], start: int, count: int) -> List[Round]:
             nr.messages.append(copy.deepcopy(m))
         out.append(nr)
     return out
+
+
+def _normalize_kb_parts(kb_part: Any) -> List[str]:
+    """v2 为每文件一条 str 的 list；v1 为单条拼接 str。"""
+    if isinstance(kb_part, list):
+        return [str(x) for x in kb_part if str(x or "").strip()]
+    s = str(kb_part or "").strip()
+    return [s] if s else []
 
 
 def find_first_user_index(messages: List[Dict[str, Any]]) -> Optional[int]:
@@ -195,8 +204,11 @@ class ContextManager:
         "full_user_rounds",
         "summary_token_threshold",
         "_anchor_cache_ref",
+        "_sys_code_hint",
         "_sys_base",
-        "_kb_part",
+        "_skill_registry",
+        "_auto_load_skills",
+        "_kb_parts",
         "_summaries",
         "_pure_folded",
         "_full_pre",
@@ -225,8 +237,11 @@ class ContextManager:
             c = ContextChunk(nm, None)
             self.chunks.append(c)
             self.name_map[nm] = c
+        self._sys_code_hint = ""
         self._sys_base = ""
-        self._kb_part = ""
+        self._skill_registry = ""
+        self._auto_load_skills: List[str] = []
+        self._kb_parts: List[str] = []
         self._summaries: List[Dict[str, Any]] = []
         self._pure_folded: List[Dict[str, Any]] = []
         self._full_pre: List[Dict[str, Any]] = []
@@ -255,18 +270,22 @@ class ContextManager:
     ) -> None:
         """用与现网 _build_context_segments 相同的拆分结果填充内部块与展平缓存。"""
         t = build_segments_fn(persisted, conversation_id)
-        (
-            sys_base,
-            kb_part,
-            summaries,
-            pure_folded,
-            full_pre,
-            full_suf,
-            _pure_user_turns,
-            mode_tail,
-        ) = t
+        if len(t) == 11:
+            sys_code_hint, sys_base, skill_registry, auto_load_skills, kb_part, summaries, pure_folded, full_pre, full_suf, _pure_user_turns, mode_tail = t
+        elif len(t) == 9:
+            sys_code_hint, sys_base, kb_part, summaries, pure_folded, full_pre, full_suf, _pure_user_turns, mode_tail = t
+            skill_registry = ""
+            auto_load_skills = []
+        else:
+            sys_code_hint = ""
+            sys_base, kb_part, summaries, pure_folded, full_pre, full_suf, _pure_user_turns, mode_tail = t
+            skill_registry = ""
+            auto_load_skills = []
+        self._sys_code_hint = str(sys_code_hint or "")
         self._sys_base = str(sys_base or "")
-        self._kb_part = str(kb_part or "")
+        self._skill_registry = str(skill_registry or "")
+        self._auto_load_skills = list(auto_load_skills or [])
+        self._kb_parts = _normalize_kb_parts(kb_part)
         self._summaries = list(summaries or [])
         self._pure_folded = list(pure_folded or [])
         self._full_pre = list(full_pre or [])
@@ -275,19 +294,32 @@ class ContextManager:
 
         # --- 将展平源数据映射到 ContextChunk.rounds（便于 extractOveredRounds 按「轮」统计）---
         self.name_map[CHUNK_SYSTEM].rounds.clear()
+        self.name_map[CHUNK_SKILL].rounds.clear()
         self.name_map[CHUNK_KB].rounds.clear()
         self.name_map[CHUNK_MEM].rounds.clear()
         self.name_map[CHUNK_PURE].rounds.clear()
         self.name_map[CHUNK_FULL].rounds.clear()
         self.name_map[CHUNK_MODE].rounds.clear()
 
+        if self._sys_code_hint.strip():
+            r = Round()
+            r.append("system", self._sys_code_hint)
+            self.name_map[CHUNK_SYSTEM].rounds.append(r)
         if self._sys_base.strip():
             r = Round()
             r.append("system", self._sys_base)
             self.name_map[CHUNK_SYSTEM].rounds.append(r)
-        if self._kb_part.strip():
+        if self._skill_registry.strip():
             r = Round()
-            r.append("system", self._kb_part)
+            r.append("system", self._skill_registry)
+            self.name_map[CHUNK_SKILL].rounds.append(r)
+        for skill_content in self._auto_load_skills:
+            r = Round()
+            r.append("system", skill_content)
+            self.name_map[CHUNK_SKILL].rounds.append(r)
+        for kb_content in self._kb_parts:
+            r = Round()
+            r.append("system", kb_content)
             self.name_map[CHUNK_KB].rounds.append(r)
         for sm in self._summaries:
             r = Round()
@@ -305,13 +337,24 @@ class ContextManager:
     def flatten_to_api_messages(
         self, sanitize_fn: Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]
     ) -> List[Dict[str, Any]]:
-        """等同 _build_api_messages_for_model：系统+KB 合并为首条 system，再 summaries + full_pre + pure + full_suf + mode。"""
-        sys_content = self._sys_base
-        if self._kb_part:
-            sys_content += "\n\n" + self._kb_part
-        prefix = [{"role": "system", "content": sys_content}]
+        """展平顺序：code_hint → tool → 每条 KB → 每条记忆摘要 → 对话 → 模式。"""
+        prefix: List[Dict[str, Any]] = []
+        if self._sys_code_hint.strip():
+            prefix.append({"role": "system", "content": self._sys_code_hint})
+        if self._sys_base.strip():
+            prefix.append({"role": "system", "content": self._sys_base})
+        if self._skill_registry.strip():
+            prefix.append({"role": "system", "content": self._skill_registry})
+        for skill_content in self._auto_load_skills:
+            prefix.append({"role": "system", "content": skill_content})
+        for kb_content in self._kb_parts:
+            prefix.append({"role": "system", "content": kb_content})
+        for sm in self._summaries:
+            prefix.append(copy.deepcopy(sm))
         tail = list(self._full_pre) + list(self._pure_folded) + list(self._full_suf)
-        built = prefix + list(self._summaries) + tail + [copy.deepcopy(self._mode_tail)]
+        built = prefix + tail
+        if self._mode_tail:
+            built.append(copy.deepcopy(self._mode_tail))
         return sanitize_fn(built)
 
     def to_llm(self, sanitize_fn: Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]) -> str:
@@ -322,8 +365,13 @@ class ContextManager:
 
     def total_token_estimate(self, approx_msg_fn: Callable[[Dict[str, Any]], int]) -> int:
         s = 0
+        s += _approx_tokens_text_local(self._sys_code_hint, approx_msg_fn)
         s += _approx_tokens_text_local(self._sys_base, approx_msg_fn)
-        s += _approx_tokens_text_local(self._kb_part, approx_msg_fn)
+        s += _approx_tokens_text_local(self._skill_registry, approx_msg_fn)
+        for c in self._auto_load_skills:
+            s += _approx_tokens_text_local(c, approx_msg_fn)
+        for kb_content in self._kb_parts:
+            s += _approx_tokens_text_local(kb_content, approx_msg_fn)
         for m in self._summaries:
             s += approx_msg_fn(m)
         for m in self._pure_folded:
@@ -338,8 +386,11 @@ class ContextManager:
     def calculate_tokens(self, approx_msg_fn: Callable[[Dict[str, Any]], int]) -> Dict[str, int]:
         """各块 token 估算（与伪代码 calculateTokens map 对齐）。"""
         return {
-            CHUNK_SYSTEM: _approx_tokens_text_local(self._sys_base, approx_msg_fn),
-            CHUNK_KB: _approx_tokens_text_local(self._kb_part, approx_msg_fn),
+            CHUNK_SYSTEM: _approx_tokens_text_local(self._sys_code_hint, approx_msg_fn)
+            + _approx_tokens_text_local(self._sys_base, approx_msg_fn),
+            CHUNK_SKILL: _approx_tokens_text_local(self._skill_registry, approx_msg_fn)
+            + sum(_approx_tokens_text_local(c, approx_msg_fn) for c in self._auto_load_skills),
+            CHUNK_KB: sum(_approx_tokens_text_local(kb, approx_msg_fn) for kb in self._kb_parts),
             CHUNK_MEM: sum(approx_msg_fn(m) for m in self._summaries),
             CHUNK_PURE: sum(approx_msg_fn(m) for m in self._pure_folded),
             CHUNK_FULL: sum(approx_msg_fn(m) for m in self._full_pre) + sum(approx_msg_fn(m) for m in self._full_suf),

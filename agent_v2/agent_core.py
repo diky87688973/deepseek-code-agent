@@ -113,11 +113,14 @@ from agent_v2.live_state import (
 )
 
 from util.agent_prompt_constants import (
+    AGENT_CODE_HINT_SYSTEM_PROMPT,
     AGENT_MAX_TOOL_ROUNDS_USER_HINT,
     TOOL_AGENT_EXECUTE_MODE_PROMPT,
     TOOL_AGENT_PLAN_MODE_PROMPT,
-	TOOL_AGENT_AUTO_MODE_PROMPT,
+    TOOL_AGENT_AUTO_MODE_PROMPT,
     TOOL_AGENT_SYSTEM_PROMPT,
+    TOOL_AGENT_V2_EXECUTE_MODE_PROMPT,
+    TOOL_AGENT_V2_SYSTEM_PROMPT,
 )
 from util.agent_model_dispatch import ALLOWED_MODELS, default_model_from_env, effective_model, set_conversation_model
 from util.agent_deepseek_pricing import get_model_pricing_snapshot
@@ -141,6 +144,7 @@ from util.session_crypto import (
     encrypt_session_payload as _encrypt_session_payload,
 )
 from util.session_store_v2 import new_conversation_id as _v2_new_conversation_id
+from util.skill_manager import get_skill_manager as _get_skill_manager
 from agent_v2.sse_events import context_layout_event as _context_layout_event
 
 USER_STOPPED_TOOL_MESSAGE = "任务已被用户停止"
@@ -1774,54 +1778,57 @@ def _kb_file_allowed_when_checked(fpath: Path) -> bool:
     return True
 
 
-def _build_kb_prompt(cid: str) -> str:
-    """读取当前会话勾选的知识库文件，拼接为提示词片段"""
+def _read_kb_file_text(fpath: Path) -> str:
+    ext = fpath.suffix.lower()
+    if ext in (".xlsx", ".xls"):
+        try:
+            import openpyxl
+
+            wb = openpyxl.load_workbook(fpath, read_only=True, data_only=True)
+            rows = []
+            for ws in wb.worksheets:
+                sheet_name = ws.title
+                rows.append(f"[Sheet: {sheet_name}]")
+                for row in ws.iter_rows(values_only=True):
+                    row_vals = [str(v) if v is not None else "" for v in row]
+                    rows.append("\t".join(row_vals))
+            wb.close()
+            return "\n".join(rows)
+        except ImportError:
+            return "[需安装 openpyxl 才能读取: pip install openpyxl]"
+    if ext == ".csv":
+        return fpath.read_text(encoding="utf-8", errors="replace")
+    return fpath.read_text(encoding="utf-8", errors="replace")
+
+
+def _build_kb_system_messages(cid: str) -> List[str]:
+    """每个勾选的知识库文件独占一条 system 消息内容。"""
     if not KB_BASE_DIR or not KB_BASE_DIR.is_dir():
-        return ""
+        return []
     with _KB_CHECKED_LOCK:
         checked = _KB_CHECKED_STATE.get(cid, set())
-        # 如内存无状态，尝试从磁盘文件恢复
         if not checked:
             _kb_load_single_cid_checked(cid)
             checked = _KB_CHECKED_STATE.get(cid, set())
     if not checked:
-        return ""
-    parts = ["【知识库参考内容】"]
+        return []
+    out: List[str] = []
     for rel in sorted(checked):
         fpath = _kb_safe_resolve_rel(rel)
         if not fpath or not _kb_file_allowed_when_checked(fpath):
             continue
-        ext = fpath.suffix.lower()
         try:
-            if ext in (".xlsx", ".xls"):
-                try:
-                    import openpyxl
-                    wb = openpyxl.load_workbook(fpath, read_only=True, data_only=True)
-                    rows = []
-                    for ws in wb.worksheets:
-                        sheet_name = ws.title
-                        rows.append(f"[Sheet: {sheet_name}]")
-                        for row in ws.iter_rows(values_only=True):
-                            row_vals = [str(v) if v is not None else "" for v in row]
-                            rows.append("\t".join(row_vals))
-                    wb.close()
-                    text = "\n".join(rows)
-                except ImportError:
-                    text = f"[需安装 openpyxl 才能读取: pip install openpyxl]"
-            elif ext == ".csv":
-                text = fpath.read_text(encoding="utf-8", errors="replace")
-            else:
-                text = fpath.read_text(encoding="utf-8", errors="replace")
-            parts.append(f"\n--- {rel} ---\n{text.strip()}")
+            text = _read_kb_file_text(fpath).strip()
         except Exception:
             continue
-    if len(parts) == 1:
-        return ""
-    return "\n\n".join(parts)
+        if not text:
+            continue
+        out.append(f"【知识库：{rel}】\n{text}")
+    return out
 
 
 def _kb_attached_file_count(cid: str) -> int:
-    """与 _build_kb_prompt 中实际参与拼接的文件数量一致（已勾选、存在、未超大小）。"""
+    """与 _build_kb_system_messages 中实际参与组包的文件数量一致（已勾选、存在、未超大小）。"""
     if not KB_BASE_DIR or not KB_BASE_DIR.is_dir():
         return 0
     with _KB_CHECKED_LOCK:
@@ -2092,16 +2099,38 @@ def _approx_tokens_message(m: Dict[str, Any]) -> int:
     return n
 
 
+def _build_skill_registry_message() -> str:
+    """构建 Skills 注册清单（注入前缀）。"""
+    mgr = _get_skill_manager()
+    return mgr.build_registry_message()
+
+
+def _build_auto_load_skill_messages() -> List[str]:
+    """构建 auto_load skill 的 system 消息列表。"""
+    mgr = _get_skill_manager()
+    return mgr.build_auto_load_messages()
+
+
 def _build_context_segments(
     persisted: List[Dict[str, Any]], conversation_id: str
-) -> Tuple[str, str, List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], int, Dict[str, Any]]:
+) -> Tuple[
+    str,
+    str,
+    List[str],
+    List[Dict[str, Any]],
+    List[Dict[str, Any]],
+    List[Dict[str, Any]],
+    List[Dict[str, Any]],
+    int,
+    Dict[str, Any],
+]:
     """与 _build_api_messages_for_model 相同的语义拆分（未 sanitize），供布局统计。
     近期为 full_pre_stripped + full_suf_stripped，中间由 pure_folded 插入，见 _split_pure_and_full_dialogue。
     返回中 int 为远期带内 user 条数（与 pure_user_rounds 对齐，按 pure_raw 统计）。
     """
     mode = _stored_mode_for_tail(conversation_id)
     fu = _find_first_user_index(persisted)
-    kb_part = _build_kb_prompt(conversation_id)
+    kb_parts = _build_kb_system_messages(conversation_id)
     summaries: List[Dict[str, Any]] = []
     if fu is not None and fu > 1:
         for m in persisted[1:fu]:
@@ -2121,9 +2150,14 @@ def _build_context_segments(
     full_pre_stripped = [_strip_internal_message_for_api(m) for m in full_pre_raw]
     full_suf_stripped = [_strip_internal_message_for_api(m) for m in full_suf_raw]
     mode_tail = _ephemeral_mode_system_tail(mode)
+    skill_registry = _build_skill_registry_message()
+    auto_load_skills = _build_auto_load_skill_messages()
     return (
-        TOOL_AGENT_SYSTEM_PROMPT,
-        kb_part or "",
+        AGENT_CODE_HINT_SYSTEM_PROMPT,
+        TOOL_AGENT_V2_SYSTEM_PROMPT,
+        skill_registry,
+        auto_load_skills,
+        kb_parts,
         summaries,
         pure_folded,
         full_pre_stripped,
@@ -2134,18 +2168,24 @@ def _build_context_segments(
 
 
 def _compute_context_layout_payload(conversation_id: str, persisted: List[Dict[str, Any]]) -> Dict[str, Any]:
-    sys_base, kb_part, summaries, pure_folded, full_pre, full_suf, pure_user_turns, mode_tail = _build_context_segments(
+    sys_code_hint, sys_base, skill_registry, auto_load_skills, kb_parts, summaries, pure_folded, full_pre, full_suf, pure_user_turns, mode_tail = _build_context_segments(
         persisted, conversation_id
     )
-    t_system = _approx_tokens_text(sys_base)
-    t_kb = _approx_tokens_text(kb_part)
+    t_system = _approx_tokens_text(sys_code_hint) + _approx_tokens_text(sys_base)
+    t_skill = _approx_tokens_text(skill_registry) + sum(_approx_tokens_text(c) for c in (auto_load_skills or []))
+    t_kb = sum(_approx_tokens_text(k) for k in (kb_parts or []))
     t_summary = sum(_approx_tokens_message(m) for m in summaries)
     t_pure = sum(_approx_tokens_message(m) for m in pure_folded)
     t_full = sum(_approx_tokens_message(m) for m in full_pre) + sum(_approx_tokens_message(m) for m in full_suf)
     t_mode = _approx_tokens_message(mode_tail)
+    mgr = _get_skill_manager()
+    skill_count = mgr.registry_count
+    auto_load_count = mgr.auto_load_count
+    auto_load_tokens = sum(_approx_tokens_text(c) for c in (auto_load_skills or []))
     # label 为前端括号标题（与业务含义映射一致）
     labels = {
         "system": "系统占用",
+        "skill": "Skills",
         "knowledge": "知识库",
         "summary": "记忆文件",
         "pure": "远期记忆",
@@ -2154,6 +2194,7 @@ def _compute_context_layout_payload(conversation_id: str, persisted: List[Dict[s
     }
     keys_tokens = [
         ("system", t_system),
+        ("skill", t_skill),
         ("knowledge", t_kb),
         ("summary", t_summary),
         ("pure", t_pure),
@@ -2162,7 +2203,8 @@ def _compute_context_layout_payload(conversation_id: str, persisted: List[Dict[s
     ]
     counts_map: Dict[str, Optional[int]] = {
         "system": None,
-        "knowledge": _kb_attached_file_count(conversation_id),
+        "skill": skill_count,
+        "knowledge": len(kb_parts) if kb_parts else _kb_attached_file_count(conversation_id),
         "summary": len(summaries),
         "pure": pure_user_turns,
         "full_recent": _count_user_turns_in_messages(full_pre) + _count_user_turns_in_messages(full_suf),
@@ -2182,6 +2224,9 @@ def _compute_context_layout_payload(conversation_id: str, persisted: List[Dict[s
         cn = counts_map.get(key)
         if cn is not None:
             seg_item["count"] = int(cn)
+        if key == "skill":
+            seg_item["auto_load_count"] = auto_load_count
+            seg_item["auto_load_tokens"] = int(auto_load_tokens)
         segments.append(seg_item)
     pct_rem = (100.0 * float(remainder) / float(budget)) if budget > 0 else 0.0
     segments.append(
@@ -2424,7 +2469,7 @@ def _ephemeral_mode_system_tail(mode: str) -> Dict[str, Any]:
     if mode == "plan":
         text = "⚠️ " + TOOL_AGENT_PLAN_MODE_PROMPT
     elif mode == "execute":
-        text = "⚠️ " + TOOL_AGENT_EXECUTE_MODE_PROMPT
+        text = "⚠️ " + TOOL_AGENT_V2_EXECUTE_MODE_PROMPT
     else:
         text = TOOL_AGENT_AUTO_MODE_PROMPT
     return {"role": "system", "content": text}
@@ -2529,7 +2574,8 @@ def _sanitize_tool_pairing_for_api(msgs: List[Dict[str, Any]]) -> List[Dict[str,
 
 
 def _build_api_messages_for_model(persisted: List[Dict[str, Any]], conversation_id: str) -> List[Dict[str, Any]]:
-    # ContextState.java：flatten 顺序与旧实现一致；须先 tryLoadPending（见 run_agent_turn）再进入此处组包
+    # ContextState.java：flatten 顺序为 system prompts → KB → summaries → dialogue → mode；
+    # 须先 tryLoadPending（见 run_agent_turn）再进入此处组包。
     cm = _context_manager_v2(conversation_id)
     cm.rebuild_from_persisted(persisted, _build_context_segments, conversation_id)
     return cm.flatten_to_api_messages(_sanitize_tool_pairing_for_api)
@@ -2594,7 +2640,7 @@ def _maybe_schedule_summarization(cid: str, messages: List[Dict[str, Any]]) -> N
         if alive is not None and time.time() >= alive:
             SUMMARY_IN_PROGRESS.pop(cid, None)
             alive = None
-        total_tokens = cm.estimate_persisted_flat_token_total(messages, _approx_tokens_message)
+        total_tokens = cm.total_token_estimate(_approx_tokens_message)
         if total_tokens <= cm.summary_token_threshold:
             return
         if alive is not None:
@@ -3211,13 +3257,37 @@ UI_HTML_FILE = AGENT_ROOT / "res" / "html" / "agent-ui.html"
 RESET_CSS_FILE = AGENT_ROOT / "res" / "css" / "reset.css"
 UI_CSS_FILE = AGENT_ROOT / "res" / "css" / "agent-ui.css"
 UI_JS_FILE = AGENT_ROOT / "res" / "js" / "agent-ui.js"
+THEME_UI_JS_FILE = AGENT_ROOT / "res" / "js" / "theme-ui.js"
+HLJS_JS_FILE = AGENT_ROOT / "res" / "js" / "vendor" / "highlight.min.js"
+CODE_HIGHLIGHT_JS_FILE = AGENT_ROOT / "res" / "js" / "code-highlight.js"
+HLJS_CSS_DARK_FILE = AGENT_ROOT / "res" / "css" / "vendor" / "hljs-github-dark.min.css"
+HLJS_CSS_LIGHT_FILE = AGENT_ROOT / "res" / "css" / "vendor" / "hljs-github.min.css"
+
+
+def _scope_hljs_css(css: str, prefix: str) -> str:
+    import re
+
+    return re.sub(r"(?<![\w-])\.hljs", prefix + " .hljs", css)
+
 
 _INLINE_CSS = (
     RESET_CSS_FILE.read_text(encoding="utf-8").rstrip()
     + "\n\n"
     + UI_CSS_FILE.read_text(encoding="utf-8")
+    + "\n\n"
+    + HLJS_CSS_DARK_FILE.read_text(encoding="utf-8")
+    + "\n\n"
+    + _scope_hljs_css(HLJS_CSS_LIGHT_FILE.read_text(encoding="utf-8"), 'html[data-ui-theme="light"]')
 )
-_INLINE_JS = UI_JS_FILE.read_text(encoding="utf-8")
+_INLINE_JS = (
+    THEME_UI_JS_FILE.read_text(encoding="utf-8")
+    + "\n;"
+    + HLJS_JS_FILE.read_text(encoding="utf-8")
+    + "\n;"
+    + CODE_HIGHLIGHT_JS_FILE.read_text(encoding="utf-8")
+    + "\n;"
+    + UI_JS_FILE.read_text(encoding="utf-8")
+)
 _INLINE_HTML_TMPL = UI_HTML_FILE.read_text(encoding="utf-8")
 INLINE_UI_HTML = _INLINE_HTML_TMPL.replace("{{CSS}}", _INLINE_CSS).replace("{{JS}}", _INLINE_JS)
 

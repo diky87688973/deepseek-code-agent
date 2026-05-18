@@ -57,13 +57,13 @@ def usage_accumulator_get() -> Any:
 
 
 @router.put("/api/usage-accumulator")
-def usage_accumulator_put(body: UsageAccumIn) -> dict[str, bool]:
+def usage_accumulator_put(body: UsageAccumIn) -> Dict[str, bool]:
     core._save_usage_accumulator(body.model_dump())
     return {"ok": True}
 
 
 @router.get("/api/chat/history")
-def chat_history(conversation_id: str = "") -> dict[str, Any]:
+def chat_history(conversation_id: str = "") -> Dict[str, Any]:
     cid = str(conversation_id or "").strip()
     if not cid:
         raise HTTPException(400, "empty conversation_id")
@@ -86,7 +86,7 @@ def chat_history(conversation_id: str = "") -> dict[str, Any]:
 
 
 @router.get("/api/chat/sessions")
-def chat_sessions() -> dict[str, Any]:
+def chat_sessions() -> Dict[str, Any]:
     state = core._load_last_open_session_state()
     title_by_id: Dict[str, str] = {}
     for t in state.get("tabs") or []:
@@ -150,7 +150,7 @@ def chat_sessions() -> dict[str, Any]:
 
 
 @router.post("/api/chat/title")
-def chat_title(body: ChatTitleIn) -> dict[str, Any]:
+def chat_title(body: ChatTitleIn) -> Dict[str, Any]:
     cid = str(body.conversation_id or "").strip()
     if not cid:
         raise HTTPException(400, "empty conversation_id")
@@ -162,13 +162,13 @@ def chat_title(body: ChatTitleIn) -> dict[str, Any]:
 
 
 @router.get("/api/chat/ui-state")
-def chat_ui_state_get() -> dict[str, Any]:
+def chat_ui_state_get() -> Dict[str, Any]:
     state = core._load_last_open_session_state()
     return {"ok": True, "state": state}
 
 
 @router.put("/api/chat/ui-state")
-def chat_ui_state_put(body: ChatUiStateIn) -> dict[str, bool]:
+def chat_ui_state_put(body: ChatUiStateIn) -> Dict[str, bool]:
     tabs: List[Dict[str, str]] = []
     for t in body.tabs or []:
         cid = str(t.get("id") or "").strip()
@@ -192,7 +192,7 @@ def chat_ui_state_put(body: ChatUiStateIn) -> dict[str, bool]:
 
 
 @router.get("/api/reasoning-effort")
-async def reasoning_effort_get(request: Request) -> dict[str, Any]:
+async def reasoning_effort_get(request: Request) -> Dict[str, Any]:
     cid = str(request.query_params.get("conversation_id") or "").strip()
     return {
         "ok": True,
@@ -202,7 +202,7 @@ async def reasoning_effort_get(request: Request) -> dict[str, Any]:
 
 
 @router.put("/api/reasoning-effort")
-async def reasoning_effort_set(request: Request) -> dict[str, Any]:
+async def reasoning_effort_set(request: Request) -> Dict[str, Any]:
     try:
         body = await request.json()
     except Exception:
@@ -216,7 +216,7 @@ async def reasoning_effort_set(request: Request) -> dict[str, Any]:
 
 
 @router.get("/api/kb/files")
-def kb_files() -> dict[str, Any]:
+def kb_files() -> Dict[str, Any]:
     if not core.KB_BASE_DIR:
         return {"ok": True, "enabled": False, "files": []}
     if not core.KB_BASE_DIR.is_dir():
@@ -228,7 +228,7 @@ def kb_files() -> dict[str, Any]:
 
 
 @router.get("/api/kb/checked")
-def kb_checked_get(conversation_id: str = "") -> dict[str, Any]:
+def kb_checked_get(conversation_id: str = "") -> Dict[str, Any]:
     cid = str(conversation_id or "").strip()
     if not cid:
         raise HTTPException(400, "empty conversation_id")
@@ -238,7 +238,7 @@ def kb_checked_get(conversation_id: str = "") -> dict[str, Any]:
 
 
 @router.put("/api/kb/checked")
-def kb_checked_put(body: KbCheckedIn) -> dict[str, Any]:
+def kb_checked_put(body: KbCheckedIn) -> Dict[str, Any]:
     cid = str(body.conversation_id or "").strip()
     if not cid:
         raise HTTPException(400, "empty conversation_id")
@@ -262,7 +262,7 @@ def kb_checked_put(body: KbCheckedIn) -> dict[str, Any]:
 
 
 @router.post("/api/chat/stop")
-def chat_stop(inp: ChatStopIn) -> dict[str, Any]:
+def chat_stop(inp: ChatStopIn) -> Dict[str, Any]:
     cid = str(inp.conversation_id or "").strip()
     if not cid:
         raise HTTPException(400, "empty conversation_id")
@@ -535,7 +535,7 @@ def chat_stream(inp: ChatIn, request: Request) -> StreamingResponse:
 
 
 @router.get("/api/dir-browse")
-def dir_browse(path: str = "") -> dict[str, Any]:
+def dir_browse(path: str = "") -> Dict[str, Any]:
     import os as _os
     import string as _string
 
@@ -621,7 +621,7 @@ def dir_browse(path: str = "") -> dict[str, Any]:
 
 
 @router.get("/health")
-def health() -> dict[str, Any]:
+def health() -> Dict[str, Any]:
     return {
         "ok": True,
         "catalog": str(core.TOOL_LIST_JSON),

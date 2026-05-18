@@ -38,3 +38,55 @@
   }
   w.themeUi = { get: get, set: set, toggle: toggle, apply: apply, syncButtons: syncButtons };
 })(window);
+
+/* 全页：消幽灵插入符，但保留拖选复制。经典/沉浸共用。 */
+(function () {
+  "use strict";
+
+  function nodeEl(node) {
+    if (!node) return null;
+    return node.nodeType === 3 ? node.parentElement : node;
+  }
+
+  function isEditableNode(node) {
+    var el = nodeEl(node);
+    if (!el || !el.closest) return false;
+    if (el.closest('textarea, select, [contenteditable="true"], [contenteditable=""]')) return true;
+    var inp = el.closest("input");
+    if (!inp) return false;
+    var t = String(inp.type || "text").toLowerCase();
+    return (
+      t === "text" ||
+      t === "search" ||
+      t === "password" ||
+      t === "email" ||
+      t === "url" ||
+      t === "tel" ||
+      t === "number" ||
+      t === ""
+    );
+  }
+
+  document.addEventListener(
+    "mousedown",
+    function (ev) {
+      if (isEditableNode(ev.target)) return;
+      var ae = document.activeElement;
+      if (ae && isEditableNode(ae)) ae.blur();
+    },
+    true
+  );
+
+  document.addEventListener(
+    "mouseup",
+    function (ev) {
+      if (isEditableNode(ev.target)) return;
+      if (document.activeElement && isEditableNode(document.activeElement)) return;
+      var sel = window.getSelection && window.getSelection();
+      if (!sel || !sel.isCollapsed || !sel.anchorNode) return;
+      if (isEditableNode(sel.anchorNode)) return;
+      sel.removeAllRanges();
+    },
+    false
+  );
+})();

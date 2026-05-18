@@ -47,9 +47,33 @@
   --imm-resizer-hover-border: #32363c;
 
   --imm-diff-card-bg: #141820;
-  --imm-diff-card-border: #3a3f47;
-  --imm-diff-cap-border: #2a2f37;
-  --imm-diff-cap-text: #c9d1d9;
+  --imm-diff-card-border: rgba(255, 255, 255, 0.09);
+  --imm-diff-cap-border: rgba(255, 255, 255, 0.1);
+  --imm-diff-cap-text: #d6dde5;
+  --diff-cap-bg: #23262b;
+
+  /* diff 正文（与卡片同色系，避免夜间白底块） */
+  --diff-surface-bg: #141820;
+  --diff-surface-border: #2a2f37;
+  --diff-surface-text: #d4dae3;
+  --diff-eq-text: #8b949e;
+  --diff-eq-gutter-bg: #12151a;
+  --diff-del-bg: rgba(248, 81, 73, 0.12);
+  --diff-del-border: #c23c3c;
+  --diff-del-gutter-text: #f0a8a4;
+  --diff-del-gutter-bg: rgba(248, 81, 73, 0.2);
+  --diff-add-bg: rgba(63, 185, 80, 0.12);
+  --diff-add-border: #2ea043;
+  --diff-add-gutter-text: #9fdc9f;
+  --diff-add-gutter-bg: rgba(46, 160, 67, 0.2);
+  --diff-meta-bg: #12151a;
+  --diff-meta-text: #8b949e;
+  --diff-meta-border: #30363d;
+  --diff-stat-del: #ff7b72;
+  --diff-stat-add: #7ee787;
+  --diff-run-cmd-bg: rgba(0, 0, 0, 0.22);
+  --diff-run-out-bg: rgba(0, 0, 0, 0.08);
+  --diff-run-sep: rgba(255, 255, 255, 0.22);
   --imm-todo-bg: #161a20;
   --imm-todo-border: #3a3f47;
   --imm-todo-hdr: #aeb9c8;
@@ -184,6 +208,29 @@ html[data-ui-theme="light"] {
   --imm-diff-card-border: #d0dae8;
   --imm-diff-cap-border: #e2e8f4;
   --imm-diff-cap-text: #2c3545;
+  --diff-cap-bg: #f6f8fa;
+
+  --diff-surface-bg: #f6f8fa;
+  --diff-surface-border: #e2e8f4;
+  --diff-surface-text: #24292f;
+  --diff-eq-text: #57606a;
+  --diff-eq-gutter-bg: #f6f8fa;
+  --diff-del-bg: #ffeef0;
+  --diff-del-border: #cf222e;
+  --diff-del-gutter-text: #9a1c1c;
+  --diff-del-gutter-bg: #ffd7d5;
+  --diff-add-bg: #e6ffed;
+  --diff-add-border: #1a7f37;
+  --diff-add-gutter-text: #116329;
+  --diff-add-gutter-bg: #ccffd8;
+  --diff-meta-bg: #f6f8fa;
+  --diff-meta-text: #57606a;
+  --diff-meta-border: #d0d7de;
+  --diff-stat-del: #d73a49;
+  --diff-stat-add: #2ea043;
+  --diff-run-cmd-bg: #f0f4fa;
+  --diff-run-out-bg: #fafbfc;
+  --diff-run-sep: #c5ceda;
   --imm-todo-bg: #ffffff;
   --imm-todo-border: #d0dae8;
   --imm-todo-hdr: #3a4456;

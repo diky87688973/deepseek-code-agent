@@ -46,6 +46,11 @@ KB_BASE_DIR: Optional[Path] = Path(_KB_DIR_STR).expanduser().resolve() if _KB_DI
 _KB_CHECKED_STATE: Dict[str, Set[str]] = {}
 _KB_CHECKED_LOCK = threading.Lock()
 
+# ── Skills 配置 ──
+_SKILLS_DIR_STR = _strip_config_path_value(AGENT_CONFIG.get("AGENT_SKILLS_DIR"))
+SKILLS_DIR: Optional[Path] = Path(_SKILLS_DIR_STR).expanduser().resolve() if _SKILLS_DIR_STR else None
+SKILLS_MAX_FILE_SIZE = int(AGENT_CONFIG.get("AGENT_SKILLS_MAX_FILE_SIZE", "200000"))
+
 
 def _kb_checked_state_file() -> Optional[Path]:
     """知识库勾选状态：放在知识库根目录的上一级，避免与资料文件同目录。"""
@@ -134,6 +139,10 @@ import todo_list as _todo_list_mod
 
 _todo_list_mod.configure_storage(DATA_ROOT / "cache" / "todo_lists")
 _delete_file_mod.configure_trash_root(DATA_ROOT / "safe_delete")
+
+# ── Skills 初始化 ──
+from util.skill_manager import init_skill_manager as _init_skill_manager
+_init_skill_manager(SKILLS_DIR, SKILLS_MAX_FILE_SIZE)
 
 
 def _execute_todo_list(conversation_id: str, exec_args: Dict[str, Any]) -> dict:
@@ -298,6 +307,8 @@ __all__ = [
     "SESSION_DIR",
     "SESSION_ENCRYPTION_MAGIC",
     "SESSION_KEY_FILE",
+    "SKILLS_DIR",
+    "SKILLS_MAX_FILE_SIZE",
     "SUMMARY_IN_PROGRESS_TTL_SEC",
     "SUMMARY_OUTPUT_MAX_CHARS",
     "SUMMARY_THINKING_ENABLED",

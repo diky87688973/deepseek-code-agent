@@ -1912,7 +1912,7 @@
           "flag": "--path",
           "type": "string",
           "required": true,
-          "description": "补丁内路径相对的根目录。"
+          "description": "补丁内路径相对的根目录。⚠️ 重要：--- 和 +++ 中的文件路径去除 a/ b/ 前缀后必须完全相同（指同一个已有文件）；不支持创建新文件或重命名，仅能修改已有文件内容。"
         },
         {
           "flag": "--patch_text",
@@ -3387,6 +3387,47 @@
           "args": {
             "url": "https://example.com",
             "wait_sec": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "skill_manage.py",
+      "path": "tools/skill_manage.py",
+      "purpose": "管理 Skills 技能：按名称读取技能全文内容（不含 auto_load 常驻技能，它们已自动注入上下文）。list=列出所有可用技能名称与描述；read=按name读取指定技能完整正文。读取的正文会以 tool 消息形式出现在对话区，不影响前缀缓存。",
+      "stdout_output": "{ok,data:{name,content}}",
+      "args": [
+        {
+          "flag": "--action",
+          "type": "enum",
+          "required": true,
+          "values": [
+            "list",
+            "read"
+          ],
+          "description": "操作类型：list=列出所有可用技能（名称+描述）；read=读取指定技能的完整正文。"
+        },
+        {
+          "flag": "--name",
+          "type": "string",
+          "required": false,
+          "description": "技能名称（action=read 时必填）。从 list 或上下文前缀的【可用技能清单】获取。"
+        }
+      ],
+      "examples": [
+        {
+          "title": "列出所有可用技能",
+          "note": "查看有哪些技能可用。",
+          "args": {
+            "action": "list"
+          }
+        },
+        {
+          "title": "读取指定技能",
+          "note": "按 name 读取完整正文。",
+          "args": {
+            "action": "read",
+            "name": "Python 编码规范"
           }
         }
       ]

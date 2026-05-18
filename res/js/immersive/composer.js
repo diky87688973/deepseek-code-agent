@@ -923,6 +923,7 @@
       });
     }
     syncModelSubmenuHighlight();
+    autoResize();
     IMM.updateComposerBusy();
     if (typeof IMM.updateImmersiveContextBar === "function") IMM.updateImmersiveContextBar();
   };
