@@ -3394,7 +3394,7 @@
     {
       "name": "skill_manage.py",
       "path": "tools/skill_manage.py",
-      "purpose": "管理 Skills 技能：按名称读取技能全文内容（不含 auto_load 常驻技能，它们已自动注入上下文）。list=列出所有可用技能名称与描述；read=按name读取指定技能完整正文。读取的正文会以 tool 消息形式出现在对话区，不影响前缀缓存。",
+      "purpose": "管理 Skills 技能：列出所有可用技能名称与描述（list），或按名称读取指定技能完整正文（read）。读取的正文会以 tool 消息形式出现在对话区，不影响前缀缓存。必须直接调用本工具，不要用 python_inline 或 run_command 或任何其他方式替代。",
       "stdout_output": "{ok,data:{name,content}}",
       "args": [
         {

@@ -62,11 +62,11 @@ os.chdir(str(BASE_DIR))
 sys.path.insert(0, str(BASE_DIR))
 
 # ── DATA_ROOT：可写数据目录，从 AGENT_CONFIG 读取 ──
-_dr = str(_AGENT_CONFIG.get("AGENT_DATA_ROOT_DIR") or "").strip()
+_dr = str(_AGENT_CONFIG.get("AGENT_RUNTIME_DATA_ROOT_DIR") or "").strip()
 if len(_dr) >= 2 and _dr[0] == _dr[-1] and _dr[0] in ("'", '"'):
     _dr = _dr[1:-1].strip()
 if not _dr:
-    print("FATAL: AGENT_DATA_ROOT_DIR 未设置！请在 config.ini 的 [workspace] 节配置 data_root", flush=True)
+    print("FATAL: AGENT_RUNTIME_DATA_ROOT_DIR 未设置！请在 config.ini 的 [workspace] 节配置 runtime_data_root", flush=True)
     sys.exit(1)
 DATA_ROOT = Path(_dr).expanduser().resolve()
 # 向环境变量写入回收站路径（供 file_ops 等工具读取 AGENT_RECYCLE_ROOT）

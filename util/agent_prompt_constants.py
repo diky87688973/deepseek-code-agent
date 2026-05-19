@@ -75,8 +75,8 @@ TOOL_AGENT_V2_SYSTEM_PROMPT: str = (
     "\n\n"
     "【Skills 技能系统】"
     "\n 1.上下文前缀中的【可用技能清单】已列出所有可用技能的名称与描述，含 [Auto Load] 标记的表示已自动注入该技能全文到上下文，无需再加载。"
-    "\n 2.需要使用非 Auto Load 技能时，调用 skill_manage(action=read, name=\"技能名\") 获取其完整正文（落在对话区，不影响前缀缓存）。"
-    "\n 3.不确定有哪些技能可用时，调用 skill_manage(action=list) 查看。"
+    "\n 2.需要使用非 Auto Load 技能时，直接调用 skill_manage(action=read, name=\"技能名\") 获取完整正文（正文以 tool 消息返回，不影响前缀缓存）。"
+    "\n 3.不确定有哪些技能可用时，调用 skill_manage(action=list) 查看。必须用工具调用，不要用 python_inline 或 run_command 替代。"
     "\n 4.技能正文阅读后立即使用，用完即过，无需管理生命周期。"
 )
 

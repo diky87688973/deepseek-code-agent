@@ -147,7 +147,7 @@ port = 8801
 
 [workspace]
 dir = D:/workspace
-data_root = D:/AI_DATA_ROOT
+runtime_data_root = D:/AI_DATA_ROOT
 
 [knowledge_base]
 dir = D:/AI_DATA_ROOT/knowledge_base
@@ -159,7 +159,7 @@ dir = D:/AI_DATA_ROOT/knowledge_base
 | `[server]` | `port` | 服务端口 | **必填** |
 | `[model]` | `api_base_url` | API 地址，默认 DeepSeek | 可选 |
 | `[workspace]` | `dir` | 默认工作目录 | 可选，默认桌面 |
-| `[workspace]` | `data_root` | 数据存储目录 | 可选，默认 `~/AI_DATA_ROOT` |
+| `[workspace]` | `runtime_data_root` | 运行时数据目录（日志、会话缓存、待办清单等） | 可选，默认 `~/AI_DATA_ROOT` |
 | `[knowledge_base]` | `dir` | 知识库目录 | 可选 |
 > 优先级：`config.ini` > 环境变量 > 代码默认值
 

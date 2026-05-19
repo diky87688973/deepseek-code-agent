@@ -1459,6 +1459,18 @@ def _chat_diff_markdown_for_tool(script_name: str, result: dict, exec_args: Dict
     if "text_diff" in sn:
         dm = data.get("diff_markdown")
         return dm if isinstance(dm, str) and dm.strip() else None
+    if "skill_manage" in sn:
+        notifs = data.get("notifications")
+        if isinstance(notifs, list) and notifs:
+            lines = []
+            for n in notifs:
+                if isinstance(n, str):
+                    lines.append("> " + n)
+            usage = data.get("side_usage")
+            if usage and usage.get("total_tokens"):
+                lines.append("> (旁支模型消耗 " + str(usage["total_tokens"]) + " tokens)")
+            return "\n".join(lines)
+        return None
     if "replace_in_file" in sn or "write_file" in sn or "apply_patch" in sn:
         dt = data.get("diff_text")
         if isinstance(dt, str) and dt.strip():

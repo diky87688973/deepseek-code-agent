@@ -22,9 +22,9 @@ class _CryptoCtx:
         from util.config_loader import load_config
 
         self.cfg = load_config(verbose=False)
-        dr = str(self.cfg.get("AGENT_DATA_ROOT_DIR") or "").strip().strip("'\"")
+        dr = str(self.cfg.get("AGENT_RUNTIME_DATA_ROOT_DIR") or "").strip().strip("'\"")
         if not dr:
-            raise RuntimeError("AGENT_DATA_ROOT_DIR 未配置")
+            raise RuntimeError("AGENT_RUNTIME_DATA_ROOT_DIR 未配置")
         self.data_root = Path(dr).expanduser().resolve()
         skf = str(self.cfg.get("AGENT_SESSION_KEY_FILE") or "").strip().strip("'\"")
         self.session_key_file = (

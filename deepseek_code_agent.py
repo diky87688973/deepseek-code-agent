@@ -110,9 +110,9 @@ def _strip_config_path_value(value: object) -> str:
 
 
 # 可写运行时数据目录，从配置读取
-_dr = _strip_config_path_value(AGENT_CONFIG.get("AGENT_DATA_ROOT_DIR"))
+_dr = _strip_config_path_value(AGENT_CONFIG.get("AGENT_RUNTIME_DATA_ROOT_DIR"))
 if not _dr:
-    print("FATAL: AGENT_DATA_ROOT_DIR 未设置！请在 config.ini 的 [workspace] 节配置 data_root", flush=True)
+    print("FATAL: AGENT_RUNTIME_DATA_ROOT_DIR 未设置！请在 config.ini 的 [workspace] 节配置 runtime_data_root", flush=True)
     sys.exit(1)
 DATA_ROOT = Path(_dr).expanduser().resolve()
 
