@@ -289,7 +289,7 @@ def chat_user_confirm_stream(inp: ChatUserConfirmIn, request: Request) -> Stream
         # 仅第一选项（确认生成）放行，其他全部拦截
         _first_opt = str(pending.get("confirms", [None])[0]) if isinstance(pending.get("confirms"), list) and len(pending.get("confirms")) > 0 else "确认生成"
         if conf == _first_opt:
-            result = core.execute_tool_script(script_name, exec_args0)
+            result = core.execute_tool_script(script_name, exec_args0, conversation_id=cid)
             exec_args1 = exec_args0
         else:
             # 用户取消，废掉确认ID
@@ -305,7 +305,7 @@ def chat_user_confirm_stream(inp: ChatUserConfirmIn, request: Request) -> Stream
             exec_args1 = exec_args0
     else:
         exec_args1 = core._merge_confirm_into_user_confirm_args(exec_args0, conf)
-        result = core.execute_tool_script(script_name, exec_args1)
+        result = core.execute_tool_script(script_name, exec_args1, conversation_id=cid)
     if not (isinstance(result, dict) and result.get("ok") is True):
         core._record_tool_debug_failure(
             conversation_id=cid,

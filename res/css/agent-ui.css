@@ -397,7 +397,7 @@ html[data-ui-theme="light"] .kb-cb.checked {
 
 /* ── 白天模式（html[data-ui-theme="light"]）── */
 html[data-ui-theme="light"]{
---diff-surface-bg:#212121;--diff-surface-border:#e2e8f4;--diff-surface-text:#24292f;
+--diff-surface-bg:#fafbfc;--diff-surface-border:#e2e8f4;--diff-surface-text:#24292f;
 --diff-eq-text:#57606a;--diff-eq-gutter-bg:#f6f8fa;
 --diff-del-bg:#ffeef0;--diff-del-border:#cf222e;--diff-del-gutter-text:#9a1c1c;--diff-del-gutter-bg:#ffd7d5;
 --diff-add-bg:#e6ffed;--diff-add-border:#1a7f37;--diff-add-gutter-text:#116329;--diff-add-gutter-bg:#ccffd8;
@@ -661,6 +661,7 @@ html[data-ui-theme="light"] .chat-run-pre--cmd code,
 html[data-ui-theme="light"] .chat-run-pre--out code {
   color: inherit;
 }
+
 /* ── 白天模式：Auto+ 菜单模型选择文字颜色 ── */
 html[data-ui-theme="light"] .mode-item[data-mode="auto"] { color: #2c5585; }
 html[data-ui-theme="light"] .mode-item[data-mode="plan"] { color: #8a6a20; }

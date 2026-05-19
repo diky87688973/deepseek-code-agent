@@ -1140,7 +1140,7 @@ def maybe_attach_write_tool_host_dry_run_notice(
     return out
 
 
-def execute_tool_script(script_name: str, args: Dict[str, Any]) -> dict:
+def execute_tool_script(script_name: str, args: Dict[str, Any], *, conversation_id: str = "") -> dict:
     """统一进程内执行工具（源码运行 / PyInstaller 打包后均走此路）"""
     # 黑名单工具拒绝脱离服务端直接调用
     if script_name in _RESTRICTED_TOOLS and not _FILE_SEARCH_ALLOWED:
@@ -1149,6 +1149,20 @@ def execute_tool_script(script_name: str, args: Dict[str, Any]) -> dict:
             None,
             {"ok": False, "data": None, "error": {"type": "Restricted", "message": "file_search 禁止直接调用，请通过对话界面使用（支持实时进度展示）"}},
         )
+    # ── 实时模式校验：写工具在当前会话为 Plan 时直接拒绝 ──
+    if script_name in WRITE_TOOL_SCRIPTS:
+        cid = str(conversation_id or "").strip()
+        if cid:
+            mode = CONVERSATION_MODES.get(cid, "")
+            if mode == "plan":
+                return {
+                    "ok": False,
+                    "data": None,
+                    "error": {
+                        "type": "ModeConflict",
+                        "message": f"当前为 Plan 模式，{script_name} 是写操作被拒绝。请切换到 Execute 模式后再执行写操作。",
+                    },
+                }
     with _TOOL_EXEC_LOCK:
         return _execute_tool_script_locked(script_name, args)
 
@@ -1171,7 +1185,7 @@ def _execute_tool_script_stoppable(
 
     def _run() -> None:
         try:
-            holder["r"] = execute_tool_script(script_name, args)
+            holder["r"] = execute_tool_script(script_name, args, conversation_id=conversation_id)
         except Exception as exc:
             holder["r"] = {
                 "ok": False,
