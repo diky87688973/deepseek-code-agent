@@ -3431,6 +3431,106 @@
           }
         }
       ]
+    },
+
+    {
+      "name": "session_send.py",
+      "path": "tools/session_send.py",
+      "purpose": "向一个指定 Agent 会话发送消息并触发对方执行。用于点对点沟通、追问、汇报结果。目标忙时自动进入持久化 inbox 队列。",
+      "stdout_output": "{ok,data:{target_id,queued,run_id,message_sent}}",
+      "args": [
+        {"flag": "--action", "type": "enum", "required": true, "values": ["send"], "description": "操作类型。send=发消息给目标 Agent。"},
+        {"flag": "--target_id", "type": "string", "required": true, "description": "目标 Agent 会话 ID，可由 session_create/session_list/session_wait 返回。"},
+        {"flag": "--message", "type": "string", "required": true, "description": "消息内容。需要回复时应写清问题和期望输出。"},
+        {"flag": "--thread_id", "type": "string", "required": false, "description": "协作线程 ID。需要 session_wait 等回复时必须传同一个 thread_id。"},
+        {"flag": "--channel", "type": "string", "required": false, "description": "通道名：direct/group/broadcast/自定义。"},
+        {"flag": "--requires_reply", "type": "boolean", "required": true, "description": "⚠️ 必填。true=期望对方回复（对方收到 requires_reply=true 时必须用工具回复）；false=纯通知，对方忽略即可。不传值工具会报错。"},
+        {"flag": "--priority", "type": "string", "required": false, "description": "优先级：normal/high。默认 normal。"}
+      ],
+      "examples": [
+        {"title": "点对点询问", "note": "发给指定 Agent，并带 thread_id 便于等待回复。", "args": {"action": "send", "target_id": "uuid-a1", "thread_id": "task-login-api", "message": "请评审登录 API 方案并回复结论。"}}
+      ]
+    },
+    {
+      "name": "session_multisend.py",
+      "path": "tools/session_multisend.py",
+      "purpose": "向指定多个 Agent 发送同一条消息。用于小组私聊、并行派工、狼人夜间小范围沟通等。",
+      "stdout_output": "{ok,data:{sent,skipped,count,thread_id}}",
+      "args": [
+        {"flag": "--action", "type": "enum", "required": false, "values": ["send", "multisend"], "description": "操作类型，默认 send。"},
+        {"flag": "--target_ids", "type": "array", "required": true, "description": "目标 Agent 会话 ID 数组；也可传逗号分隔字符串。"},
+        {"flag": "--message", "type": "string", "required": true, "description": "要发送给每个目标的消息。"},
+        {"flag": "--thread_id", "type": "string", "required": false, "description": "协作线程 ID，用于后续 session_wait。"},
+        {"flag": "--channel", "type": "string", "required": false, "description": "小组通道名，如 werewolves-night-1 / frontend-review。"},
+        {"flag": "--requires_reply", "type": "boolean", "required": true, "description": "⚠️ 必填。true=期望每个目标回复；false=纯通知群发。不传值工具会报错。"}
+      ],
+      "examples": [
+        {"title": "小组私聊", "note": "只发给指定几个 Agent。", "args": {"action": "send", "target_ids": ["uuid-a1", "uuid-a2"], "thread_id": "night-1", "channel": "werewolves", "message": "请讨论今晚行动目标。"}}
+      ]
+    },
+    {
+      "name": "session_broadcast.py",
+      "path": "tools/session_broadcast.py",
+      "purpose": "向 Agent 网络广播消息。可全员广播，也可按 role/tag 筛选。目标忙时由 session_send 自动入队。",
+      "stdout_output": "{ok,data:{sent,skipped,count}}",
+      "args": [
+        {"flag": "--action", "type": "enum", "required": true, "values": ["broadcast"], "description": "操作类型。broadcast=广播。"},
+        {"flag": "--role", "type": "string", "required": false, "description": "按角色筛选，空则不限。"},
+        {"flag": "--tag", "type": "string", "required": false, "description": "按标签筛选，空则不限。"},
+        {"flag": "--exclude_self", "type": "boolean", "required": false, "description": "是否排除发送者自己，默认 true。"},
+        {"flag": "--message", "type": "string", "required": true, "description": "广播消息内容。"},
+        {"flag": "--requires_reply", "type": "boolean", "required": true, "description": "⚠️ 必填。true=收信方标记为需要回复；false=纯通知广播。不传值工具会报错。"}
+      ],
+      "examples": [
+        {"title": "全员公告", "note": "向所有 Agent 广播。", "args": {"action": "broadcast", "message": "天亮了，请所有存活玩家准备发言。"}},
+        {"title": "纯通知广播", "note": "不要求回复的广播。", "args": {"action": "broadcast", "message": "系统维护通知", "requires_reply": false}}
+      ]
+    },
+    {
+      "name": "session_list.py",
+      "path": "tools/session_list.py",
+      "purpose": "列出当前 Agent Session Mesh 中的所有自由 Agent，会返回 cid/name/role/status/tags/queueSize。",
+      "stdout_output": "{ok,data:{agents,count}}",
+      "args": [
+        {"flag": "--action", "type": "enum", "required": false, "values": ["list"], "description": "操作类型，默认 list。"}
+      ],
+      "examples": [
+        {"title": "查看 Agent 列表", "note": "获取可通讯 Agent。", "args": {"action": "list"}}
+      ]
+    },
+    {
+      "name": "session_wait.py",
+      "path": "tools/session_wait.py",
+      "purpose": "检查指定 Agent 是否已在当前会话回复某个 thread_id。用于顺序控制。推荐 action=wait 或 suspend=true：若目标未回复，后端会挂起当前 Agent，本轮立即结束；目标通过 session_send 回到本会话后自动恢复，避免同轮反复轮询浪费 token。",
+      "stdout_output": "{ok,data:{completed,pending,messages,all_done,thread_id,should_stop_turn?,suspend?,wait_state?,instruction?}}",
+      "args": [
+        {"flag": "--action", "type": "enum", "required": false, "values": ["check", "wait"], "description": "操作类型。check=只检查；wait=若 pending 则挂起当前 Agent，等待目标回复后自动恢复。"},
+        {"flag": "--target_ids", "type": "array", "required": true, "description": "等待回复的 Agent 会话 ID 数组；也可传逗号分隔字符串。"},
+        {"flag": "--thread_id", "type": "string", "required": false, "description": "协作线程 ID。传入后只统计同一 thread_id 的回复。"},
+        {"flag": "--suspend", "type": "boolean", "required": false, "description": "为 true 时，pending 会挂起当前 Agent，本轮不再继续轮询。action=wait 时等价于 true。"}
+      ],
+      "examples": [
+        {"title": "检查单人回复", "note": "法官等待玩家1发言。", "args": {"action": "check", "target_ids": ["uuid-a1"], "thread_id": "day1-speak-1"}}
+      ]
+    },
+    {
+      "name": "session_create.py",
+      "path": "tools/session_create.py",
+      "purpose": "创建一个或多个自由 Agent 会话，不依赖团队注册。支持 name/persona/count/name_prefix/tags，用于批量创建玩家、评审员、测试员等。",
+      "stdout_output": "{ok,data:{agents,count,session_id,name,role}}",
+      "args": [
+        {"flag": "--action", "type": "enum", "required": true, "values": ["create"], "description": "操作类型。create=创建 Agent。"},
+        {"flag": "--role", "type": "string", "required": false, "description": "Agent 角色，如 玩家/Reviewer/QA/后端专家。默认 Agent。"},
+        {"flag": "--name", "type": "string", "required": false, "description": "单个 Agent 名称；批量时可作为前缀。"},
+        {"flag": "--name_prefix", "type": "string", "required": false, "description": "批量创建名称前缀，如 玩家。count=10 时得到 玩家1..玩家10。"},
+        {"flag": "--persona", "type": "string", "required": false, "description": "写入该 Agent 初始 system 的身份/行为设定。"},
+        {"flag": "--count", "type": "integer", "required": false, "description": "创建数量，1-50，默认 1。"},
+        {"flag": "--tags", "type": "array", "required": false, "description": "标签数组或逗号分隔字符串，如 alive,werewolf,frontend。"},
+        {"flag": "--skill", "type": "string", "required": false, "description": "额外挂载的 skill 名称。"}
+      ],
+      "examples": [
+        {"title": "批量创建玩家", "note": "创建 10 个自由 Agent。", "args": {"action": "create", "count": 10, "name_prefix": "玩家", "role": "狼人杀玩家", "persona": "你是狼人杀玩家，请按收到的信息和规则行动。", "tags": ["alive"]}}
+      ]
     }
   ]
 }

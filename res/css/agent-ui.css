@@ -397,7 +397,7 @@ html[data-ui-theme="light"] .kb-cb.checked {
 
 /* ── 白天模式（html[data-ui-theme="light"]）── */
 html[data-ui-theme="light"]{
---diff-surface-bg:#fafbfc;--diff-surface-border:#e2e8f4;--diff-surface-text:#24292f;
+--diff-surface-bg:#ffffff;--diff-surface-border:#e2e8f4;--diff-surface-text:#24292f;
 --diff-eq-text:#57606a;--diff-eq-gutter-bg:#f6f8fa;
 --diff-del-bg:#ffeef0;--diff-del-border:#cf222e;--diff-del-gutter-text:#9a1c1c;--diff-del-gutter-bg:#ffd7d5;
 --diff-add-bg:#e6ffed;--diff-add-border:#1a7f37;--diff-add-gutter-text:#116329;--diff-add-gutter-bg:#ccffd8;
@@ -542,7 +542,7 @@ html[data-ui-theme="light"] textarea::placeholder {
   opacity: 0.62;
 }
 html[data-ui-theme="light"] .mode-plus {
-  color: #3a4a5f;
+  color: #cdcecf;
   border-color: #9eb0cc;
 }
 html[data-ui-theme="light"] .mode-plus:hover {

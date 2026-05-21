@@ -1,8 +1,28 @@
-# DeepSeek Code Agent v1.2
+# DeepSeek Code Agent v1.3
 
 > 基于 WEB 浏览器的 AI 桌面助手，内嵌丰富工具，通过对话完成文件编辑、代码诊断、Git 查询、Web 抓取等复杂任务。
 
 ---
+
+## 🤖 多 Agent 协作（Agent Session Mesh）
+
+通过 `session_create` 可创建自由 Agent，形成多 Agent 协作网络：
+
+| 工具 | 用途 |
+|------|------|
+| `session_create` | 创建自由 Agent，支持名字池自动取名、标签隔离、`.title` 文件自动写入 |
+| `session_send` | 点对点发送消息（`requires_reply` 必填） |
+| `session_multisend` | 向指定多个 Agent 群发同一条消息（`requires_reply` 必填） |
+| `session_broadcast` | 按 tag 筛选广播消息（`requires_reply` 必填） |
+| `session_list` | 列出所有自由 Agent 及其状态 |
+| `session_wait` | 等待指定 Agent 回复（含哨兵安全检查防挂起） |
+
+**通讯规则：**
+- 所有消息元数据使用下划线风格（`requires_reply`、`thread_id`）
+- `requires_reply=true` 表示接收方必须用工具回复，`false` 为纯通知
+- 消息前缀带 `[from=... | sender_cid=...]` 的来自其他 Agent
+- 消息不带前缀的来自 Boss（用户），优先级最高
+- Agent 名称池在 `config.ini [agent] name_pool` 中配置
 
 ## 快速开始
 
@@ -198,7 +218,9 @@ dir = D:/AI_DATA_ROOT/knowledge_base
 
 | 端点 | 用途 |
 |------|------|
-| `POST /api/chat/stream` | 发送消息（SSE 流式） |
+| `GET /api/events/stream` | 页面级全局 SSE 通道，所有会话事件通过 `conversation_id` 分发 |
+| `POST /api/chat/send` | 提交用户消息并后台启动对应会话运行 |
+| `POST /api/chat/user-confirm` | 提交人类确认并后台恢复对应会话运行 |
 | `POST /api/chat/stop` | 停止当前生成 |
 | `POST /api/chat/title` | 自动生成会话标题 |
 | `GET /api/chat/history` | 获取对话历史 |

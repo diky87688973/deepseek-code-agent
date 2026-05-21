@@ -35,6 +35,7 @@
     return {
       streamAssistantEl: null,
       streamAssistantText: "",
+      roundReasoningText: "",
       pendingDeltaSeparator: false,
       anyToolThisTurn: false,
       chatLoadingEl: null,
@@ -248,6 +249,7 @@
       } else {
         c.s.streamAssistantEl = null;
         c.s.streamAssistantText = "";
+        c.s.roundReasoningText = "";
         c.s.pendingDeltaSeparator = false;
         if (typeof IMM.loadConversationHistory === "function")
           void IMM.loadConversationHistory(c);

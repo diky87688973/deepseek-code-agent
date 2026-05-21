@@ -99,6 +99,7 @@ from agent_v2.live_state import (
     CONVERSATION_MODES,
     PENDING_EXCERPT_PATHS,
     PENDING_USER_CONFIRM,
+    SESSION_INBOX,
     SUMMARY_IN_PROGRESS,
     _SUMMARY_STATE_LOCK,
     _TOOL_EXEC_LOCK,
@@ -106,6 +107,11 @@ from agent_v2.live_state import (
     _consume_conversation_stop_requested,
     _end_conversation_run,
     _peek_conversation_stop_requested,
+    clear_agent_wait,
+    enqueue_session_inbox,
+    pop_session_inbox,
+    pop_waits_satisfied_by,
+    publish_global_sse_event,
     _request_conversation_stop,
     server_shutting_down,
     kling_create_confirm_id,
@@ -145,7 +151,10 @@ from util.session_crypto import (
 )
 from util.session_store_v2 import new_conversation_id as _v2_new_conversation_id
 from util.skill_manager import get_skill_manager as _get_skill_manager
-from agent_v2.sse_events import context_layout_event as _context_layout_event
+from agent_v2.sse_events import (
+    context_layout_event as _context_layout_event,
+    conversation_sse_event as _conversation_sse_event,
+)
 
 USER_STOPPED_TOOL_MESSAGE = "任务已被用户停止"
 
@@ -225,11 +234,14 @@ def _finish_conversation_stopped(
 
 
 def _ensure_conversation_loaded(cid: str) -> None:
-    """仅加载到内存；摘要合并在发 LLM 前执行，避免打开历史时误删消息并写盘。"""
-    if cid and (cid not in CONVERSATIONS or not CONVERSATIONS.get(cid)):
-        loaded = _load_conversation(cid)
-        if loaded:
-            CONVERSATIONS[cid] = loaded
+    """加载到内存；优先从磁盘读取以捕获后台线程的异步落盘。"""
+    if not cid:
+        return
+    loaded = _load_conversation(cid)
+    if loaded:
+        CONVERSATIONS[cid] = loaded
+    elif cid not in CONVERSATIONS:
+        CONVERSATIONS[cid] = []
 
 
 _HELP_CAPTURE_MAX = 24000
@@ -455,8 +467,9 @@ def _find_title_file(cid: str) -> Optional[Path]:
     return None
 
 
-def _save_title_file(cid: str, title: str) -> None:
-    """将标题写入独立 .title 文件，不加密"""
+def _save_title_file(cid: str, title: str, overwrite: bool = True) -> None:
+    """将标题写入独立 .title 文件，不加密。
+    overwrite=False 时若文件已存在则不覆盖。"""
     if not cid or not title:
         return
     try:
@@ -468,6 +481,8 @@ def _save_title_file(cid: str, title: str) -> None:
             day = time.strftime("%Y-%m-%d", time.localtime())
             tfile = SESSION_DIR / day / f"{cid}.title"
             tfile.parent.mkdir(parents=True, exist_ok=True)
+        if not overwrite and tfile.is_file() and tfile.read_text(encoding="utf-8").strip():
+            return
         tfile.write_text(title.strip()[:80], encoding="utf-8")
     except Exception as e:
         print(f"WARN: failed to save title file for {cid}: {e}", file=sys.stderr, flush=True)
@@ -588,8 +603,8 @@ def _persisted_session_unreadable_after_load(cid: str) -> bool:
     return True
 
 
-def _chat_history_from_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, str]]:
-    out: List[Dict[str, str]] = []
+def _chat_history_from_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
     for m in messages:
         if not isinstance(m, dict):
             continue
@@ -597,9 +612,22 @@ def _chat_history_from_messages(messages: List[Dict[str, Any]]) -> List[Dict[str
         if role not in {"user", "assistant"}:
             continue
         content = m.get("content")
-        if not isinstance(content, str) or not content:
+        if isinstance(content, str) and content.strip():
+            item: Dict[str, Any] = {"role": role, "content": content}
+            for k in ("_sender", "_sender_name", "_sender_role", "_priority", "_agent_peer_message"):
+                if k in m:
+                    item[k] = m.get(k)
+            out.append(item)
             continue
-        out.append({"role": role, "content": content})
+        rc = m.get("reasoning_content")
+        if isinstance(rc, str) and rc.strip():
+            item = {"role": role, "content": rc}
+            for k in ("_sender", "_sender_name", "_sender_role", "_priority", "_agent_peer_message"):
+                if k in m:
+                    item[k] = m.get(k)
+            out.append(item)
+            continue
+        continue
     return out[-UI_RESTORE_MAX_CHAT_ITEMS:]
 
 
@@ -611,8 +639,9 @@ def _load_conversation_title(cid: str) -> str:
             title = tfile.read_text(encoding="utf-8").strip()[:80]
             if title:
                 return title
-    except Exception:
-        pass
+    except Exception as exc:
+        import sys
+        print(f"WARN: _load_conversation_title failed for {cid}: {exc}", file=sys.stderr, flush=True)
     return ""
 
 
@@ -874,6 +903,13 @@ def _execute_tool_agent_main(script_name: str, mod: Any, args: Dict[str, Any]) -
         pn = _agent_main_param_name(k)
         if pn == "json_out":
             continue
+        # 宿主注入参数：有对应形参或 **kwargs 才传入，否则静默丢弃（避免 read_file 等无 varkw 工具报错）
+        if pn in _HOST_INJECTED_TOOL_ARG_NAMES:
+            if pn in accepted:
+                kwargs[pn] = v
+            elif varkw is not None:
+                kwargs[pn] = v
+            continue
         # 宿主注入的 _progress_dict 必须传入 agent_main，否则 file_search/grep_files 等无法上报进度
         if pn.startswith("_"):
             if pn in accepted:
@@ -948,6 +984,8 @@ _TOOL_HELP_MAX_CHARS = 20000
 
 # 模型偶发把数组/对象序列化成字符串传入；在调用 agent_main 前解析为 Python 类型（agent_main 禁止依赖 JSON 字符串参数）。
 _COERCE_JSON_CONTAINER_KEYS = frozenset({"rules", "items", "confirms", "indices"})
+# 宿主注入、不暴露给模型的工具参数（校验时放行，session_* 等通过 _kwargs 读取）
+_HOST_INJECTED_TOOL_ARG_NAMES = frozenset({"conversation_id", "_progress_dict"})
 
 
 def _catalog_public_arg_names(script_name: str) -> set[str]:
@@ -978,6 +1016,8 @@ def _validate_public_tool_args(script_name: str, args: Dict[str, Any]) -> Option
         if key.startswith("_"):
             continue
         bare = key[2:] if key.startswith("--") else key
+        if bare in _HOST_INJECTED_TOOL_ARG_NAMES:
+            continue
         if bare not in public:
             bad.append(bare)
     if not bad:
@@ -1163,7 +1203,10 @@ def execute_tool_script(script_name: str, args: Dict[str, Any], *, conversation_
                         "message": f"当前为 Plan 模式，{script_name} 是写操作被拒绝。请切换到 Execute 模式后再执行写操作。",
                     },
                 }
+    cid = str(conversation_id or "").strip()
     with _TOOL_EXEC_LOCK:
+        if cid and "conversation_id" not in args:
+            args["conversation_id"] = cid
         return _execute_tool_script_locked(script_name, args)
 
 
@@ -1644,6 +1687,26 @@ def _reasoning_stream_finalize_events(before: str, after: str, round_num: int) -
     return [{"type": "reasoning_sync", "round": round_num, "text": after}]
 
 
+def _assistant_display_content_for_sse(content: str, reasoning_content: str) -> str:
+    """有效 assistant 正文：content 优先；为空时用 reasoning_content（展示/SSE/落盘/折叠/摘要统一）。"""
+    c = str(content or "").strip()
+    if c:
+        return c
+    return str(reasoning_content or "").strip()
+
+
+def _assistant_message_for_persist(
+    content: str, reasoning_content: str, **extra: Any
+) -> Dict[str, Any]:
+    """落盘 assistant：content 写入有效正文；thinking 模式 API 要求回传 reasoning_content，故非空时始终保留。"""
+    persist = _assistant_display_content_for_sse(content, reasoning_content)
+    msg: Dict[str, Any] = {"role": "assistant", "content": persist, **extra}
+    rc = str(reasoning_content or "").strip()
+    if rc:
+        msg["reasoning_content"] = reasoning_content
+    return msg
+
+
 def _finalize_stream_content_text(content_delta: str, last_message: Optional[Dict[str, Any]]) -> str:
     """末帧 content 补齐（如正文仅在 message 里）。"""
     out = str(content_delta or "")
@@ -2049,7 +2112,10 @@ def _fold_pure_window_for_api(msgs: List[Dict[str, Any]]) -> List[Dict[str, Any]
             if has_tool:
                 out.append({"role": "assistant", "content": PURE_WINDOW_NO_FINAL_ASSISTANT})
             continue
-        txt = str(last_asst.get("content") or "").strip()
+        txt = _assistant_display_content_for_sse(
+            str(last_asst.get("content") or ""),
+            str(last_asst.get("reasoning_content") or ""),
+        ).strip()
         tc = bool(last_asst.get("tool_calls"))
         if txt:
             out.append({"role": "assistant", "content": txt})
@@ -2070,7 +2136,15 @@ def _strip_tool_trace_for_summary(msgs: List[Dict[str, Any]]) -> List[Dict[str, 
         if r == "user":
             out.append({"role": "user", "content": str(m.get("content") or "")})
         elif r == "assistant":
-            out.append({"role": "assistant", "content": str(m.get("content") or "")})
+            out.append(
+                {
+                    "role": "assistant",
+                    "content": _assistant_display_content_for_sse(
+                        str(m.get("content") or ""),
+                        str(m.get("reasoning_content") or ""),
+                    ),
+                }
+            )
         elif r == "system":
             out.append({"role": "system", "content": str(m.get("content") or "")})
         else:
@@ -2112,10 +2186,12 @@ def _approx_tokens_text(s: str) -> int:
 
 
 def _approx_tokens_message(m: Dict[str, Any]) -> int:
-    n = _approx_tokens_text(str(m.get("content") or ""))
+    c = str(m.get("content") or "").strip()
     rc = m.get("reasoning_content")
-    if isinstance(rc, str) and rc.strip():
-        n += _approx_tokens_text(rc)
+    rs = str(rc).strip() if isinstance(rc, str) else ""
+    n = _approx_tokens_text(c)
+    if rs and rs != c:
+        n += _approx_tokens_text(rs)
     tc = m.get("tool_calls")
     if isinstance(tc, list) and tc:
         try:
@@ -2136,6 +2212,37 @@ def _build_auto_load_skill_messages() -> List[str]:
     mgr = _get_skill_manager()
     return mgr.build_auto_load_messages()
 
+
+
+_team_role_cache: Dict[str, str] = {}
+
+def _build_team_role_prefix(conversation_id: str) -> str:
+    """若当前会话是团队成员，返回角色描述 + 协作规范前缀。结果缓存避免重复读取注册表。"""
+    cached = _team_role_cache.get(conversation_id)
+    if cached is not None:
+        return cached
+    result = ""
+    try:
+        from agent_v2.live_state import get_agent_session
+        meta = get_agent_session(conversation_id)
+        if meta:
+                role = str(meta.get("role") or "Agent").strip()
+                name = str(meta.get("name") or conversation_id[:8]).strip()
+                persona = str(meta.get("persona") or "").strip()
+                tags = meta.get("tags") or []
+                tags_text = "、".join(str(x) for x in tags if str(x).strip()) if isinstance(tags, list) else str(tags or "").strip()
+                from util.agent_prompt_constants import TEAM_ROLE_DEFAULT
+                extra = ""
+                if tags_text:
+                    extra += f"\n【Agent 标签】{tags_text}"
+                if persona:
+                    extra += f"\n【Agent Persona】\n{persona}"
+                result = f"\n\n{TEAM_ROLE_DEFAULT.format(role=role, name=name)}{extra}"
+    except Exception as exc:
+        import sys
+        print(f"WARN: _build_team_role_prefix failed for {conversation_id}: {exc}", file=sys.stderr, flush=True)
+    _team_role_cache[conversation_id] = result
+    return result
 
 def _build_context_segments(
     persisted: List[Dict[str, Any]], conversation_id: str
@@ -2180,7 +2287,7 @@ def _build_context_segments(
     auto_load_skills = _build_auto_load_skill_messages()
     return (
         AGENT_CODE_HINT_SYSTEM_PROMPT,
-        TOOL_AGENT_V2_SYSTEM_PROMPT,
+        TOOL_AGENT_V2_SYSTEM_PROMPT + _build_team_role_prefix(conversation_id),
         skill_registry,
         auto_load_skills,
         kb_parts,
@@ -2711,6 +2818,10 @@ def _maybe_schedule_summarization(cid: str, messages: List[Dict[str, Any]]) -> N
     threading.Thread(target=_run, daemon=True).start()
 
 
+# observer events 功能已移除
+
+
+
 def run_agent_turn(
     conversation_id: str,
     user_text: str,
@@ -2732,7 +2843,6 @@ def run_agent_turn(
         _tail_drop_incomplete_tool_assistant(messages)
     _normalize_persisted_conversation(messages)
     _ensure_conversation_message_ids_v2(messages)
-    # ContextState.java：每次组包请求大模型前须 tryLoadPendingMemFile（含 user-confirm 续跑）
     _context_manager_v2(conversation_id).try_load_pending_mem_file(messages, _merge_pending_excerpts_for_conversation)
     rollback_messages = copy.deepcopy(messages)
     active_round_id: Optional[str] = None
@@ -2740,11 +2850,18 @@ def run_agent_turn(
         if _m.get("role") == "user":
             active_round_id = str(_m.get("_agent_round_id") or "").strip() or None
             break
+    rollback_messages = copy.deepcopy(messages)
+    active_round_id: Optional[str] = None
+    for _m in reversed(messages):
+        if _m.get("role") == "user":
+            active_round_id = str(_m.get("_agent_round_id") or "").strip() or None
+            break
     if not resume_after_user_confirm:
+        clear_agent_wait(conversation_id)
         active_round_id = _append_session_message_v2(
             conversation_id,
             messages,
-            {"role": "user", "content": user_text},
+            {"role": "user", "content": user_text, "_sender": "boss", "_sender_role": "boss"},
             new_round=True,
         )
     user_text_for_preview = user_text
@@ -2754,6 +2871,12 @@ def run_agent_turn(
             if _m.get("role") == "user":
                 user_text_for_preview = str(_m.get("content") or "")
                 break
+    active_sender = ""
+    for _m in reversed(messages):
+        if _m.get("role") == "user":
+            active_sender = str(_m.get("_sender") or "").strip()
+            break
+    active_sender_is_peer = bool(active_sender and active_sender not in ("boss", "unknown"))
     em = effective_model(conversation_id)
     yield {"type": "conversation", "conversation_id": conversation_id, "message_count": len(messages), "mode": mode, "model": em, "reasoning_effort": _get_reasoning_effort(conversation_id)}
     turn_tool_records: List[Dict[str, Any]] = []
@@ -2836,18 +2959,23 @@ def run_agent_turn(
             yield _rfe
         yield {"type": "llm_response", "round": _round + 1, "params": {"toolCallsCount": len(tcalls), "contentChars": len(content), "reasoningChars": len(reasoning_content), "usage": usage}}
         if tcalls:
-            dispatch_title = _extract_dispatch_title(content)
+            dispatch_title = _extract_dispatch_title(
+                _assistant_display_content_for_sse(content, reasoning_content)
+            )
             if dispatch_title:
                 yield {"type": "dispatch_title", "title": dispatch_title}
-            assistant_msg = {
-                "role": "assistant",
-                "content": content or None,
-                "tool_calls": tcalls,
-                "reasoning_content": reasoning_content or "",
-            }
+            assistant_msg = _assistant_message_for_persist(
+                content,
+                reasoning_content,
+                tool_calls=tcalls,
+            )
+            if not str(assistant_msg.get("content") or "").strip():
+                assistant_msg["content"] = None
             _append_session_message_v2(
                 conversation_id, messages, assistant_msg, round_id=active_round_id
             )
+            CONVERSATIONS[conversation_id] = messages
+            _save_conversation(conversation_id, messages)
             direct_preview_content: List[str] = []
             turn_stop_after_this_batch = False
             for tc in tcalls:
@@ -3063,6 +3191,24 @@ def run_agent_turn(
                         "ok": bool(result.get("ok")),
                         "preview": preview_tool_result(script, result),
                     }
+                    if (
+                        active_sender_is_peer
+                        and script == "user_confirm.py"
+                        and _is_user_confirm_required(result)
+                        and isinstance(exec_args, dict)
+                    ):
+                        result = {
+                            "ok": True,
+                            "data": {
+                                "message": (
+                                    "当前消息来自其他 Agent。user_confirm 只用于请求人类用户确认；"
+                                    f"如需澄清，请调用 session_send(action=\"send\", target_id=\"{active_sender}\", message=\"...\") 与对方沟通。"
+                                ),
+                                "peer_sender": active_sender,
+                            },
+                        }
+                        _te_tool_end["ok"] = True
+                        _te_tool_end["preview"] = preview_tool_result(script, result)
                     if script in ("user_confirm.py", "kling_generate.py") and _is_user_confirm_required(result) and isinstance(exec_args, dict):
                         _te_tool_end["user_confirm_required"] = True
                         _ucd = result.get("data") or {}
@@ -3085,6 +3231,13 @@ def run_agent_turn(
                             "script": script,
                             "confirms": list(_cos) if isinstance(_cos, list) else [],
                         }
+                    _suspend_wait = (
+                        script == "session_wait.py"
+                        and isinstance(result, dict)
+                        and isinstance(result.get("data"), dict)
+                        and bool(result["data"].get("suspend"))
+                        and bool(result["data"].get("pending"))
+                    )
                     if script == "todo_list.py" and isinstance(result, dict) and result.get("ok"):
                         _td = result.get("data")
                         if _td is None:
@@ -3109,7 +3262,27 @@ def run_agent_turn(
                                     sse_data["close"] = True
                                 yield sse_data
                     yield _te_tool_end
-                    
+                    if _suspend_wait:
+                        CONVERSATIONS[conversation_id] = messages
+                        _save_conversation(conversation_id, messages)
+                        yield {
+                            "type": "agent_wait_suspended",
+                            "pending": list((result.get("data") or {}).get("pending") or []),
+                            "thread_id": str((result.get("data") or {}).get("thread_id") or ""),
+                        }
+                        yield _context_layout_event(conversation_id, messages)
+                        yield {"type": "done"}
+                        return
+
+                    if script == "session_create.py" and isinstance(result, dict) and result.get("ok"):
+                        _sd = (result.get("data") or {})
+                        _agents = _sd.get("agents") or []
+                        if _sd.get("session_id") and not _agents:
+                            yield {"type": "open_session", "session_id": _sd["session_id"], "name": _sd.get("name", "")}
+                        for _agent in _agents:
+                            if isinstance(_agent, dict) and _agent.get("session_id"):
+                                yield {"type": "open_session", "session_id": _agent["session_id"], "name": _agent.get("name", "")}
+
                     if script == "run_type.py" and isinstance(result, dict) and result.get("ok"):
                         _dc = result.get("data") or {}
                         _rtm = _dc.get("run_type")
@@ -3164,14 +3337,15 @@ def run_agent_turn(
             api_messages = _build_api_messages_for_model(messages, conversation_id)
             continue
 
-        assistant_msg = {"role": "assistant", "content": content}
-        if reasoning_content:
-            assistant_msg["reasoning_content"] = reasoning_content
+        assistant_msg = _assistant_message_for_persist(content, reasoning_content)
         _append_session_message_v2(
             conversation_id, messages, assistant_msg, round_id=active_round_id
         )
-        if content and not content_parts:
-            yield {"type": "assistant", "content": content}
+        CONVERSATIONS[conversation_id] = messages
+        _save_conversation(conversation_id, messages)
+        display_content = str(assistant_msg.get("content") or "").strip()
+        if display_content and not content_parts:
+            yield {"type": "assistant", "content": display_content}
         break
     else:
         max_rounds_rollback_messages = copy.deepcopy(rollback_messages)
@@ -3262,12 +3436,13 @@ def run_agent_turn(
             content = content or (
                 "已达到工具调用次数上限；模型在收尾时仍尝试调用工具。请把任务拆成更小步骤或在本对话中追问。"
             )
-        assistant_msg = {"role": "assistant", "content": content, "reasoning_content": reasoning_content or ""}
+        assistant_msg = _assistant_message_for_persist(content, reasoning_content)
         _append_session_message_v2(
             conversation_id, messages, assistant_msg, round_id=active_round_id
         )
-        if content and not content_parts:
-            yield {"type": "assistant", "content": content}
+        display_content = str(assistant_msg.get("content") or "").strip()
+        if display_content and not content_parts:
+            yield {"type": "assistant", "content": display_content}
 
     if not resume_after_user_confirm:
         _maybe_schedule_summarization(conversation_id, messages)
@@ -3277,12 +3452,155 @@ def run_agent_turn(
     yield {"type": "done"}
 
 
+def publish_conversation_event(conversation_id: str, ev: Dict[str, Any]) -> Dict[str, Any]:
+    ev2 = _conversation_sse_event(conversation_id, ev)
+    _log_agent_console_sse(conversation_id, ev2)
+    publish_global_sse_event(ev2)
+    return ev2
+
+
+def _append_incoming_session_message(target_id: str, user_msg: Dict[str, Any]) -> None:
+    cid = str(target_id or "").strip()
+    _ensure_conversation_loaded(cid)
+    target_messages = CONVERSATIONS.get(cid)
+    if not target_messages:
+        raise ValueError(f"目标会话 {cid} 不存在")
+    _append_session_message_v2(cid, target_messages, dict(user_msg), new_round=True)
+    CONVERSATIONS[cid] = target_messages
+    _save_conversation(cid, target_messages)
+    if user_msg.get("_agent_peer_message"):
+        sender = str(user_msg.get("_sender") or "")
+        thread = str(user_msg.get("_thread_id") or "")
+        publish_conversation_event(
+            cid,
+            {
+                "type": "peer_message",
+                "content": str(user_msg.get("content") or ""),
+                "sender": sender,
+                "sender_name": str(user_msg.get("_sender_name") or ""),
+                "sender_role": str(user_msg.get("_sender_role") or ""),
+            },
+        )
+        waits = pop_waits_satisfied_by(sender, cid, thread)
+        for wait in waits:
+            publish_conversation_event(
+                cid,
+                {
+                    "type": "agent_wait_resumed",
+                    "from": sender,
+                    "thread_id": thread,
+                },
+            )
+            start_background_agent_turn(cid, "", resume_after_user_confirm=True)
+            break
+
+
+def _drain_session_inbox_after_run(conversation_id: str) -> None:
+    cid = str(conversation_id or "").strip()
+    if not cid:
+        return
+    msg = pop_session_inbox(cid)
+    if not msg:
+        return
+    try:
+        _append_incoming_session_message(cid, msg)
+    except Exception as exc:
+        publish_conversation_event(cid, {"type": "error", "where": "session_inbox", "detail": str(exc)})
+        return
+    publish_conversation_event(
+        cid,
+        {
+            "type": "inbox_dequeued",
+            "queued_remaining": len(SESSION_INBOX.get(cid, []) or []),
+        },
+    )
+    start_background_agent_turn(cid, "", resume_after_user_confirm=True)
+
+
+def start_background_agent_turn(
+    conversation_id: str,
+    user_text: str = "",
+    *,
+    client_ip: str = "",
+    mode_hint: str = "",
+    resume_after_user_confirm: bool = False,
+) -> str:
+    """后台运行一个会话 turn，所有事件发布到页面级全局 SSE。"""
+    cid = str(conversation_id or "").strip()
+    if not cid:
+        return ""
+    run_id = _begin_conversation_run(cid) or ""
+    if not run_id:
+        publish_conversation_event(
+            cid,
+            {
+                "type": "error",
+                "where": "server",
+                "detail": "当前会话仍在执行中，消息已进入队列或请稍后重试。",
+            },
+        )
+        return ""
+    publish_conversation_event(cid, {"type": "run_started", "run_id": run_id})
+
+    def _run() -> None:
+        try:
+            if not _chat_api_key_available():
+                publish_conversation_event(
+                    cid,
+                    {
+                        "type": "error",
+                        "where": "config",
+                        "detail": "请先在 config.ini 的 [model] 节配置 api_key（或设置环境变量 CHAT_API_KEY）",
+                    },
+                )
+                return
+            _ensure_conversation_loaded(cid)
+            if _persisted_session_unreadable_after_load(cid):
+                publish_conversation_event(
+                    cid,
+                    {
+                        "type": "error",
+                        "where": "session_persist",
+                        "detail": SESSION_PERSIST_UNREADABLE_SSE_DETAIL,
+                    },
+                )
+                return
+            for ev in run_agent_turn(
+                cid,
+                user_text,
+                client_ip=client_ip,
+                mode_hint=mode_hint,
+                resume_after_user_confirm=resume_after_user_confirm,
+                run_id=run_id,
+            ):
+                publish_conversation_event(cid, ev)
+        except Exception as exc:
+            import traceback
+
+            print(
+                f"ERROR: background agent turn failed cid={cid}: {exc}\n{traceback.format_exc()}",
+                file=sys.stderr,
+                flush=True,
+            )
+            publish_conversation_event(cid, {"type": "error", "where": "server", "detail": str(exc)})
+        finally:
+            _end_conversation_run(cid, run_id)
+            try:
+                _drain_session_inbox_after_run(cid)
+            except Exception as exc:
+                print(f"WARN: drain inbox failed cid={cid}: {exc}", file=sys.stderr, flush=True)
+
+    threading.Thread(target=_run, daemon=True, name=f"agent-turn-{cid[:8]}").start()
+    return run_id
+
+
 # Embedded UI (VS Code-like dark theme, chat + steps). Served from / without external static files.
 # ---- UI HTML loaded from external file ----
 UI_HTML_FILE = AGENT_ROOT / "res" / "html" / "agent-ui.html"
 RESET_CSS_FILE = AGENT_ROOT / "res" / "css" / "reset.css"
 UI_CSS_FILE = AGENT_ROOT / "res" / "css" / "agent-ui.css"
 UI_JS_FILE = AGENT_ROOT / "res" / "js" / "agent-ui.js"
+TEAM_JS_FILE = AGENT_ROOT / "res" / "js" / "team.js"
 THEME_UI_JS_FILE = AGENT_ROOT / "res" / "js" / "theme-ui.js"
 HLJS_JS_FILE = AGENT_ROOT / "res" / "js" / "vendor" / "highlight.min.js"
 CODE_HIGHLIGHT_JS_FILE = AGENT_ROOT / "res" / "js" / "code-highlight.js"
@@ -3305,6 +3623,13 @@ _INLINE_CSS = (
     + "\n\n"
     + _scope_hljs_css(HLJS_CSS_LIGHT_FILE.read_text(encoding="utf-8"), 'html[data-ui-theme="light"]')
 )
+_team_js_inline = ""
+if TEAM_JS_FILE.is_file():
+    _team_js_inline = (
+        "\n;"
+        + TEAM_JS_FILE.read_text(encoding="utf-8")
+        + "\n;if(typeof TEAM!=='undefined'&&TEAM.autoConnect){document.addEventListener('DOMContentLoaded',function(){TEAM.autoConnect();});}"
+    )
 _INLINE_JS = (
     THEME_UI_JS_FILE.read_text(encoding="utf-8")
     + "\n;"
@@ -3313,6 +3638,7 @@ _INLINE_JS = (
     + CODE_HIGHLIGHT_JS_FILE.read_text(encoding="utf-8")
     + "\n;"
     + UI_JS_FILE.read_text(encoding="utf-8")
+    + _team_js_inline
 )
 _INLINE_HTML_TMPL = UI_HTML_FILE.read_text(encoding="utf-8")
 INLINE_UI_HTML = _INLINE_HTML_TMPL.replace("{{CSS}}", _INLINE_CSS).replace("{{JS}}", _INLINE_JS)

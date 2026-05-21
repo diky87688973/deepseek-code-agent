@@ -140,6 +140,13 @@ import todo_list as _todo_list_mod
 _todo_list_mod.configure_storage(DATA_ROOT / "cache" / "todo_lists")
 _delete_file_mod.configure_trash_root(DATA_ROOT / "safe_delete")
 
+# ── Agent 会话加载 ──
+try:
+    from agent_v2.live_state import load_agent_sessions
+    load_agent_sessions()
+except Exception:
+    pass
+
 # ── Skills 初始化 ──
 from util.skill_manager import init_skill_manager as _init_skill_manager
 _init_skill_manager(SKILLS_DIR, SKILLS_MAX_FILE_SIZE)

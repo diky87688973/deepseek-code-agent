@@ -23,6 +23,7 @@ from agent_v2.http_schemas import (
     UsageAccumIn,
 )
 from util.http_pipeline_v2 import resolve_client_ip_from_request
+from agent_v2.live_state import open_global_sse_channel, next_global_sse_event, is_global_sse_current
 
 router = APIRouter()
 
@@ -155,6 +156,10 @@ def chat_title(body: ChatTitleIn) -> Dict[str, Any]:
     if not cid:
         raise HTTPException(400, "empty conversation_id")
     core._ensure_conversation_loaded(cid)
+    # 已有手动设定的标题就不浪费 token 自动生成
+    existing = core._load_conversation_title(cid)
+    if existing:
+        return {"ok": True, "conversation_id": cid, "title": existing}
     messages = list(core.CONVERSATIONS.get(cid, []))
     title = core._generate_conversation_title(cid, messages)
     core._save_title_file(cid, title)
@@ -270,8 +275,82 @@ def chat_stop(inp: ChatStopIn) -> Dict[str, Any]:
     return {"ok": True, "conversation_id": cid, "stopped": stopped}
 
 
-@router.post("/api/chat/user-confirm/stream")
-def chat_user_confirm_stream(inp: ChatUserConfirmIn, request: Request) -> StreamingResponse:
+@router.get("/api/events/stream")
+def global_events_stream() -> StreamingResponse:
+    token = open_global_sse_channel()
+
+    def gen():
+        while is_global_sse_current(token) and not core.server_shutting_down():
+            ev = next_global_sse_event(token, timeout=15.0)
+            if ev is None:
+                break
+            yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/api/chat/send")
+def chat_send(inp: ChatIn, request: Request) -> Dict[str, Any]:
+    text = inp.message.strip()
+    if not text:
+        raise HTTPException(400, "empty message")
+    if core.AT_MESSAGE_FILE_PREFETCH:
+        import re as _re
+
+        _at_files = _re.findall(
+            r'@((?:"[^"]+")|(?:[A-Za-z]:[\\/][^\s]+)|(?:~[^\s]+)|(?:/[^\s]+))',
+            text,
+        )
+        _injected = []
+        for _fp in _at_files:
+            _fp = core._strip_config_path_value(_fp.strip('"').strip("'"))
+            if not _fp:
+                continue
+            try:
+                _p = Path(_fp).expanduser()
+                try:
+                    _p = _p.resolve()
+                except OSError:
+                    pass
+                if _p.is_dir():
+                    continue
+                if _p.is_file():
+                    with open(_p, "r", encoding="utf-8", errors="replace") as _f:
+                        _fc = _f.read()
+                    if len(_fc) > 500_000:
+                        _fc = _fc[:500_000] + "\n...(文件过大，已截断)"
+                    _injected.append(f"\n\n【引用的文件 @{_fp} 内容如下】\n{_fc}\n【文件结束】")
+            except Exception as _e:
+                _injected.append(f"\n\n【警告：无法读取 @{_fp}：{_e}】")
+        if _injected:
+            text = "".join(_injected) + "\n\n---\n用户消息：" + text
+    cid = str(inp.conversation_id or "").strip() or core._v2_new_conversation_id()
+    mode = str(inp.mode or "").strip().lower()
+    if mode not in {"", "auto", "plan", "execute"}:
+        raise HTTPException(400, "invalid mode")
+    mod = str(inp.model or "").strip()
+    if mod:
+        okm, _m = core.set_conversation_model(cid, mod)
+        if not okm:
+            raise HTTPException(400, "invalid model")
+    rh.apply_conversation_request_options(cid, mode, mod)
+    if cid not in core.CONVERSATIONS or not core.CONVERSATIONS.get(cid):
+        loaded = core._load_conversation(cid)
+        if loaded:
+            core.CONVERSATIONS[cid] = loaded
+    client_ip = resolve_client_ip_from_request(request, core._normalize_client_ip_for_tools)
+    run_id = core.start_background_agent_turn(cid, text, client_ip=client_ip, mode_hint=mode)
+    if not run_id:
+        raise HTTPException(409, "当前会话仍在执行中，请等待完成或先停止。")
+    return {"ok": True, "conversation_id": cid, "run_id": run_id, "queued": False}
+
+
+@router.post("/api/chat/user-confirm")
+def chat_user_confirm_submit(inp: ChatUserConfirmIn, request: Request) -> Dict[str, Any]:
     cid = inp.conversation_id.strip()
     conf = inp.confirm.strip()
     if not cid:
@@ -286,13 +365,11 @@ def chat_user_confirm_stream(inp: ChatUserConfirmIn, request: Request) -> Stream
         raise HTTPException(500, "invalid pending user_confirm state")
     script_name = str(pending.get("script", "user_confirm.py"))
     if script_name == "kling_generate.py":
-        # 仅第一选项（确认生成）放行，其他全部拦截
         _first_opt = str(pending.get("confirms", [None])[0]) if isinstance(pending.get("confirms"), list) and len(pending.get("confirms")) > 0 else "确认生成"
         if conf == _first_opt:
             result = core.execute_tool_script(script_name, exec_args0, conversation_id=cid)
             exec_args1 = exec_args0
         else:
-            # 用户取消，废掉确认ID
             try:
                 from agent_v2.live_state import kling_mark_confirmed as _kmc, kling_consume_confirm_id as _kcc
                 _cid = str(exec_args0.get("confirm_id") or "")
@@ -334,7 +411,6 @@ def chat_user_confirm_stream(inp: ChatUserConfirmIn, request: Request) -> Stream
     core.CONVERSATIONS[cid] = messages
     core._save_conversation(cid, messages)
     mode = str(inp.mode or "").strip().lower()
-
     if mode not in {"", "auto", "plan", "execute"}:
         raise HTTPException(400, "invalid mode")
     mod = str(inp.model or "").strip()
@@ -342,196 +418,16 @@ def chat_user_confirm_stream(inp: ChatUserConfirmIn, request: Request) -> Stream
         okm, _m = core.set_conversation_model(cid, mod)
         if not okm:
             raise HTTPException(400, "invalid model")
-    if mode == "auto":
-        core.CONVERSATION_MODES.pop(cid, None)
-    elif mode in ("plan", "execute"):
-        core.CONVERSATION_MODES[cid] = mode
+    rh.apply_conversation_request_options(cid, mode, mod)
     client_ip = resolve_client_ip_from_request(request, core._normalize_client_ip_for_tools)
-
-    def gen():
-        _run_id = ""
-        try:
-            _run_id = core._begin_conversation_run(cid) or ""
-            if not _run_id:
-                _busy_ev = {
-                    "type": "error",
-                    "conversation_id": cid,
-                    "where": "server",
-                    "detail": "当前会话仍在执行中，请等待完成或先停止。",
-                }
-                yield f"data: {json.dumps(_busy_ev, ensure_ascii=False)}\n\n"
-                return
-            yield f"data: {json.dumps({'type': 'run_started', 'conversation_id': cid, 'run_id': _run_id}, ensure_ascii=False)}\n\n"
-            try:
-                _tpd = {
-                    "type": "tool_preview_update",
-                    "conversation_id": cid,
-                    "tool_call_id": tool_call_id,
-                    "preview": core.preview_tool_result(script_name, result),
-                }
-                yield f"data: {json.dumps(_tpd, ensure_ascii=False)}\n\n"
-            finally:
-                pass
-            core._ensure_conversation_loaded(cid)
-            if core._persisted_session_unreadable_after_load(cid):
-                _se = {
-                    "type": "error",
-                    "conversation_id": cid,
-                    "where": "session_persist",
-                    "detail": core.SESSION_PERSIST_UNREADABLE_SSE_DETAIL,
-                }
-                yield f"data: {json.dumps(_se, ensure_ascii=False)}\n\n"
-                return
-            rh.apply_conversation_request_options(cid, mode, mod)
-            _msgs_ctx = list(core.CONVERSATIONS.get(cid, []))
-            yield f"data: {json.dumps(rh.context_layout_event(cid, _msgs_ctx), ensure_ascii=False)}\n\n"
-            for ev in core.run_agent_turn(
-                cid,
-                "",
-                client_ip=client_ip,
-                mode_hint=mode,
-                resume_after_user_confirm=True,
-                run_id=_run_id,
-            ):
-                ev2 = rh.conversation_sse_event(cid, ev)
-                core._log_agent_console_sse(cid, ev2)
-                yield f"data: {json.dumps(ev2, ensure_ascii=False)}\n\n"
-        except Exception as _exc:
-            import traceback
-
-            print(
-                f"ERROR: chat stream failed cid={cid}: {_exc}\n{traceback.format_exc()}",
-                file=sys.stderr,
-                flush=True,
-            )
-            _err_ev = {"type": "error", "conversation_id": cid, "where": "server", "detail": str(_exc)}
-            yield f"data: {json.dumps(_err_ev, ensure_ascii=False)}\n\n"
-        finally:
-            if _run_id:
-                core._end_conversation_run(cid, _run_id)
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    run_id = core.start_background_agent_turn(
+        cid,
+        "",
+        client_ip=client_ip,
+        mode_hint=mode,
+        resume_after_user_confirm=True,
     )
-
-
-@router.post("/api/chat/stream")
-def chat_stream(inp: ChatIn, request: Request) -> StreamingResponse:
-    text = inp.message.strip()
-    if not text:
-        raise HTTPException(400, "empty message")
-    if core.AT_MESSAGE_FILE_PREFETCH:
-        import re as _re
-
-        _at_files = _re.findall(
-            r'@((?:"[^"]+")|(?:[A-Za-z]:[\\/][^\s]+)|(?:~[^\s]+)|(?:/[^\s]+))',
-            text,
-        )
-        _injected = []
-        for _fp in _at_files:
-            _fp = core._strip_config_path_value(_fp.strip('"').strip("'"))
-            if not _fp:
-                continue
-            try:
-                _p = Path(_fp).expanduser()
-                try:
-                    _p = _p.resolve()
-                except OSError:
-                    pass
-                if _p.is_dir():
-                    continue
-                if _p.is_file():
-                    with open(_p, "r", encoding="utf-8", errors="replace") as _f:
-                        _fc = _f.read()
-                    if len(_fc) > 500_000:
-                        _fc = _fc[:500_000] + "\n...(文件过大，已截断)"
-                    _injected.append(f"\n\n【引用的文件 @{_fp} 内容如下】\n{_fc}\n【文件结束】")
-            except Exception as _e:
-                _injected.append(f"\n\n【警告：无法读取 @{_fp}：{_e}】")
-        if _injected:
-            text = "".join(_injected) + "\n\n---\n用户消息：" + text
-    cid = str(inp.conversation_id or "").strip() or core._v2_new_conversation_id()
-    mode = str(inp.mode or "").strip().lower()
-
-    if mode not in {"", "auto", "plan", "execute"}:
-        raise HTTPException(400, "invalid mode")
-
-    mod = str(inp.model or "").strip()
-    if mod:
-        okm, _m = core.set_conversation_model(cid, mod)
-        if not okm:
-            raise HTTPException(400, "invalid model")
-    if mode == "auto":
-        core.CONVERSATION_MODES.pop(cid, None)
-    elif mode in ("plan", "execute"):
-        core.CONVERSATION_MODES[cid] = mode
-
-    if cid not in core.CONVERSATIONS or not core.CONVERSATIONS.get(cid):
-        loaded = core._load_conversation(cid)
-        if loaded:
-            core.CONVERSATIONS[cid] = loaded
-
-    client_ip = resolve_client_ip_from_request(request, core._normalize_client_ip_for_tools)
-
-    def gen():
-        _run_id = ""
-        try:
-            _run_id = core._begin_conversation_run(cid) or ""
-            if not _run_id:
-                _busy_ev = {
-                    "type": "error",
-                    "conversation_id": cid,
-                    "where": "server",
-                    "detail": "当前会话仍在执行中，请等待完成或先停止。",
-                }
-                yield f"data: {json.dumps(_busy_ev, ensure_ascii=False)}\n\n"
-                return
-            yield f"data: {json.dumps({'type': 'run_started', 'conversation_id': cid, 'run_id': _run_id}, ensure_ascii=False)}\n\n"
-            if not core._chat_api_key_available():
-                _err_ev = {
-                    "type": "error",
-                    "conversation_id": cid,
-                    "where": "config",
-                    "detail": "请先在 config.ini 的 [model] 节配置 api_key（或设置环境变量 CHAT_API_KEY）",
-                }
-                yield f"data: {json.dumps(_err_ev, ensure_ascii=False)}\n\n"
-                return
-            core._ensure_conversation_loaded(cid)
-            if core._persisted_session_unreadable_after_load(cid):
-                _se = {
-                    "type": "error",
-                    "conversation_id": cid,
-                    "where": "session_persist",
-                    "detail": core.SESSION_PERSIST_UNREADABLE_SSE_DETAIL,
-                }
-                yield f"data: {json.dumps(_se, ensure_ascii=False)}\n\n"
-                return
-            rh.apply_conversation_request_options(cid, mode, mod)
-            for ev in core.run_agent_turn(cid, text, client_ip=client_ip, mode_hint=mode, run_id=_run_id):
-                ev2 = rh.conversation_sse_event(cid, ev)
-                core._log_agent_console_sse(cid, ev2)
-                yield f"data: {json.dumps(ev2, ensure_ascii=False)}\n\n"
-        except Exception as _exc:
-            import traceback
-
-            print(
-                f"ERROR: chat stream failed cid={cid}: {_exc}\n{traceback.format_exc()}",
-                file=sys.stderr,
-                flush=True,
-            )
-            _err_ev = {"type": "error", "conversation_id": cid, "where": "server", "detail": str(_exc)}
-            yield f"data: {json.dumps(_err_ev, ensure_ascii=False)}\n\n"
-        finally:
-            if _run_id:
-                core._end_conversation_run(cid, _run_id)
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
-    )
+    return {"ok": True, "conversation_id": cid, "run_id": run_id}
 
 
 @router.get("/api/dir-browse")
@@ -628,3 +524,17 @@ def health() -> Dict[str, Any]:
         "model": core.default_model_from_env(),
         "allowed_models": list(core.ALLOWED_MODELS),
     }
+
+
+# ── 团队 API ──
+
+@router.get("/api/team/state")
+def team_state() -> Dict[str, Any]:
+    """返回团队注册表状态。已废弃，始终返回空。"""
+    return {"ok": True, "members": {}}
+
+
+
+def observer_events(conversation_id: str = "") -> Dict[str, Any]:
+    """拉取并清空指定会话的观察者事件队列。"""
+    return {"ok": True, "events": [], "conversation_id": str(conversation_id or "").strip()}

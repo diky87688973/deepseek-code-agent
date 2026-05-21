@@ -101,6 +101,7 @@
     await restoreColumns(CM);
     await loadHealthModel();
     if (typeof IMM.initComposer === "function") IMM.initComposer(CM);
+    if (typeof IMM.startGlobalSse === "function") IMM.startGlobalSse(CM);
     if (typeof IMM.initKbOverlay === "function") IMM.initKbOverlay();
     for (var k = 0; k < CM.cols.length; k++) {
       if (typeof IMM.loadConversationHistory === "function")

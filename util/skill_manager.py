@@ -34,6 +34,16 @@ class SkillManager:
         if self.skills_dir and self.skills_dir.is_dir():
             self._scan(full=True)
 
+    # ── 隐藏目录过滤 ──
+
+    @staticmethod
+    def _should_skip(file_path: Path) -> bool:
+        """检查文件路径是否在隐藏目录下（目录名以 . 开头），是则跳过。"""
+        for part in file_path.parts:
+            if part.startswith(".") and part != ".":
+                return True
+        return False
+
     # ── 动态检测 ──
 
     def _check_rescan(self) -> None:
@@ -43,7 +53,7 @@ class SkillManager:
         changed = False
         current = {}
         for md_file in self.skills_dir.rglob("*.md"):
-            if not md_file.is_file():
+            if not md_file.is_file() or self._should_skip(md_file):
                 continue
             try:
                 key = str(md_file.resolve())
@@ -106,13 +116,13 @@ class SkillManager:
         # auto_load 子目录
         if auto_dir.is_dir():
             for md_file in sorted(auto_dir.rglob("*.md")):
-                if md_file.is_file():
+                if md_file.is_file() and not self._should_skip(md_file):
                     _collect_one(md_file, is_auto_load=True)
 
         # 其余子目录
         skip_prefix = auto_dir.resolve() if auto_dir.is_dir() else None
         for md_file in sorted(self.skills_dir.rglob("*.md")):
-            if not md_file.is_file():
+            if not md_file.is_file() or self._should_skip(md_file):
                 continue
             if skip_prefix and skip_prefix in md_file.resolve().parents:
                 continue

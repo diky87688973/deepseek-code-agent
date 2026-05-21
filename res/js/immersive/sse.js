@@ -37,6 +37,22 @@
     scrollMsgs(msgsEl);
   }
 
+  function addPeerUser(msgsEl, text, name, cid) {
+    if (!msgsEl) return;
+    var e = document.createElement("div");
+    e.className = "b u peer-agent-msg";
+    var label = String(name || cid || "Agent");
+    e.innerHTML =
+      '<div style="font-size:11px;color:#667;margin-bottom:4px">' +
+      IMM.escapeHtml(label) +
+      (cid && cid !== label ? " / " + IMM.escapeHtml(String(cid).slice(0, 12)) : "") +
+      "</div>" +
+      '<div style="white-space:pre-wrap"></div>';
+    e.lastChild.textContent = text || "";
+    msgsEl.appendChild(e);
+    scrollMsgs(msgsEl);
+  }
+
   function addAssistantMarkdown(msgsEl, md) {
     if (!msgsEl) return;
     var e = document.createElement("div");
@@ -94,9 +110,36 @@
     hideChatLoading(s);
     s.streamAssistantEl = null;
     s.streamAssistantText = "";
+    s.roundReasoningText = "";
     s.pendingDeltaSeparator = false;
     s.anyToolThisTurn = false;
     IMM.userConfirmBlocking = false;
+  }
+
+  /** 模型只写 reasoning、不写 content 时，把推理流同步到主对话区（沉浸页无步骤面板）。 */
+  function appendReasoningToChatIfEmpty(col, chunk, isFullSync) {
+    if (typeof chunk !== "string" || !chunk) return;
+    var s = col.s;
+    if (isFullSync) s.roundReasoningText = chunk;
+    else s.roundReasoningText = (s.roundReasoningText || "") + chunk;
+    if ((s.streamAssistantText || "").trim()) return;
+    if (isFullSync) {
+      var e = ensureStreamBubble(col);
+      if (!e) return;
+      s.streamAssistantText = chunk;
+      e.innerHTML = IMM.renderMarkdown(s.streamAssistantText);
+      scrollMsgs(col.msgsEl);
+    } else {
+      appendDelta(col, chunk);
+    }
+  }
+
+  function promoteReasoningToChatIfNeeded(col) {
+    var s = col.s;
+    var rt = (s.roundReasoningText || "").trim();
+    if (!rt) return;
+    if ((s.streamAssistantText || "").trim()) return;
+    if (!finalizeStream(col, rt)) addAssistantMarkdown(col.msgsEl, rt);
   }
 
   function renderTodoInColumn(col, ev) {
@@ -303,10 +346,9 @@
       var confirmCid = col.id;
       cleanup();
       showChatLoading(msgsEl, col.s);
-      var controller = new AbortController();
-      col.s.abortController = controller;
+      col.s.abortController = { global: true };
       try {
-        var r = await fetch("/api/chat/user-confirm/stream", {
+        var r = await fetch("/api/chat/user-confirm", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -315,7 +357,6 @@
             mode: col.s.selectedMode || IMM.selectedMode || "auto",
             model: col.s.selectedModel || IMM.selectedModel || "deepseek-v4-flash",
           }),
-          signal: controller.signal,
         });
         if (!r.ok) {
           var bt = "";
@@ -323,15 +364,18 @@
             bt = await r.text();
           } catch (e) {}
           addAssistantMarkdown(msgsEl, "确认请求 HTTP " + r.status + " " + String(bt || "").slice(0, 200));
+          col.s.abortController = null;
+          hideChatLoading(col.s);
           return;
         }
-        await drainFn(r, confirmCid, CM);
+        var j = await r.json();
+        if (j && j.run_id) col.s.activeRunId = String(j.run_id || "");
       } catch (err) {
         if (err && err.name === "AbortError") return;
-        addAssistantMarkdown(msgsEl, "确认请求失败: " + (err && err.message ? err.message : String(err)));
-      } finally {
         col.s.abortController = null;
         hideChatLoading(col.s);
+        addAssistantMarkdown(msgsEl, "确认请求失败: " + (err && err.message ? err.message : String(err)));
+      } finally {
         if (typeof IMM.updateComposerBusy === "function") IMM.updateComposerBusy();
       }
     };
@@ -341,6 +385,136 @@
     ok.onclick = function () {
       void submit(buildFinal());
     };
+  }
+
+  function handleChatSseEvent(ev, streamCid, CM) {
+    var packetCid = IMM.normalizeConversationId(ev.conversation_id);
+    if (!packetCid) return "";
+    var col = CM.byId(packetCid);
+    if (!col) return "";
+    var msgsEl = col.msgsEl;
+    var s = col.s;
+    if (ev.type === "conversation") {
+      if (ev.mode) s.selectedMode = String(ev.mode).toLowerCase();
+      if (ev.model) s.selectedModel = String(ev.model || "");
+      if (col.id === CM.activeId && typeof IMM.applyModeModelUi === "function")
+        IMM.applyModeModelUi(s.selectedMode, s.selectedModel);
+    } else if (ev.type === "run_started") {
+      s.activeRunId = String(ev.run_id || "");
+      s.abortController = s.abortController || { global: true };
+      showChatLoading(msgsEl, s);
+    } else if (ev.type === "mode_changed" && ev.mode) {
+      s.selectedMode = String(ev.mode).toLowerCase();
+      if (col.id === CM.activeId && typeof IMM.applyModeModelUi === "function")
+        IMM.applyModeModelUi(s.selectedMode, s.selectedModel);
+    } else if (ev.type === "context_layout") {
+      col.s.lastContextLayout = ev;
+      if (col.id === CM.activeId && typeof IMM.updateImmersiveContextBar === "function")
+        IMM.updateImmersiveContextBar();
+    } else if (ev.type === "llm_round") {
+      col.s.roundReasoningText = "";
+    } else if (
+      ev.type === "dispatch_title" ||
+      ev.type === "llm_request" ||
+      ev.type === "llm_response" ||
+      ev.type === "llm_done" ||
+      ev.type === "tool_start" ||
+      ev.type === "tool_progress" ||
+      ev.type === "tool_preview_update" ||
+      ev.type === "usage" ||
+      ev.type === "heartbeat" ||
+      ev.type === "global_sse_ready"
+    ) {
+      if (ev.type === "llm_done") promoteReasoningToChatIfNeeded(col);
+    } else if (ev.type === "tool_end") {
+      if (ev.user_confirm_required) openUserConfirm(ev, col, CM, drainChatSseFromResponse);
+      if (ev.todo_list && ev.todo_list_data) {
+        var td = ev.todo_list_data;
+        renderTodoInColumn(col, {
+          items: td.items || [],
+          all_done: Array.isArray(td.items) && td.items.every(function (it) {
+            return !!it.done;
+          }),
+        });
+      }
+    } else if (ev.type === "assistant_delta") {
+      if (s.anyToolThisTurn) s.anyToolThisTurn = false;
+      appendDelta(col, ev.delta || "");
+    } else if (ev.type === "peer_message") {
+      addPeerUser(msgsEl, ev.content || "", ev.sender_name || "", ev.sender || "");
+    } else if (ev.type === "assistant_markdown") {
+      if (s.anyToolThisTurn) s.anyToolThisTurn = false;
+      var md = ev.markdown;
+      if (typeof md === "string" && md.trim()) {
+        var e2 = ensureStreamBubble(col);
+        if (e2) {
+          if (s.streamAssistantText && !s.streamAssistantText.endsWith("\n")) s.streamAssistantText += "\n";
+          s.streamAssistantText += md.trim() + "\n";
+          e2.innerHTML = IMM.renderMarkdown(s.streamAssistantText);
+          scrollMsgs(msgsEl);
+        }
+      }
+    } else if (ev.type === "assistant") {
+      if (s.anyToolThisTurn) s.anyToolThisTurn = false;
+      if (!finalizeStream(col, ev.content || "")) addAssistantMarkdown(msgsEl, ev.content || "");
+    } else if (ev.type === "done") {
+      promoteReasoningToChatIfNeeded(col);
+      finalizeStream(col, "");
+      s.abortController = null;
+      s.activeRunId = "";
+      hideChatLoading(s);
+      if (typeof IMM.updateComposerBusy === "function") IMM.updateComposerBusy();
+    } else if (ev.type === "stopped") {
+      resetTurnState(col);
+      if (ev.message) addAssistantMarkdown(msgsEl, ev.message);
+      s.abortController = null;
+      s.activeRunId = "";
+      hideChatLoading(s);
+      if (typeof IMM.updateComposerBusy === "function") IMM.updateComposerBusy();
+    } else if (ev.type === "paused_for_user_confirm") {
+      hideChatLoading(s);
+      return "paused_for_user_confirm";
+    } else if (ev.type === "todo_list") {
+      if (ev.close) {
+        var todoHost = msgsEl && msgsEl.parentNode && msgsEl.parentNode.querySelector(".imm-col-todo");
+        if (todoHost) todoHost.style.display = "none";
+      } else {
+        renderTodoInColumn(col, ev);
+      }
+    } else if (ev.type === "reasoning_delta") {
+      appendReasoningToChatIfEmpty(col, ev.delta || "", false);
+    } else if (ev.type === "reasoning_sync") {
+      appendReasoningToChatIfEmpty(col, ev.text || "", true);
+    } else if (ev.type === "error") {
+      hideChatLoading(s);
+      resetTurnState(col);
+      s.abortController = null;
+      s.activeRunId = "";
+      addAssistantMarkdown(msgsEl, "错误: " + JSON.stringify(ev.detail || ev));
+      if (typeof IMM.updateComposerBusy === "function") IMM.updateComposerBusy();
+    } else if (ev.type === "inbox_queued") {
+      addAssistantMarkdown(msgsEl, "已收到来自 " + (ev.from_name || ev.from || "其他 Agent") + " 的排队消息。");
+    }
+    return "";
+  }
+
+  function startGlobalSse(CM) {
+    if (!CM || IMM.globalSseSource) return;
+    try {
+      var es = new EventSource("/api/events/stream");
+      IMM.globalSseSource = es;
+      es.onmessage = function (e) {
+        if (!e || !e.data) return;
+        var ev;
+        try {
+          ev = JSON.parse(e.data);
+        } catch (_err) {
+          return;
+        }
+        handleChatSseEvent(ev, "", CM);
+      };
+      es.onerror = function () {};
+    } catch (_e) {}
   }
 
   async function drainChatSseFromResponse(r, streamCid, CM) {
@@ -404,9 +578,10 @@
             col.s.lastContextLayout = ev;
             if (col.id === CM.activeId && typeof IMM.updateImmersiveContextBar === "function")
               IMM.updateImmersiveContextBar();
+          } else if (ev.type === "llm_round") {
+            col.s.roundReasoningText = "";
           } else if (
             ev.type === "dispatch_title" ||
-            ev.type === "llm_round" ||
             ev.type === "llm_request" ||
             ev.type === "llm_response" ||
             ev.type === "llm_done" ||
@@ -414,6 +589,7 @@
             ev.type === "tool_progress" ||
             ev.type === "tool_preview_update"
           ) {
+            if (ev.type === "llm_done") promoteReasoningToChatIfNeeded(col);
             /* 步骤 / LLM 卡片：不渲染 */
           } else if (ev.type === "tool_end") {
             if (ev.user_confirm_required) openUserConfirm(ev, col, CM, drainChatSseFromResponse);
@@ -445,6 +621,7 @@
             if (s.anyToolThisTurn) s.anyToolThisTurn = false;
             if (!finalizeStream(col, ev.content || "")) addAssistantMarkdown(msgsEl, ev.content || "");
           } else if (ev.type === "done") {
+            promoteReasoningToChatIfNeeded(col);
             finalizeStream(col, "");
           } else if (ev.type === "stopped") {
             resetTurnState(col);
@@ -459,8 +636,10 @@
             } else {
               renderTodoInColumn(col, ev);
             }
-          } else if (ev.type === "reasoning_delta" || ev.type === "reasoning_sync") {
-            /* 无 lastLlm 卡片时跳过推理块（1.1） */
+          } else if (ev.type === "reasoning_delta") {
+            appendReasoningToChatIfEmpty(col, ev.delta || "", false);
+          } else if (ev.type === "reasoning_sync") {
+            appendReasoningToChatIfEmpty(col, ev.text || "", true);
           } else if (ev.type === "error") {
             hideChatLoading(s);
             resetTurnState(col);
@@ -472,9 +651,12 @@
   }
 
   IMM.drainChatSseFromResponse = drainChatSseFromResponse;
+  IMM.handleChatSseEvent = handleChatSseEvent;
+  IMM.startGlobalSse = startGlobalSse;
   IMM.immShowChatLoading = showChatLoading;
   IMM.immHideChatLoading = hideChatLoading;
   IMM.immAddUser = addUser;
+  IMM.immAddPeerUser = addPeerUser;
   IMM.immAddAssistantMarkdown = addAssistantMarkdown;
   IMM.userConfirmBlocking = false;
   IMM.userConfirmCardHost = null;

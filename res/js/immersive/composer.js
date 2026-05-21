@@ -191,9 +191,15 @@
       while (msgsEl.firstChild) msgsEl.removeChild(msgsEl.firstChild);
       for (var i = 0; i < items.length; i++) {
         var it = items[i] || {};
-        if (it.role === "user") IMM.immAddUser(msgsEl, String(it.content || ""));
-        else if (it.role === "assistant")
-          IMM.immAddAssistantMarkdown(msgsEl, String(it.content || ""));
+        if (it.role === "user") {
+          if (it._sender && it._sender !== "boss" && typeof IMM.immAddPeerUser === "function")
+            IMM.immAddPeerUser(msgsEl, String(it.content || ""), String(it._sender_name || ""), String(it._sender || ""));
+          else IMM.immAddUser(msgsEl, String(it.content || ""));
+        }
+        else if (it.role === "assistant") {
+          var ac = String(it.content || "").trim();
+          if (ac) IMM.immAddAssistantMarkdown(msgsEl, ac);
+        }
       }
       requestAnimationFrame(function () {
         requestAnimationFrame(function () {
@@ -239,12 +245,11 @@
     ta.value = "";
     autoResize();
     IMM.immShowChatLoading(col.msgsEl, col.s);
-    var controller = new AbortController();
-    col.s.abortController = controller;
+    col.s.abortController = { global: true };
     col.s.activeRunId = "";
     IMM.updateComposerBusy();
     try {
-      var r = await fetch("/api/chat/stream", {
+      var r = await fetch("/api/chat/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -253,7 +258,6 @@
           mode: col.s.selectedMode || IMM.selectedMode,
           model: col.s.selectedModel || IMM.selectedModel,
         }),
-        signal: controller.signal,
       });
       if (!r.ok) {
         var bt = "";
@@ -261,22 +265,25 @@
           bt = await r.text();
         } catch (e) {}
         IMM.immHideChatLoading(col.s);
+        col.s.abortController = null;
+        col.s.activeRunId = "";
         IMM.immAddAssistantMarkdown(col.msgsEl, "HTTP " + r.status + " " + String(bt || "").slice(0, 400));
         return;
       }
-      await IMM.drainChatSseFromResponse(r, sendCid, CM);
+      var j = await r.json();
+      if (j && j.run_id) col.s.activeRunId = String(j.run_id || "");
       void refreshConversationTitle(sendCid);
     } catch (err) {
       if (!(err && err.name === "AbortError")) {
         IMM.immHideChatLoading(col.s);
+        col.s.abortController = null;
+        col.s.activeRunId = "";
         IMM.immAddAssistantMarkdown(
           col.msgsEl,
           "请求失败: " + (err && err.message ? err.message : String(err))
         );
       }
     } finally {
-      col.s.abortController = null;
-      IMM.immHideChatLoading(col.s);
       IMM.updateComposerBusy();
       persistUiState();
     }
@@ -294,7 +301,7 @@
       }).catch(function () {});
     } catch (e) {}
     try {
-      col.s.abortController.abort();
+      if (col.s.abortController && typeof col.s.abortController.abort === "function") col.s.abortController.abort();
     } catch (e2) {}
     col.s.abortController = null;
     col.s.activeRunId = "";
