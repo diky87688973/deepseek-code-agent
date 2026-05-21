@@ -199,6 +199,7 @@ dir = D:/AI_DATA_ROOT/knowledge_base
 | 端点 | 方法 | 用途 |
 |------|------|------|
 | `/` | GET | 主页面 |
+| `/immersive` | GET | 沉浸模式页面 |
 | `/api/chat/send` | POST | 提交用户消息，启动会话执行 |
 | `/api/chat/stop` | POST | 停止当前生成 |
 | `/api/chat/title` | POST | 自动生成会话标题 |
