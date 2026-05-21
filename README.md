@@ -196,22 +196,24 @@ dir = D:/AI_DATA_ROOT/knowledge_base
 
 ## API 接口
 
-| 端点 | 用途 |
-|------|------|
-| `GET /api/events/stream` | 页面级全局 SSE 通道，所有会话事件通过 `conversation_id` 分发 |
-| `POST /api/chat/send` | 提交用户消息并后台启动对应会话运行 |
-| `POST /api/chat/user-confirm` | 提交人类确认并后台恢复对应会话运行 |
-| `POST /api/chat/stop` | 停止当前生成 |
-| `POST /api/chat/title` | 自动生成会话标题 |
-| `GET /api/chat/history` | 获取对话历史 |
-| `GET /api/chat/sessions` | 获取所有会话列表 |
-| `GET /api/kb/files` | 列出知识库文件 |
-| `GET /api/kb/checked` | 查看当前勾选的知识库文件 |
-| `PUT /api/kb/checked` | 保存勾选状态 |
-| `GET /api/model-pricing` | 查询模型费用 |
-| `GET /api/usage-accumulator` | 查看用量统计 |
-| `GET /api/dir-browse` | 浏览文件目录 |
-| `GET /health` | 健康检查 |
+| 端点 | 方法 | 用途 |
+|------|------|------|
+| `/` | GET | 主页面 |
+| `/api/chat/send` | POST | 提交用户消息，启动会话执行 |
+| `/api/chat/stop` | POST | 停止当前生成 |
+| `/api/chat/title` | POST | 自动生成会话标题 |
+| `/api/chat/user-confirm` | POST | 提交用户确认 |
+| `/api/chat/history` | GET | 获取对话历史 |
+| `/api/chat/sessions` | GET | 获取会话列表 |
+| `/api/chat/ui-state` | GET/PUT | 读写界面布局状态 |
+| `/api/events/stream` | GET | 全局 SSE 事件流 |
+| `/api/kb/files` | GET | 列出知识库文件 |
+| `/api/kb/checked` | GET/PUT | 读写知识库勾选状态 |
+| `/api/model-pricing` | GET | 查询模型定价 |
+| `/api/reasoning-effort` | GET/PUT | 读写推理档位 |
+| `/api/usage-accumulator` | GET/PUT | 用量统计 |
+| `/api/dir-browse` | GET | 浏览文件目录 |
+| `/health` | GET | 健康检查 |
 
 ---
 
@@ -224,8 +226,7 @@ dir = D:/AI_DATA_ROOT/knowledge_base
 | API 返回 502 | API Key 无效或网络不通 | 检查 `CHAT_API_KEY` 和网络连接 |
 | Linux 下 `./start.sh` 无法运行 | 文件无执行权限 | 执行 `chmod +x start.sh` |
 | 模型不调用工具 | 模型不支持 function calling | 切换到 DeepSeek-v4 系列 |
-| 退出后项目目录无法保存文件 | 非正常退出，ACL 锁残留 | 重新运行 start.bat 启动一次再退出即可解锁 |
 
 ---
 
-> 文档版本：v1.2  |  更新于：2026-05-16  |  作者：Fan
+> 文档版本：v1.3  |  更新于：2026-05-21  |  作者：Fan
