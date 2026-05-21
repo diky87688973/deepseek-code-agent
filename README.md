@@ -1,28 +1,8 @@
 # DeepSeek Code Agent v1.3
 
-> 基于 WEB 浏览器的 AI 桌面助手，内嵌丰富工具，通过对话完成文件编辑、代码诊断、Git 查询、Web 抓取等复杂任务。
+> 基于 WEB 浏览器的 AI 桌面助手，内嵌丰富工具，通过对话完成文件编辑、代码诊断、Git 查询、Web 抓取、多 Agent 协同等复杂任务。
 
 ---
-
-## 🤖 多 Agent 协作（Agent Session Mesh）
-
-通过 `session_create` 可创建自由 Agent，形成多 Agent 协作网络：
-
-| 工具 | 用途 |
-|------|------|
-| `session_create` | 创建自由 Agent，支持名字池自动取名、标签隔离、`.title` 文件自动写入 |
-| `session_send` | 点对点发送消息（`requires_reply` 必填） |
-| `session_multisend` | 向指定多个 Agent 群发同一条消息（`requires_reply` 必填） |
-| `session_broadcast` | 按 tag 筛选广播消息（`requires_reply` 必填） |
-| `session_list` | 列出所有自由 Agent 及其状态 |
-| `session_wait` | 等待指定 Agent 回复（含哨兵安全检查防挂起） |
-
-**通讯规则：**
-- 所有消息元数据使用下划线风格（`requires_reply`、`thread_id`）
-- `requires_reply=true` 表示接收方必须用工具回复，`false` 为纯通知
-- 消息前缀带 `[from=... | sender_cid=...]` 的来自其他 Agent
-- 消息不带前缀的来自 Boss（用户），优先级最高
-- Agent 名称池在 `config.ini [agent] name_pool` 中配置
 
 ## 快速开始
 
@@ -206,7 +186,7 @@ dir = D:/AI_DATA_ROOT/knowledge_base
 
 ## 核心特性
 
-- **25+ 内置工具**：文件编辑、目录浏览、Git 查询、Web 抓取、代码诊断、正则搜索、可灵视频生成等
+- **多 Agent 协同**：可创建多个 AI 助手分工协作，互发消息接力执行，形成高效协作流水线
 - **长对话记忆**：保留最近 60 轮对话，超过 800 条自动摘要压缩
 - **KV 缓存优化**：充分利用 DeepSeek prefix caching，降低使用成本
 - **对话加密存储**：Windows DPAPI / 本地密钥加密，重启自动恢复
