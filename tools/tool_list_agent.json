@@ -3798,6 +3798,12 @@
           "description": "操作类型：login(设备登录) / get_repo(仓库信息) / list_issues(列出Issue) / create_issue(创建Issue) / list_releases(列出Release) / set_topics(设置Topics)"
         },
         {
+          "flag": "--repo",
+          "type": "string",
+          "required": false,
+          "description": "仓库名 owner/repo（login 时可省略）"
+        },
+        {
           "flag": "--title",
           "type": "string",
           "required": false,
@@ -3833,14 +3839,16 @@
         {
           "title": "获取仓库信息",
           "args": {
-            "action": "get_repo"
+            "action": "get_repo",
+            "repo": "owner/repo"
           }
         },
         {
           "title": "列出 Issues",
           "args": {
             "action": "list_issues",
-            "state": "open"
+            "state": "open",
+            "repo": "owner/repo"
           }
         },
         {
@@ -3848,20 +3856,23 @@
           "args": {
             "action": "create_issue",
             "title": "Bug: xxx",
-            "body": "详细描述"
+            "body": "详细描述",
+            "repo": "owner/repo"
           }
         },
         {
           "title": "列出 Releases",
           "args": {
-            "action": "list_releases"
+            "action": "list_releases",
+            "repo": "owner/repo"
           }
         },
         {
           "title": "设置 Topics",
           "args": {
             "action": "set_topics",
-            "topics": "ai-agent,code-agent"
+            "topics": "ai-agent,code-agent",
+            "repo": "owner/repo"
           }
         }
       ]
