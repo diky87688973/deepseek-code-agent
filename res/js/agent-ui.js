@@ -1503,7 +1503,85 @@ stopPendingToolTags();stopOpenToolTags();if(lastLlm&&lastLlm.tag){finishLlmTitle
 }
 function isHostProgressToolScript(script){
 var s=String(script||"").toLowerCase();
-return s.indexOf("file_search")>=0||s.indexOf("grep_files")>=0||s.indexOf("regex_locate")>=0;
+return s.indexOf("file_search")>=0||s.indexOf("grep_files")>=0||s.indexOf("regex_locate")>=0||s.indexOf("run_command")>=0||s.indexOf("python_inline")>=0;
+}
+function isStreamOutputToolScript(script){
+var s=String(script||"").toLowerCase();
+return s.indexOf("run_command")>=0||s.indexOf("python_inline")>=0;
+}
+function isRunCommandToolScript(script){
+return String(script||"").toLowerCase().indexOf("run_command")>=0;
+}
+async function submitCommandInputToServer(cid,tid,input){
+try{
+var r=await fetch("/api/chat/command-input",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({conversation_id:cid,tool_call_id:tid,input:input})});
+return r.ok;
+}catch(e){return false;}
+}
+function ensureRunCommandLivePanel(o){
+if(!o||o.liveOutPre)return;
+if(!o.resPb)return;
+o.resLb.style.display="block";
+o.resPb.style.display="block";
+o.resLb.textContent="实时输出";
+o.resPb.className="sub chat-run-live-out";
+o.liveOutPre=o.resPb;
+}
+function renderRunCommandInputBar(o,ev){
+var card=findStepCardForToolCall(String(ev.tool_call_id||"").trim());
+if(!card||o.cmdInputBar)return;
+var ai=ev.awaiting_input||{};
+var title=String(ai.title||"命令需要确认").trim();
+var opts=Array.isArray(ai.options)&&ai.options.length?ai.options:["Y","N"];
+var bar=document.createElement("div");
+bar.className="cmd-input-bar";
+bar.style.cssText="margin:8px 0;padding:8px;background:#1a1d24;border:1px solid #333;border-radius:6px;font-size:12px";
+var cap=document.createElement("div");
+cap.style.cssText="color:#ccc;margin-bottom:6px;white-space:pre-wrap;max-height:120px;overflow:auto";
+cap.textContent=title;
+bar.appendChild(cap);
+var row=document.createElement("div");
+row.style.cssText="display:flex;flex-wrap:wrap;gap:8px;align-items:center";
+opts.forEach(function(opt){
+var btn=document.createElement("button");
+btn.type="button";
+btn.textContent=opt;
+btn.style.cssText="padding:4px 12px;cursor:pointer";
+btn.onclick=function(){
+var cid=normalizeConversationId(ev.conversation_id||activeConversationId);
+var tid=String(ev.tool_call_id||"").trim();
+submitCommandInputToServer(cid,tid,opt);
+if(o.tag){o.tag.textContent="已发送 "+opt;o.tag.className="tag tag-run";}
+try{bar.remove();}catch(e){}o.cmdInputBar=null;
+};
+row.appendChild(btn);
+});
+var hint=document.createElement("span");
+hint.style.cssText="color:#888;margin-left:4px";
+hint.textContent="（也可在下方输入框自定义后发送）";
+row.appendChild(hint);
+var custom=document.createElement("input");
+custom.type="text";
+custom.placeholder="自定义输入，如 Y";
+custom.style.cssText="flex:1;min-width:120px;padding:4px 8px;background:#0d1117;color:#eee;border:1px solid #444;border-radius:4px";
+var sendBtn=document.createElement("button");
+sendBtn.type="button";
+sendBtn.textContent="发送";
+sendBtn.onclick=function(){
+var v=String(custom.value||"").trim();
+if(!v)return;
+var cid=normalizeConversationId(ev.conversation_id||activeConversationId);
+var tid=String(ev.tool_call_id||"").trim();
+submitCommandInputToServer(cid,tid,v);
+try{bar.remove();}catch(e){}o.cmdInputBar=null;
+};
+row.appendChild(custom);
+row.appendChild(sendBtn);
+bar.appendChild(row);
+var body=card.querySelector(".card-body-inner")||card.querySelector(".card-body");
+if(body)body.appendChild(bar);
+else card.appendChild(bar);
+o.cmdInputBar=bar;
 }
 function onToolStart(ev){if(!anyToolThisTurn){anyToolThisTurn=true;}
 var merged=!!(lastLlm&&lastLlm.cardEl&&!llmStreamBuffer.consumed);
@@ -1540,18 +1618,27 @@ const pa=document.createElement("pre");pa.className="sub";pa.textContent=JSON.st
 const pv=document.createElement("div");pv.className="preview-slot";pv.style.display="none";
 const lb=document.createElement("p");lb.className="lbl";lb.textContent="响应";lb.style.display="none";
 const pb=document.createElement("pre");pb.className="sub tool-res";pb.style.display="none";pb.textContent="";
+if(isStreamOutputToolScript(ev.script)){lb.textContent="实时输出";lb.style.display="block";pb.style.display="block";pb.className="sub tool-res chat-run-live-out";pb.textContent="（等待输出…）";}
 inner.appendChild(la);inner.appendChild(pa);inner.appendChild(pv);inner.appendChild(lb);inner.appendChild(pb);
 if(merged){if(lastLlm&&(lastLlm.reasoningText||"").length>0){var rw=document.createElement("div");rw.className="reasoning-block";var rl=document.createElement("p");rl.className="lbl reasoning-section-lbl";rl.textContent="思考过程";var rp=document.createElement("pre");rp.className="sub reasoning-pre";rp.textContent=lastLlm.reasoningText;rw.appendChild(rl);rw.appendChild(rp);inner.insertBefore(rw,inner.firstChild);}var aw=createToolAnalysisBlock();fillAnalysisBlockFromBuffer(aw);inner.appendChild(aw);removeMergedLlmCard();llmStreamBuffer.consumed=true;}
 flushPendingSteps();
 body.appendChild(inner);
 c.appendChild(h);c.appendChild(body);
 h.onclick=function(){c.classList.toggle("open");};
-appendStep(c);if(mergeKeepOpen)c.classList.add("open");toolOpen.set(tid,{tag:tag,resLb:lb,resPb:pb,previewSlot:pv,args:ev.args||{},script:ev.script||"",spinWrap:spinWrap,stepTitle:_stt,fileSpan:null,progressBadge:null});}
+appendStep(c);if(mergeKeepOpen)c.classList.add("open");toolOpen.set(tid,{tag:tag,resLb:lb,resPb:pb,previewSlot:pv,args:ev.args||{},script:ev.script||"",spinWrap:spinWrap,stepTitle:_stt,fileSpan:null,progressBadge:null,liveOutPre:isStreamOutputToolScript(ev.script)?pb:null,cmdInputBar:null});}
 
 function onToolProgress(ev){
 var tid=String(ev.tool_call_id!=null?ev.tool_call_id:"").trim();
 var o=tid&&toolOpen.get(tid);
 if(!o)return;
+if(isStreamOutputToolScript(o.script)){
+ensureRunCommandLivePanel(o);
+if(o.tag&&o.tag.parentNode)o.tag.textContent="进行中 "+(ev.elapsed_sec!=null?ev.elapsed_sec+"s":"");
+var tail=String(ev.stdout_tail!=null?ev.stdout_tail:ev.stdoutTail||"");
+if(o.liveOutPre&&tail){o.liveOutPre.textContent=tail;scrollMsgsToBottom();}
+if(isRunCommandToolScript(o.script)&&ev.awaiting_input)renderRunCommandInputBar(o,ev);
+return;
+}
 if(!isHostProgressToolScript(o.script))return;
 var sc=ev.scanned;
 var te=ev.totalEstimated;

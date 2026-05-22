@@ -25,6 +25,12 @@ class ChatIn(BaseModel):
     )
 
 
+class ChatCommandInputIn(BaseModel):
+    conversation_id: str = Field(..., description="会话 id")
+    tool_call_id: str = Field(..., description="当前 run_command 的 tool_call_id")
+    input: str = Field(..., description="发送到子进程 stdin 的文本，如 Y 或 N")
+
+
 class ChatUserConfirmIn(BaseModel):
     conversation_id: str = Field(..., description="Thread id (matches session / cid)")
     confirm: str = Field(..., description="User-selected or typed confirmation text")

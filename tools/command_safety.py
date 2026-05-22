@@ -3,12 +3,24 @@
 
 from __future__ import annotations
 
+import atexit
 import os
 import re
 import shutil
+import subprocess
+import threading
 from typing import Optional, Tuple, Union
 
+# 命令/内联脚本：实时 tool_progress 与 tool_end.preview 共用展示上限（保持一致）
+STREAM_OUTPUT_TAIL_MAX_CHARS = 12000
+STREAM_OUTPUT_STDERR_TAIL_MAX_CHARS = 4000
+
+# run_command 当前 shell 子进程（供超时后 taskkill /T 强杀，避免 Windows 下只杀 cmd 不杀 winget）
+_ACTIVE_SHELL_PID_LOCK = threading.Lock()
+_ACTIVE_SHELL_PID: Optional[int] = None
+
 _SAFE_BLOCK_RE = re.compile(r"[;&|`$><]")
+_ANSI_ESC_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?\x07|\x08|\r")
 
 # ── 命令黑名单：真删除/毁灭性操作 ──
 # 无论 safe_mode=true/false，均拦截。应改用 delete_file（逻辑删除移至回收站）。
@@ -159,6 +171,81 @@ def _validate_safe_command(command: str) -> None:
     if m is None:
         return
     raise ValueError(f"safe_mode：命令包含禁止字符: {m.group(0)}")
+
+
+def register_shell_process(pid: int) -> None:
+    global _ACTIVE_SHELL_PID
+    with _ACTIVE_SHELL_PID_LOCK:
+        _ACTIVE_SHELL_PID = int(pid)
+
+
+def unregister_shell_process() -> None:
+    global _ACTIVE_SHELL_PID
+    with _ACTIVE_SHELL_PID_LOCK:
+        _ACTIVE_SHELL_PID = None
+
+
+def kill_shell_process_tree(pid: Optional[int] = None) -> None:
+    """结束进程及其子进程（Windows: taskkill /T）。"""
+    with _ACTIVE_SHELL_PID_LOCK:
+        target = int(pid if pid is not None else (_ACTIVE_SHELL_PID or 0))
+    if target <= 0:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(target)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+            check=False,
+        )
+    else:
+        import signal
+
+        try:
+            os.killpg(os.getpgid(target), signal.SIGKILL)
+        except (ProcessLookupError, OSError):
+            try:
+                os.kill(target, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+
+
+def force_kill_active_shell_process() -> bool:
+    """宿主硬超时：强杀当前 run_command 进程树。"""
+    with _ACTIVE_SHELL_PID_LOCK:
+        pid = _ACTIVE_SHELL_PID
+    if not pid:
+        return False
+    kill_shell_process_tree(pid)
+    return True
+
+
+def sanitize_command_output_for_display(
+    text: str, *, max_chars: int = STREAM_OUTPUT_TAIL_MAX_CHARS
+) -> str:
+    """去掉 ANSI/回车覆盖行，压缩空行，供 SSE 预览与聊天卡片展示。"""
+    if not text:
+        return ""
+    t = _ANSI_ESC_RE.sub("", str(text))
+    lines = t.splitlines()
+    compact: list[str] = []
+    empty_run = 0
+    for line in lines:
+        if not line.strip():
+            empty_run += 1
+            if empty_run <= 2:
+                compact.append(line)
+            continue
+        empty_run = 0
+        compact.append(line)
+    t = "\n".join(compact)
+    if len(t) > max_chars:
+        return t[:max_chars] + "\n…(输出已截断)"
+    return t
+
+
+atexit.register(force_kill_active_shell_process)
 
 
 def _resolve_shell_executable(shell_mode: str, command: str) -> Tuple[str, Optional[str]]:

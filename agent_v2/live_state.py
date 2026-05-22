@@ -255,10 +255,49 @@ def server_shutting_down() -> bool:
     return _SERVER_SHUTTING_DOWN
 
 
+_COMMAND_INPUT_TARGETS: Dict[str, Dict[str, Any]] = {}
+_COMMAND_INPUT_LOCK = threading.Lock()
+
+
+def register_command_input_target(key: str, progress: Dict[str, Any]) -> None:
+    k = str(key or "").strip()
+    if not k or not isinstance(progress, dict):
+        return
+    with _COMMAND_INPUT_LOCK:
+        _COMMAND_INPUT_TARGETS[k] = progress
+
+
+def unregister_command_input_target(key: str) -> None:
+    k = str(key or "").strip()
+    if not k:
+        return
+    with _COMMAND_INPUT_LOCK:
+        _COMMAND_INPUT_TARGETS.pop(k, None)
+
+
+def submit_command_input(key: str, text: str) -> bool:
+    """向正在执行的 run_command 写入 stdin（由 progress['_user_input'] 传递）。"""
+    k = str(key or "").strip()
+    if not k:
+        return False
+    with _COMMAND_INPUT_LOCK:
+        progress = _COMMAND_INPUT_TARGETS.get(k)
+    if not isinstance(progress, dict):
+        return False
+    progress["_user_input"] = str(text or "")
+    return True
+
+
 def abort_all_conversation_runs_on_shutdown() -> None:
     """uvicorn 关闭时标记所有活跃 run 为停止，避免 graceful shutdown 被 SSE 挂死。"""
     global _SERVER_SHUTTING_DOWN
     _SERVER_SHUTTING_DOWN = True
+    try:
+        from command_safety import force_kill_active_shell_process
+
+        force_kill_active_shell_process()
+    except Exception:
+        pass
     with _CONVERSATION_STOP_LOCK:
         for cid, run_id in list(_ACTIVE_CONVERSATION_RUNS.items()):
             if run_id:

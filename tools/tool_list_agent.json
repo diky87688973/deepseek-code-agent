@@ -2731,7 +2731,7 @@
     {
       "name": "run_command.py",
       "path": "tools/run_command.py",
-      "purpose": "【最低优先级】在 shell 中执行 command，收集 stdout/stderr/exit_code。文件操作用专用工具。safe_mode 默认 true 拦截高危元字符；shell 可选 auto/cmd/powershell。Plan 拒绝执行。",
+      "purpose": "【最低优先级】在 shell 中执行 command，收集 stdout/stderr/exit_code；宿主会推送 tool_progress 实时输出。文件操作用专用工具。safe_mode 默认 true。winget 须非交互：--accept-package-agreements --accept-source-agreements；若仍出现 [Y/N] 协议提示，用户可在步骤卡片点 Y/N 或自定义输入。安装类 timeout_sec≥300。",
       "stdout_output": "{ok,data:{stdout,stderr,exit_code}}",
       "args": [
         {
@@ -2829,7 +2829,7 @@
     {
       "name": "python_inline.py",
       "path": "tools/python_inline.py",
-      "purpose": "【胶水】exec 执行一段 Python 源码（不经 shell），stdout/stderr 由宿主捕获。复杂编排可用；Plan 拒绝。代码内不要字面调用 file_search/grep_files 工具名字符串代替真实 function call。",
+      "purpose": "【胶水】exec 执行一段 Python 源码（不经 shell），stdout/stderr 由宿主捕获；宿主推送 tool_progress 实时输出（print 会滚动显示）。复杂编排可用；Plan 拒绝。勿用本工具代替 run_command 跑 winget/npm 等 shell 安装。代码内不要字面调用 file_search/grep_files 工具名字符串代替真实 function call。",
       "stdout_output": "{ok,data:{stdout,stderr,exit_code,timeout}}",
       "args": [
         {

@@ -22,7 +22,9 @@ import sys
 _FILE_SEARCH_ALLOWED: bool = False
 _RESTRICTED_TOOLS: frozenset = frozenset({"file_search.py"})
 # 走线程 + _progress_dict，宿主轮询并推送 tool_progress（与 file_search 一致）
-_TOOL_PROGRESS_SCRIPTS: frozenset = frozenset({"file_search.py", "grep_files.py", "regex_locate.py"})
+_TOOL_PROGRESS_SCRIPTS: frozenset = frozenset(
+    {"file_search.py", "grep_files.py", "regex_locate.py", "run_command.py", "python_inline.py"}
+)
 # 写盘/写类工具：宿主在 dry_run 预览成功时统一注入 host_dry_run_notice（Plan 模式跳过）
 WRITE_TOOL_SCRIPTS: frozenset = frozenset(
     {
@@ -1210,6 +1212,70 @@ def execute_tool_script(script_name: str, args: Dict[str, Any], *, conversation_
         return _execute_tool_script_locked(script_name, args)
 
 
+def _tool_progress_sse_event(
+    progress: Dict[str, Any],
+    *,
+    conversation_id: str,
+    tool_call_id: str,
+    script: str,
+) -> Dict[str, Any]:
+    if script in ("run_command.py", "python_inline.py"):
+        if not isinstance(progress, dict):
+            return {}
+        tail = progress.get("stdout_tail") or ""
+        awaiting = progress.get("awaiting_input")
+        if not tail and not awaiting and not progress.get("_seq"):
+            return {}
+        try:
+            from command_safety import (
+                STREAM_OUTPUT_STDERR_TAIL_MAX_CHARS,
+                STREAM_OUTPUT_TAIL_MAX_CHARS,
+            )
+        except Exception:
+            STREAM_OUTPUT_TAIL_MAX_CHARS = 12000
+            STREAM_OUTPUT_STDERR_TAIL_MAX_CHARS = 4000
+        phase = "run_command" if script == "run_command.py" else "python_inline"
+        ev: Dict[str, Any] = {
+            "type": "tool_progress",
+            "conversation_id": conversation_id,
+            "tool_call_id": tool_call_id,
+            "phase": phase,
+            "stdout_tail": str(tail)[:STREAM_OUTPUT_TAIL_MAX_CHARS],
+            "stderr_tail": str(progress.get("stderr_tail") or "")[:STREAM_OUTPUT_STDERR_TAIL_MAX_CHARS],
+            "elapsed_sec": progress.get("elapsed_sec"),
+        }
+        if isinstance(awaiting, dict) and awaiting:
+            ev["awaiting_input"] = awaiting
+            ck = progress.get("command_input_key")
+            if ck:
+                ev["command_input_key"] = ck
+        return ev
+    _sp = progress.get("scanned")
+    if _sp is None:
+        return {}
+    _cf = progress.get("current_file", "")
+    if not isinstance(_cf, str):
+        _cf = str(_cf) if _cf is not None else ""
+    return {
+        "type": "tool_progress",
+        "conversation_id": conversation_id,
+        "tool_call_id": tool_call_id,
+        "scanned": _sp,
+        "current_file": _cf,
+    }
+
+
+def _tool_host_wall_timeout_sec(script_name: str, exec_args: Dict[str, Any]) -> float:
+    """宿主等待工具线程的上限（略大于 run_command 的 timeout_sec）。"""
+    if script_name in ("run_command.py", "python_inline.py"):
+        try:
+            t = int(exec_args.get("timeout_sec") or 300)
+        except (TypeError, ValueError):
+            t = 300
+        return float(max(5, min(t, 3600))) + 45.0
+    return 900.0
+
+
 def _execute_tool_script_stoppable(
     conversation_id: str,
     run_id: str,
@@ -1225,6 +1291,8 @@ def _execute_tool_script_stoppable(
     if progress is not None:
         args["_progress_dict"] = progress
     holder: Dict[str, Any] = {}
+    wall_deadline = time.monotonic() + _tool_host_wall_timeout_sec(script_name, args)
+    kill_sent = False
 
     def _run() -> None:
         try:
@@ -1244,6 +1312,13 @@ def _execute_tool_script_stoppable(
         if _turn_abort_requested(conversation_id, run_id):
             if progress is not None:
                 progress["_abort"] = True
+            if script_name == "run_command.py":
+                try:
+                    from command_safety import force_kill_active_shell_process
+
+                    force_kill_active_shell_process()
+                except Exception:
+                    pass
             for _ in range(40):
                 if not t.is_alive():
                     break
@@ -1251,9 +1326,29 @@ def _execute_tool_script_stoppable(
             if t.is_alive():
                 return _user_stopped_tool_result_dict()
             break
+        if time.monotonic() >= wall_deadline:
+            if not kill_sent and script_name == "run_command.py":
+                try:
+                    from command_safety import force_kill_active_shell_process
+
+                    force_kill_active_shell_process()
+                except Exception:
+                    pass
+                kill_sent = True
+                wall_deadline = time.monotonic() + 20.0
+            elif kill_sent and time.monotonic() >= wall_deadline:
+                return {
+                    "ok": False,
+                    "data": {"exit_code": -1, "stdout": "", "stderr": "", "timeout": True},
+                    "error": {
+                        "type": "HostTimeout",
+                        "message": "命令执行超过宿主等待上限，请点停止或重启服务；若 winget 仍在运行请在任务管理器中结束",
+                    },
+                }
         t.join(timeout=0.5)
-    if _turn_abort_requested(conversation_id, run_id) and "r" not in holder:
-        return _user_stopped_tool_result_dict()
+    if _turn_abort_requested(conversation_id, run_id):
+        if server_shutting_down() or "r" not in holder:
+            return _user_stopped_tool_result_dict()
     got = holder.get("r")
     return got if isinstance(got, dict) else _user_stopped_tool_result_dict()
 
@@ -1396,8 +1491,44 @@ def preview_payload(d: dict, limit: int = 50000) -> str:
 
 
 def preview_tool_result(script_name: str, result: dict, text_limit: int = 12000) -> str:
-    """SSE tool_end.preview：extract 返回文本可能很大，preview_payload 整段截断会导致 JSON 不完整，前端无法解析出 data.text。"""
+    """SSE tool_end.preview：大字段单独截断并保持合法 JSON；run_command/python_inline 与 tool_progress 同为 12k 尾部。"""
     sn = (script_name or "").lower()
+    if isinstance(result, dict) and isinstance(result.get("data"), dict):
+        d_cmd = result["data"]
+        if ("run_command" in sn or "python_inline" in sn) and isinstance(d_cmd.get("stdout"), str):
+            out = d_cmd["stdout"]
+            try:
+                from command_safety import (
+                    STREAM_OUTPUT_STDERR_TAIL_MAX_CHARS,
+                    STREAM_OUTPUT_TAIL_MAX_CHARS,
+                    sanitize_command_output_for_display,
+                )
+
+                out_show = sanitize_command_output_for_display(
+                    out, max_chars=min(text_limit, STREAM_OUTPUT_TAIL_MAX_CHARS)
+                )
+            except Exception:
+                out_show = out if len(out) <= text_limit else out[:text_limit] + "\n…"
+            slim_cmd: Dict[str, Any] = {
+                "ok": bool(result.get("ok")),
+                "data": {
+                    "stdout": out_show,
+                    "stdout_len": len(out),
+                    "exit_code": d_cmd.get("exit_code"),
+                    "timeout": d_cmd.get("timeout"),
+                },
+            }
+            stderr = d_cmd.get("stderr")
+            if isinstance(stderr, str) and stderr.strip():
+                try:
+                    slim_cmd["data"]["stderr"] = sanitize_command_output_for_display(
+                        stderr, max_chars=STREAM_OUTPUT_STDERR_TAIL_MAX_CHARS
+                    )
+                except Exception:
+                    slim_cmd["data"]["stderr"] = stderr[:STREAM_OUTPUT_STDERR_TAIL_MAX_CHARS]
+            if not result.get("ok") and isinstance(result.get("error"), dict):
+                slim_cmd["error"] = result["error"]
+            return json.dumps(slim_cmd, ensure_ascii=False)
     if isinstance(result, dict) and result.get("ok") and isinstance(result.get("data"), dict):
         d = result["data"]
         if "read_file" in sn and isinstance(d.get("content"), str):
@@ -1423,11 +1554,6 @@ def preview_tool_result(script_name: str, result: dict, text_limit: int = 12000)
                     "matches": m,
                 },
             }
-            return json.dumps(slim, ensure_ascii=False)
-        if ("run_command" in sn or "python_inline" in sn) and isinstance(d.get("stdout"), str):
-            out = d["stdout"]
-            snippet = out if len(out) <= text_limit else out[:text_limit] + "\n…"
-            slim = {"ok": True, "data": {"stdout": snippet, "stdout_len": len(out)}}
             return json.dumps(slim, ensure_ascii=False)
         if "regex_locate" in sn and isinstance(d.get("items"), list):
             items = d["items"]
@@ -3105,9 +3231,22 @@ def run_agent_turn(
                                 _exec_args_with_progress["_progress_dict"] = _search_progress
                                 _ts_result_holder: Dict[str, Any] = {}
                                 _tool_aborted_by_user = False
+                                _cmd_input_key = ""
+                                _progress_last_seq = -1
                                 global _FILE_SEARCH_ALLOWED
                                 if script == "file_search.py":
                                     _FILE_SEARCH_ALLOWED = True
+                                if script == "run_command.py":
+                                    _cmd_input_key = f"{conversation_id}:{tc.get('id')}"
+                                    _search_progress["command_input_key"] = _cmd_input_key
+                                    try:
+                                        from agent_v2.live_state import register_command_input_target
+
+                                        register_command_input_target(_cmd_input_key, _search_progress)
+                                    except Exception:
+                                        pass
+                                elif script == "python_inline.py":
+                                    _cmd_input_key = ""
 
                                 def _run_tool_with_progress() -> None:
                                     try:
@@ -3119,36 +3258,52 @@ def run_agent_turn(
 
                                 _t = _thr.Thread(target=_run_tool_with_progress, daemon=True)
                                 _t.start()
+                                _wall_deadline = time.monotonic() + _tool_host_wall_timeout_sec(
+                                    script, exec_args
+                                )
                                 try:
 
                                     def _yield_tool_progress_ev() -> Dict[str, Any]:
-                                        _sp = _search_progress.get("scanned")
-                                        if _sp is None:
-                                            return {}
-                                        _cf = _search_progress.get("current_file", "")
-                                        if not isinstance(_cf, str):
-                                            _cf = str(_cf) if _cf is not None else ""
-                                        return {
-                                            "type": "tool_progress",
-                                            "conversation_id": conversation_id,
-                                            "tool_call_id": tc.get("id"),
-                                            "scanned": _sp,
-                                            "current_file": _cf,
-                                        }
+                                        return _tool_progress_sse_event(
+                                            _search_progress,
+                                            conversation_id=conversation_id,
+                                            tool_call_id=str(tc.get("id") or ""),
+                                            script=script,
+                                        )
 
                                     while _t.is_alive():
                                         if _turn_abort_requested(conversation_id, run_id):
                                             _search_progress["_abort"] = True
                                             _tool_aborted_by_user = True
+                                            if script == "run_command.py":
+                                                try:
+                                                    from command_safety import force_kill_active_shell_process
+
+                                                    force_kill_active_shell_process()
+                                                except Exception:
+                                                    pass
                                             for _join_i in range(40):
                                                 if not _t.is_alive():
                                                     break
                                                 _t.join(timeout=0.25)
                                             break
+                                        if script == "run_command.py" and time.monotonic() >= _wall_deadline:
+                                            try:
+                                                from command_safety import force_kill_active_shell_process
+
+                                                force_kill_active_shell_process()
+                                            except Exception:
+                                                pass
+                                            _wall_deadline = time.monotonic() + 20.0
+                                        _seq_now = int(_search_progress.get("_seq") or 0)
                                         _tp_ev = _yield_tool_progress_ev()
-                                        if _tp_ev:
+                                        if _tp_ev and (
+                                            _seq_now != _progress_last_seq
+                                            or _search_progress.get("awaiting_input")
+                                        ):
+                                            _progress_last_seq = _seq_now
                                             yield _tp_ev
-                                        _t.join(timeout=0.5)
+                                        _t.join(timeout=0.35)
                                     _tp_final = _yield_tool_progress_ev()
                                     if _tp_final:
                                         yield _tp_final
@@ -3160,6 +3315,13 @@ def run_agent_turn(
                                 finally:
                                     if script == "file_search.py":
                                         _FILE_SEARCH_ALLOWED = False
+                                    if script == "run_command.py" and _cmd_input_key:
+                                        try:
+                                            from agent_v2.live_state import unregister_command_input_target
+
+                                            unregister_command_input_target(_cmd_input_key)
+                                        except Exception:
+                                            pass
                             else:
                                 result = _execute_tool_script_stoppable(
                                     conversation_id, run_id, script, exec_args

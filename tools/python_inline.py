@@ -8,8 +8,9 @@ import contextlib
 import io
 import json
 import os
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 import agent_common as ac
 import stdio_utf8 as _stdio_utf8
@@ -55,6 +56,74 @@ def _emit_envelope_file_and_stdout(args: argparse.Namespace, envelope: dict) -> 
         print(json.dumps(envelope, ensure_ascii=False))
 
 
+def _sync_inline_progress(
+    progress: Optional[Dict[str, Any]],
+    *,
+    stdout_parts: List[str],
+    stderr_parts: List[str],
+    start: float,
+) -> None:
+    if not isinstance(progress, dict):
+        return
+    from command_safety import (
+        sanitize_command_output_for_display,
+        STREAM_OUTPUT_STDERR_TAIL_MAX_CHARS,
+        STREAM_OUTPUT_TAIL_MAX_CHARS,
+    )
+
+    out_s = "".join(stdout_parts)
+    err_s = "".join(stderr_parts)
+    combined = out_s + (("\n" + err_s) if err_s.strip() else "")
+    progress["phase"] = "python_inline"
+    progress["stdout_tail"] = sanitize_command_output_for_display(
+        combined, max_chars=STREAM_OUTPUT_TAIL_MAX_CHARS
+    )
+    progress["stderr_tail"] = sanitize_command_output_for_display(
+        err_s, max_chars=STREAM_OUTPUT_STDERR_TAIL_MAX_CHARS
+    )
+    progress["elapsed_sec"] = max(0, int(time.monotonic() - start))
+    progress["_seq"] = int(progress.get("_seq") or 0) + 1
+
+
+class _InlineProgressWriter(io.TextIOBase):
+    """将 print / stderr 写入 progress，供宿主推送 tool_progress。"""
+
+    def __init__(
+        self,
+        parts: List[str],
+        progress: Optional[Dict[str, Any]],
+        *,
+        peer_parts: List[str],
+        start: float,
+        is_stderr: bool,
+    ) -> None:
+        self._parts = parts
+        self._peer = peer_parts
+        self._progress = progress
+        self._start = start
+        self._is_stderr = is_stderr
+
+    def write(self, s: str) -> int:
+        if not s:
+            return 0
+        self._parts.append(s)
+        _sync_inline_progress(
+            self._progress,
+            stdout_parts=self._peer if self._is_stderr else self._parts,
+            stderr_parts=self._parts if self._is_stderr else self._peer,
+            start=self._start,
+        )
+        return len(s)
+
+    def flush(self) -> None:
+        _sync_inline_progress(
+            self._progress,
+            stdout_parts=self._peer if self._is_stderr else self._parts,
+            stderr_parts=self._parts if self._is_stderr else self._peer,
+            start=self._start,
+        )
+
+
 def _forbid_inline_search(code: str) -> bool:
     """禁止在胶水代码里使用 file_search/grep_files/base64/kling API（搜索走服务端，base64 浪费 token，kling 须走确认）。"""
     s = code or ""
@@ -76,9 +145,11 @@ def agent_main(
     restrict_to_workspace: bool = False,
     run_type: str = "",
     parser_for_help: Optional[argparse.ArgumentParser] = None,
+    _progress_dict: Optional[dict] = None,
 ) -> dict:
     """返回 {ok, data:{ok, stdout, stderr, exit_code, timeout}, error}。"""
     _ = timeout_sec
+    progress = _progress_dict if isinstance(_progress_dict, dict) else None
     try:
         rt = str(run_type or "").strip().lower()
         if rt == "plan":
@@ -94,8 +165,16 @@ def agent_main(
                 },
             }
 
-        captured_stdout = io.StringIO()
-        captured_stderr = io.StringIO()
+        stdout_parts: List[str] = []
+        stderr_parts: List[str] = []
+        start = time.monotonic()
+        if progress is not None:
+            progress["phase"] = "python_inline"
+            progress["stdout_tail"] = ""
+            progress["stderr_tail"] = ""
+            progress["elapsed_sec"] = 0
+            progress["_seq"] = 0
+
         prev_cwd: Optional[str] = None
 
         try:
@@ -106,17 +185,23 @@ def agent_main(
                 prev_cwd = os.getcwd()
                 os.chdir(cp)
             else:
-                # 未指定 cwd 时默认使用工作目录
                 ws = ac.workspace_root()
                 prev_cwd = os.getcwd()
                 os.chdir(ws)
 
-            with contextlib.redirect_stdout(captured_stdout), contextlib.redirect_stderr(captured_stderr):
+            out_writer = _InlineProgressWriter(
+                stdout_parts, progress, peer_parts=stderr_parts, start=start, is_stderr=False
+            )
+            err_writer = _InlineProgressWriter(
+                stderr_parts, progress, peer_parts=stdout_parts, start=start, is_stderr=True
+            )
+            with contextlib.redirect_stdout(out_writer), contextlib.redirect_stderr(err_writer):
                 exec(code, {"__name__": "__python_inline__"})  # noqa: S102
             sub_ok = True
             exit_code = 0
         except Exception as e:
-            captured_stderr.write(f"\n{type(e).__name__}: {e}")
+            stderr_parts.append(f"\n{type(e).__name__}: {e}")
+            _sync_inline_progress(progress, stdout_parts=stdout_parts, stderr_parts=stderr_parts, start=start)
             sub_ok = False
             exit_code = 1
         finally:
@@ -126,11 +211,12 @@ def agent_main(
                 except OSError:
                     pass
 
+        _sync_inline_progress(progress, stdout_parts=stdout_parts, stderr_parts=stderr_parts, start=start)
         data = {
             "ok": sub_ok,
             "exit_code": exit_code,
-            "stdout": captured_stdout.getvalue(),
-            "stderr": captured_stderr.getvalue(),
+            "stdout": "".join(stdout_parts),
+            "stderr": "".join(stderr_parts),
             "timeout": False,
         }
         error = None

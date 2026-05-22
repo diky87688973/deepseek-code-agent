@@ -18,6 +18,7 @@ from agent_v2.http_schemas import (
     ChatStopIn,
     ChatTitleIn,
     ChatUiStateIn,
+    ChatCommandInputIn,
     ChatUserConfirmIn,
     KbCheckedIn,
     UsageAccumIn,
@@ -347,6 +348,24 @@ def chat_send(inp: ChatIn, request: Request) -> Dict[str, Any]:
     if not run_id:
         raise HTTPException(409, "当前会话仍在执行中，请等待完成或先停止。")
     return {"ok": True, "conversation_id": cid, "run_id": run_id, "queued": False}
+
+
+@router.post("/api/chat/command-input")
+def chat_command_input_submit(inp: ChatCommandInputIn) -> Dict[str, Any]:
+    """向执行中的 run_command 子进程发送 stdin（用于 winget 等交互确认）。"""
+    cid = inp.conversation_id.strip()
+    tid = inp.tool_call_id.strip()
+    text = inp.input.strip()
+    if not cid or not tid:
+        raise HTTPException(400, "conversation_id and tool_call_id required")
+    if not text:
+        raise HTTPException(400, "empty input")
+    from agent_v2.live_state import submit_command_input
+
+    key = f"{cid}:{tid}"
+    if not submit_command_input(key, text):
+        raise HTTPException(404, "no active run_command awaiting input for this tool call")
+    return {"ok": True, "conversation_id": cid, "tool_call_id": tid}
 
 
 @router.post("/api/chat/user-confirm")
