@@ -42,13 +42,38 @@
     var e = document.createElement("div");
     e.className = "b u peer-agent-msg";
     var label = String(name || cid || "Agent");
+    var content = text || "";
+    var metaHtml = "";
+    // 解析真实 agent 消息的 [from=...] 元数据前缀
+    if (content.indexOf("[from=") === 0) {
+      var ci = content.indexOf("]");
+      if (ci > 0) {
+        var metaRaw = content.slice(1, ci);
+        content = content.slice(ci + 1).trim();
+        var parts = metaRaw.split("|");
+        var metaItems = [];
+        for (var pi = 0; pi < parts.length; pi++) {
+          var kv = parts[pi].trim();
+          if (kv) {
+            var eq = kv.indexOf("=");
+            if (eq > 0) {
+              metaItems.push("<span>" + IMM.escapeHtml(kv.slice(0, eq)) + "</span>=" + IMM.escapeHtml(kv.slice(eq + 1)));
+            }
+          }
+        }
+        if (metaItems.length) {
+          metaHtml = '<div class="peer-meta">' + metaItems.join(" ") + "</div>";
+        }
+      }
+    }
     e.innerHTML =
       '<div style="font-size:11px;color:#667;margin-bottom:4px">' +
       IMM.escapeHtml(label) +
       (cid && cid !== label ? " / " + IMM.escapeHtml(String(cid).slice(0, 12)) : "") +
       "</div>" +
+      metaHtml +
       '<div style="white-space:pre-wrap"></div>';
-    e.lastChild.textContent = text || "";
+    e.lastChild.textContent = content;
     msgsEl.appendChild(e);
     scrollMsgs(msgsEl);
   }
@@ -494,6 +519,8 @@
       if (typeof IMM.updateComposerBusy === "function") IMM.updateComposerBusy();
     } else if (ev.type === "inbox_queued") {
       addAssistantMarkdown(msgsEl, "已收到来自 " + (ev.from_name || ev.from || "其他 Agent") + " 的排队消息。");
+    } else if (ev.type === "audio") {
+      IMM.playAudio(ev.conversation_id, ev.audio);
     }
     return "";
   }
@@ -644,6 +671,8 @@
             hideChatLoading(s);
             resetTurnState(col);
             addAssistantMarkdown(msgsEl, "错误: " + JSON.stringify(ev.detail || ev));
+          } else if (ev.type === "audio") {
+            IMM.playAudio(ev.conversation_id, ev.audio);
           }
         }
       }

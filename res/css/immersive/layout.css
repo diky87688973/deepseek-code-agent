@@ -154,3 +154,13 @@ html:-webkit-full-screen .imm-composer-dock {
   padding-left: 4px;
   padding-right: 4px;
 }
+
+/* 其他 Agent 消息气泡 */
+.peer-agent-msg{border-left:3px solid #c9a86a;padding:8px 12px;margin:6px 0;border-radius:6px;background:rgba(80,80,90,.25)}
+.peer-meta{font-size:11px;color:#889;background:rgba(0,0,0,.12);padding:4px 8px;border-radius:4px;margin-bottom:6px;font-family:monospace;word-break:break-all;line-height:1.5}
+.peer-meta span{color:#aeb9c8}
+
+/* 语音开关按钮 */
+.tts-toggle-btn{display:inline-flex;align-items:center;justify-content:center;height:24px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:600;color:#aeb9c8;background:transparent;border:1px solid #5a6a82;cursor:pointer;font:inherit;white-space:nowrap;box-sizing:border-box;gap:3px}
+.tts-toggle-btn.on{border-color:#4a9c6a;color:#6acc8a}
+.tts-toggle-btn.off{border-color:#6a5a5a;color:#b08888}

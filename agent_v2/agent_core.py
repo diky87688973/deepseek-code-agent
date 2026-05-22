@@ -3456,6 +3456,24 @@ def publish_conversation_event(conversation_id: str, ev: Dict[str, Any]) -> Dict
     ev2 = _conversation_sse_event(conversation_id, ev)
     _log_agent_console_sse(conversation_id, ev2)
     publish_global_sse_event(ev2)
+    # ── TTS：assistant_delta 事件喂入句子积累器 ──
+    et = ev.get("type", "")
+    if et == "assistant_delta":
+        content = str(ev.get("content") or ev.get("delta") or "")
+        if content:
+            try:
+                from util.tts.manager import feed_delta
+                feed_delta(conversation_id, content)
+            except Exception as exc:
+                import sys
+                print(f"[TTS] feed_delta 失败: {exc}", file=sys.stderr, flush=True)
+    elif et in ("done", "error", "stopped") or et.startswith("agent_wait"):
+        try:
+            from util.tts.manager import flush_remaining
+            flush_remaining(conversation_id)
+        except Exception as exc:
+            import sys
+            print(f"[TTS] flush_remaining 失败: {exc}", file=sys.stderr, flush=True)
     return ev2
 
 
@@ -3600,7 +3618,6 @@ UI_HTML_FILE = AGENT_ROOT / "res" / "html" / "agent-ui.html"
 RESET_CSS_FILE = AGENT_ROOT / "res" / "css" / "reset.css"
 UI_CSS_FILE = AGENT_ROOT / "res" / "css" / "agent-ui.css"
 UI_JS_FILE = AGENT_ROOT / "res" / "js" / "agent-ui.js"
-TEAM_JS_FILE = AGENT_ROOT / "res" / "js" / "team.js"
 THEME_UI_JS_FILE = AGENT_ROOT / "res" / "js" / "theme-ui.js"
 HLJS_JS_FILE = AGENT_ROOT / "res" / "js" / "vendor" / "highlight.min.js"
 CODE_HIGHLIGHT_JS_FILE = AGENT_ROOT / "res" / "js" / "code-highlight.js"
@@ -3623,13 +3640,6 @@ _INLINE_CSS = (
     + "\n\n"
     + _scope_hljs_css(HLJS_CSS_LIGHT_FILE.read_text(encoding="utf-8"), 'html[data-ui-theme="light"]')
 )
-_team_js_inline = ""
-if TEAM_JS_FILE.is_file():
-    _team_js_inline = (
-        "\n;"
-        + TEAM_JS_FILE.read_text(encoding="utf-8")
-        + "\n;if(typeof TEAM!=='undefined'&&TEAM.autoConnect){document.addEventListener('DOMContentLoaded',function(){TEAM.autoConnect();});}"
-    )
 _INLINE_JS = (
     THEME_UI_JS_FILE.read_text(encoding="utf-8")
     + "\n;"
@@ -3638,10 +3648,11 @@ _INLINE_JS = (
     + CODE_HIGHLIGHT_JS_FILE.read_text(encoding="utf-8")
     + "\n;"
     + UI_JS_FILE.read_text(encoding="utf-8")
-    + _team_js_inline
 )
+TTS_JS_FILE = AGENT_ROOT / "res" / "js" / "agent-tts.js"
+_INLINE_JS2 = TTS_JS_FILE.read_text(encoding="utf-8") if TTS_JS_FILE.is_file() else ""
 _INLINE_HTML_TMPL = UI_HTML_FILE.read_text(encoding="utf-8")
-INLINE_UI_HTML = _INLINE_HTML_TMPL.replace("{{CSS}}", _INLINE_CSS).replace("{{JS}}", _INLINE_JS)
+INLINE_UI_HTML = _INLINE_HTML_TMPL.replace("{{CSS}}", _INLINE_CSS).replace("{{agent-ui.js}}", _INLINE_JS).replace("{{agent-tts.js}}", _INLINE_JS2)
 
 
 

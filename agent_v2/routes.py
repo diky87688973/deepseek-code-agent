@@ -526,6 +526,24 @@ def health() -> Dict[str, Any]:
     }
 
 
+# ── TTS 开关 API ──
+
+@router.put("/api/tts/state")
+def tts_state_set(body: Dict[str, Any]) -> Dict[str, bool]:
+    """设置会话 TTS 开关。body: {"conversation_id": str, "enabled": bool}"""
+    cid = str(body.get("conversation_id") or "").strip()
+    if not cid:
+        return {"ok": False}
+    try:
+        from util.tts.manager import set_tts_enabled
+        set_tts_enabled(cid, bool(body.get("enabled", True)))
+    except Exception as exc:
+        import sys
+        print(f"[TTS] set_tts_enabled 失败: {exc}", file=sys.stderr, flush=True)
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True}
+
+
 # ── 团队 API ──
 
 @router.get("/api/team/state")

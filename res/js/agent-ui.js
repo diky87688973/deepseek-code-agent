@@ -112,6 +112,7 @@ else if(ev.type==="tool_progress")onToolProgress(ev);
 else if(ev.type==="tool_end"){onToolEnd(ev);if(ev.todo_list&&ev.todo_list_data){var _td=ev.todo_list_data;renderTodoListFromEvent({items:_td.items||[],all_done:Array.isArray(_td.items)&&_td.items.every(function(it){return !!it.done;}),collapsed:!!_td.collapsed,close:!!_td.close},packetCid);scrollToBottomAfterLayout(msgs,true);}}
 else if(ev.type==="open_session"){var sid=normalizeConversationId(ev.session_id);if(sid){ensureConversationTab(sid);var _ot=findConversationTab(sid);if(_ot)_ot.title=ev.name||("会话 "+sid.slice(0,8));}}
 else if(ev.type==="tool_preview_update"){var tid2=String(ev.tool_call_id||"").trim();if(tid2){var card=findStepCardForToolCall(tid2);if(card){var pb2=card.querySelector("pre.tool-res");if(pb2){try{var _pj2=JSON.parse(ev.preview||"{}");pb2.textContent=JSON.stringify(_pj2,null,2);}catch(e2){pb2.textContent=String(ev.preview||"");}var lb2=pb2.previousElementSibling;if(lb2&&lb2.classList&&lb2.classList.contains("lbl"))lb2.style.display="block";pb2.style.display="block";}var tag2=card.querySelector(".ch .tag");if(tag2){try{var _pj3=JSON.parse(ev.preview||"{}");if(_pj3&&_pj3.ok){tag2.textContent="Done";tag2.className="tag ok";}else{tag2.textContent="Fail";tag2.className="tag bad";}}catch(e3){}}}}}
+else if(ev.type==="audio"){playAudio(packetCid||ev.conversation_id,ev.audio);}
 else if(ev.type==="assistant_delta"){if(anyToolThisTurn){flushPendingSteps();}appendAssistantDelta(ev.delta||"");}
 else if(ev.type==="reasoning_delta")appendReasoningDelta(ev);
 else if(ev.type==="reasoning_sync")applyReasoningSync(ev);
@@ -166,6 +167,7 @@ else if(ev.type==="assistant_markdown"){if(anyToolThisTurn){flushPendingSteps();
 else if(ev.type==="assistant"){if(anyToolThisTurn){flushPendingSteps();}if(!finalizeAssistantStream(ev.content||"")){add("a",ev.content||"");}}
 else if(ev.type==="peer_message"){addPeerMessage(ev.content||"",ev.sender_name||"",ev.sender||"");}
 else if(ev.type==="inbox_queued"){add("a","已收到来自 "+(ev.from_name||ev.from||"其他 Agent")+" 的排队消息。");}
+else if(ev.type==="audio"){playAudio(packetCid||ev.conversation_id,ev.audio);}
 else if(ev.type==="done"){promoteReasoningToChatIfNeeded();finalizeAssistantStream("");_ctxTab.abortController=null;_ctxTab.activeRunId="";hideChatLoading();updateTaskControls();if(typeof renderChatTabs==="function")renderChatTabs();}
 else if(ev.type==="stopped"){markCurrentTurnStoped();resetTurnState();hideChatLoading();if(ev.message)add("a",ev.message);_ctxTab.abortController=null;_ctxTab.activeRunId="";updateTaskControls();if(typeof renderChatTabs==="function")renderChatTabs();}
 else if(ev.type==="paused_for_user_confirm"){hideChatLoading();}
@@ -736,14 +738,20 @@ scrollMsgsToBottom();
 }
 function addPeerMessage(t,name,cid){
 if(!msgs)return;
-const e=document.createElement('div');
-e.className='b u peer-agent-msg';
-const label=String(name||cid||"Agent");
-e.innerHTML='<div style="font-size:11px;color:#667;margin-bottom:4px">'+escapeHtml(label)+(cid&&cid!==label?' / '+escapeHtml(String(cid).slice(0,12)):'')+'</div><div style="white-space:pre-wrap"></div>';
-e.lastChild.textContent=t||"";
+var e=document.createElement("div");
+e.className="u peer-agent-msg";
+var label=String(name||cid||"Agent");
+var content=t||"";
+var metaHtml="";
+// 解析真实 agent 消息的 [from=...] 元数据前缀
+if(content.indexOf("[from=")===0){var ci=content.indexOf("]");if(ci>0){var metaRaw=content.slice(1,ci);content=content.slice(ci+1).trim();var parts=metaRaw.split("|");var metaItems=[];for(var pi=0;pi<parts.length;pi++){var kv=parts[pi].trim();if(kv){var eq=kv.indexOf("=");if(eq>0){metaItems.push('<span>'+escapeHtml(kv.slice(0,eq))+'</span>='+escapeHtml(kv.slice(eq+1)));}}}if(metaItems.length){metaHtml='<div class="peer-meta">'+metaItems.join(" ")+'</div>';}}}
+var labelHtml='<div style="font-size:11px;color:#667;margin-bottom:4px">'+escapeHtml(label)+(cid&&cid!==label?' / '+escapeHtml(String(cid).slice(0,12)):'')+'</div>';
+e.innerHTML=labelHtml+metaHtml+'<div style="white-space:pre-wrap"></div>';
+e.lastChild.textContent=content;
 msgs.appendChild(e);
 scrollMsgsToBottom();
 }
+
 function ensureAssistantStreamBubble(){
 if(streamAssistantEl)return streamAssistantEl;
 if(!msgs)return null;
