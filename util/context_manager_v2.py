@@ -205,7 +205,9 @@ class ContextManager:
         "summary_token_threshold",
         "_anchor_cache_ref",
         "_sys_code_hint",
+        "_sys_user_rules",
         "_sys_base",
+        "_sys_catalog_hints",
         "_skill_registry",
         "_auto_load_skills",
         "_kb_parts",
@@ -238,7 +240,9 @@ class ContextManager:
             self.chunks.append(c)
             self.name_map[nm] = c
         self._sys_code_hint = ""
+        self._sys_user_rules = ""
         self._sys_base = ""
+        self._sys_catalog_hints = ""
         self._skill_registry = ""
         self._auto_load_skills: List[str] = []
         self._kb_parts: List[str] = []
@@ -270,7 +274,25 @@ class ContextManager:
     ) -> None:
         """用与现网 _build_context_segments 相同的拆分结果填充内部块与展平缓存。"""
         t = build_segments_fn(persisted, conversation_id)
-        if len(t) == 11:
+        sys_user_rules = ""
+        sys_catalog_hints = ""
+        if len(t) >= 13:
+            (
+                sys_code_hint,
+                sys_user_rules,
+                sys_base,
+                sys_catalog_hints,
+                skill_registry,
+                auto_load_skills,
+                kb_part,
+                summaries,
+                pure_folded,
+                full_pre,
+                full_suf,
+                _pure_user_turns,
+                mode_tail,
+            ) = t[:13]
+        elif len(t) == 11:
             sys_code_hint, sys_base, skill_registry, auto_load_skills, kb_part, summaries, pure_folded, full_pre, full_suf, _pure_user_turns, mode_tail = t
         elif len(t) == 9:
             sys_code_hint, sys_base, kb_part, summaries, pure_folded, full_pre, full_suf, _pure_user_turns, mode_tail = t
@@ -282,7 +304,9 @@ class ContextManager:
             skill_registry = ""
             auto_load_skills = []
         self._sys_code_hint = str(sys_code_hint or "")
+        self._sys_user_rules = str(sys_user_rules or "")
         self._sys_base = str(sys_base or "")
+        self._sys_catalog_hints = str(sys_catalog_hints or "")
         self._skill_registry = str(skill_registry or "")
         self._auto_load_skills = list(auto_load_skills or [])
         self._kb_parts = _normalize_kb_parts(kb_part)
@@ -305,9 +329,17 @@ class ContextManager:
             r = Round()
             r.append("system", self._sys_code_hint)
             self.name_map[CHUNK_SYSTEM].rounds.append(r)
+        if self._sys_user_rules.strip():
+            r = Round()
+            r.append("system", self._sys_user_rules)
+            self.name_map[CHUNK_SYSTEM].rounds.append(r)
         if self._sys_base.strip():
             r = Round()
             r.append("system", self._sys_base)
+            self.name_map[CHUNK_SYSTEM].rounds.append(r)
+        if self._sys_catalog_hints.strip():
+            r = Round()
+            r.append("system", self._sys_catalog_hints)
             self.name_map[CHUNK_SYSTEM].rounds.append(r)
         if self._skill_registry.strip():
             r = Round()
@@ -337,12 +369,16 @@ class ContextManager:
     def flatten_to_api_messages(
         self, sanitize_fn: Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]
     ) -> List[Dict[str, Any]]:
-        """展平顺序：code_hint → tool → 每条 KB → 每条记忆摘要 → 对话 → 模式。"""
+        """展平顺序：code_hint → user_rules → tool → catalog_hints → skills → KB → 记忆 → 对话 → 模式。"""
         prefix: List[Dict[str, Any]] = []
         if self._sys_code_hint.strip():
             prefix.append({"role": "system", "content": self._sys_code_hint})
+        if self._sys_user_rules.strip():
+            prefix.append({"role": "system", "content": self._sys_user_rules})
         if self._sys_base.strip():
             prefix.append({"role": "system", "content": self._sys_base})
+        if self._sys_catalog_hints.strip():
+            prefix.append({"role": "system", "content": self._sys_catalog_hints})
         if self._skill_registry.strip():
             prefix.append({"role": "system", "content": self._skill_registry})
         for skill_content in self._auto_load_skills:
@@ -366,7 +402,9 @@ class ContextManager:
     def total_token_estimate(self, approx_msg_fn: Callable[[Dict[str, Any]], int]) -> int:
         s = 0
         s += _approx_tokens_text_local(self._sys_code_hint, approx_msg_fn)
+        s += _approx_tokens_text_local(self._sys_user_rules, approx_msg_fn)
         s += _approx_tokens_text_local(self._sys_base, approx_msg_fn)
+        s += _approx_tokens_text_local(self._sys_catalog_hints, approx_msg_fn)
         s += _approx_tokens_text_local(self._skill_registry, approx_msg_fn)
         for c in self._auto_load_skills:
             s += _approx_tokens_text_local(c, approx_msg_fn)
@@ -387,7 +425,9 @@ class ContextManager:
         """各块 token 估算（与伪代码 calculateTokens map 对齐）。"""
         return {
             CHUNK_SYSTEM: _approx_tokens_text_local(self._sys_code_hint, approx_msg_fn)
-            + _approx_tokens_text_local(self._sys_base, approx_msg_fn),
+            + _approx_tokens_text_local(self._sys_user_rules, approx_msg_fn)
+            + _approx_tokens_text_local(self._sys_base, approx_msg_fn)
+            + _approx_tokens_text_local(self._sys_catalog_hints, approx_msg_fn),
             CHUNK_SKILL: _approx_tokens_text_local(self._skill_registry, approx_msg_fn)
             + sum(_approx_tokens_text_local(c, approx_msg_fn) for c in self._auto_load_skills),
             CHUNK_KB: sum(_approx_tokens_text_local(kb, approx_msg_fn) for kb in self._kb_parts),

@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingRes
 
 from agent_v2 import agent_core as core
 from agent_v2 import route_helpers as rh
+from agent_v2.live_state import get_conversation_run_lock
 from agent_v2.http_schemas import (
     ChatIn,
     ChatStopIn,
@@ -23,19 +24,25 @@ from agent_v2.http_schemas import (
     KbCheckedIn,
     UsageAccumIn,
 )
+from agent_v2.version import AGENT_APP_VERSION
 from util.http_pipeline_v2 import resolve_client_ip_from_request
 from agent_v2.live_state import open_global_sse_channel, next_global_sse_event, is_global_sse_current
 
 router = APIRouter()
 
 _IMMERSIVE_HTML = core.AGENT_ROOT / "res" / "html" / "agent-immersive.html"
+_IMMERSIVE_HTML_BODY = (
+    _IMMERSIVE_HTML.read_text(encoding="utf-8").replace("{{APP_VERSION}}", AGENT_APP_VERSION)
+    if _IMMERSIVE_HTML.is_file()
+    else ""
+)
 
 
 @router.get("/immersive", include_in_schema=False)
-def immersive_index() -> FileResponse:
-    if not _IMMERSIVE_HTML.is_file():
+def immersive_index() -> HTMLResponse:
+    if not _IMMERSIVE_HTML_BODY:
         raise HTTPException(404, "immersive UI not found")
-    return FileResponse(str(_IMMERSIVE_HTML), media_type="text/html; charset=utf-8")
+    return HTMLResponse(_IMMERSIVE_HTML_BODY, media_type="text/html; charset=utf-8")
 
 
 @router.get("/")
@@ -98,7 +105,7 @@ def chat_sessions() -> Dict[str, Any]:
             if cid and title:
                 title_by_id[cid] = title
     rows: List[Dict[str, Any]] = []
-    seen_ids: set[str] = set()
+    seen_ids: Set[str] = set()
     try:
         title_files = list(core.SESSION_DIR.glob("*.title")) + list(core.SESSION_DIR.glob("*/*.title"))
         for tf in title_files:
@@ -157,13 +164,18 @@ def chat_title(body: ChatTitleIn) -> Dict[str, Any]:
     if not cid:
         raise HTTPException(400, "empty conversation_id")
     core._ensure_conversation_loaded(cid)
-    # 已有手动设定的标题就不浪费 token 自动生成
     existing = core._load_conversation_title(cid)
-    if existing:
+    if existing and not core._is_placeholder_conversation_title(existing):
         return {"ok": True, "conversation_id": cid, "title": existing}
-    messages = list(core.CONVERSATIONS.get(cid, []))
+    with get_conversation_run_lock(cid):
+        messages = list(core.CONVERSATIONS.get(cid, []))
     title = core._generate_conversation_title(cid, messages)
-    core._save_title_file(cid, title)
+    if core._is_placeholder_conversation_title(title):
+        fb = core._fallback_title_from_messages(cid, messages)
+        if not core._is_placeholder_conversation_title(fb):
+            title = fb
+    if not core._is_placeholder_conversation_title(title):
+        core._save_title_file(cid, title)
     return {"ok": True, "conversation_id": cid, "title": title}
 
 
@@ -339,10 +351,11 @@ def chat_send(inp: ChatIn, request: Request) -> Dict[str, Any]:
         if not okm:
             raise HTTPException(400, "invalid model")
     rh.apply_conversation_request_options(cid, mode, mod)
-    if cid not in core.CONVERSATIONS or not core.CONVERSATIONS.get(cid):
-        loaded = core._load_conversation(cid)
-        if loaded:
-            core.CONVERSATIONS[cid] = loaded
+    with get_conversation_run_lock(cid):
+        if cid not in core.CONVERSATIONS or not core.CONVERSATIONS.get(cid):
+            loaded = core._load_conversation(cid)
+            if loaded:
+                core.CONVERSATIONS[cid] = loaded
     client_ip = resolve_client_ip_from_request(request, core._normalize_client_ip_for_tools)
     run_id = core.start_background_agent_turn(cid, text, client_ip=client_ip, mode_hint=mode)
     if not run_id:
@@ -412,23 +425,24 @@ def chat_user_confirm_submit(inp: ChatUserConfirmIn, request: Request) -> Dict[s
             response=result,
             source="user_confirm_resume",
         )
-    messages = list(core.CONVERSATIONS.get(cid, []))
-    idx: Optional[int] = None
-    for i in range(len(messages) - 1, -1, -1):
-        if messages[i].get("role") == "tool" and str(messages[i].get("tool_call_id") or "") == tool_call_id:
-            idx = i
-            break
-    if idx is None:
+    with get_conversation_run_lock(cid):
+        messages = list(core.CONVERSATIONS.get(cid, []))
+        idx: Optional[int] = None
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "tool" and str(messages[i].get("tool_call_id") or "") == tool_call_id:
+                idx = i
+                break
+        if idx is None:
+            core.PENDING_USER_CONFIRM.pop(cid, None)
+            raise HTTPException(400, "tool message not found for pending confirmation")
+        messages[idx] = {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": core._truncate_tool_result(result),
+        }
         core.PENDING_USER_CONFIRM.pop(cid, None)
-        raise HTTPException(400, "tool message not found for pending confirmation")
-    messages[idx] = {
-        "role": "tool",
-        "tool_call_id": tool_call_id,
-        "content": core._truncate_tool_result(result),
-    }
-    core.PENDING_USER_CONFIRM.pop(cid, None)
-    core.CONVERSATIONS[cid] = messages
-    core._save_conversation(cid, messages)
+        core.CONVERSATIONS[cid] = messages
+        core._save_conversation(cid, messages)
     mode = str(inp.mode or "").strip().lower()
     if mode not in {"", "auto", "plan", "execute"}:
         raise HTTPException(400, "invalid mode")
@@ -539,6 +553,7 @@ def dir_browse(path: str = "") -> Dict[str, Any]:
 def health() -> Dict[str, Any]:
     return {
         "ok": True,
+        "version": AGENT_APP_VERSION,
         "catalog": str(core.TOOL_LIST_JSON),
         "model": core.default_model_from_env(),
         "allowed_models": list(core.ALLOWED_MODELS),

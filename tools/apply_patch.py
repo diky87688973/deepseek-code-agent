@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import agent_patch_engine as pe
 import agent_common as ac
@@ -34,12 +34,17 @@ def agent_main(
 
         raw = pe.load_patch_text(patch_text=patch_text, patch_file=patch_file)
         file_patches = pe.parse_unified_diff(raw)
-        changed: list[str] = []
+        changed: List[str] = []
 
         for fp in file_patches:
-            if fp["old_path"] != fp["new_path"]:
-                raise ValueError("当前版本不支持 rename，请保持 ---/+++ 路径一致")
-            rel = Path(fp["new_path"])
+            old_p = str(fp["old_path"] or "")
+            new_p = str(fp["new_path"] or "")
+            if old_p != new_p and "/dev/null" not in (old_p, new_p):
+                raise ValueError(
+                    f"当前版本不支持 rename（--- 与 +++ 路径不一致: {old_p!r} vs {new_p!r}），"
+                    "请保持同一文件；Windows 绝对路径勿省略 a/ b/ 前缀外的盘符。"
+                )
+            rel = Path(new_p if new_p != "/dev/null" else old_p)
             abs_path = (r / rel).resolve()
             try:
                 abs_path.relative_to(r)

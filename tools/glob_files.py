@@ -8,7 +8,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Set
 
 import agent_common as ac
 
@@ -23,7 +23,7 @@ def _find_git_root(start: Path) -> Optional[Path]:
     return None
 
 
-def _git_check_ignore_batch(repo_root: Path, relative_posix_paths: list[str]) -> set[str]:
+def _git_check_ignore_batch(repo_root: Path, relative_posix_paths: List[str]) -> Set[str]:
     if not relative_posix_paths:
         return set()
     exe = shutil.which("git")
@@ -42,7 +42,7 @@ def _git_check_ignore_batch(repo_root: Path, relative_posix_paths: list[str]) ->
     if cp.returncode not in (0, 1):
         return set()
     out = (cp.stdout or b"").split(b"\0")
-    ignored: set[str] = set()
+    ignored: Set[str] = set()
     for chunk in out:
         if not chunk:
             continue
@@ -174,7 +174,7 @@ def agent_main(
 
         iterator = _iter_matching_paths(rp, match_pat, recursive)
 
-        items: list[dict] = []
+        items: List[dict] = []
 
         def _append_item(p: Path) -> bool:
             if et == "file" and not p.is_file():
@@ -198,8 +198,8 @@ def agent_main(
         else:
             assert repo_root is not None
             rr = repo_root
-            pending_paths: list[Path] = []
-            pending_rels: list[str] = []
+            pending_paths: List[Path] = []
+            pending_rels: List[str] = []
 
             def flush_batch() -> bool:
                 nonlocal pending_paths, pending_rels

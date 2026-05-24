@@ -9,7 +9,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import agent_common as ac
 
@@ -64,8 +64,8 @@ def _run_shell_streaming(
         creationflags=creationflags,
     )
     register_shell_process(proc.pid)
-    stdout_parts: list[bytes] = []
-    stderr_parts: list[bytes] = []
+    stdout_parts: List[bytes] = []
+    stderr_parts: List[bytes] = []
     buf_lock = threading.Lock()
     start = time.monotonic()
 

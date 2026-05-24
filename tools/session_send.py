@@ -4,18 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-
-def _as_bool(v: Any, default: bool = True) -> bool:
-    if isinstance(v, bool):
-        return v
-    if v is None:
-        return default
-    s = str(v).strip().lower()
-    if s in ("0", "false", "no", "off", "否", "不"):
-        return False
-    if s in ("1", "true", "yes", "on", "是"):
-        return True
-    return default
+from tools.agent_common import parse_tool_bool, utf8_preview
 
 
 def _get_last_assistant_content(messages: list) -> str:
@@ -24,9 +13,6 @@ def _get_last_assistant_content(messages: list) -> str:
         if m.get("role") == "assistant":
             return str(m.get("content") or "")
     return ""
-
-
-
 
 
 def agent_main(
@@ -54,7 +40,6 @@ def agent_main(
     if not msg:
         return {"ok": False, "error": {"type": "missing_message", "message": "缺少 message"}}
 
-    # requires_reply 为必填参数，必须显式设置 true 或 false
     _rr_raw = _kwargs.get("requires_reply", requires_reply)
     if _rr_raw is None:
         return {
@@ -64,15 +49,16 @@ def agent_main(
                 "message": "requires_reply 是必填参数。收到消息后，根据对方消息中的 requires_reply 元数据决定传 true（需回复）或 false（纯通知）。",
             },
         }
-    requires_reply_bool = _as_bool(_rr_raw, True)
+    requires_reply_bool = parse_tool_bool(_rr_raw, True)
     from agent_v2.live_state import (
         CONVERSATIONS,
         _ACTIVE_CONVERSATION_RUNS,
+        conversation_run_locks,
         enqueue_session_inbox,
         get_agent_session,
     )
     from agent_v2.agent_core import (
-        _append_incoming_session_message,
+        _append_incoming_session_message_impl,
         _append_session_message_v2,
         _ensure_conversation_loaded,
         _save_conversation,
@@ -80,28 +66,27 @@ def agent_main(
         start_background_agent_turn,
     )
 
-    # ── 获取发送方身份 ──
     src_cid = str(_kwargs.get("conversation_id") or "").strip()
+    if not src_cid:
+        return {
+            "ok": False,
+            "error": {
+                "type": "missing_conversation",
+                "message": "缺少 conversation_id（发送方会话 id），无法标识 Agent 身份。",
+            },
+        }
+
     sender_fields: Dict[str, str] = {}
-    if src_cid:
-        meta = get_agent_session(src_cid)
-        if meta:
-            sender_fields["_sender"] = src_cid
-            sender_fields["_sender_role"] = str(meta.get("role") or "")
-            sender_fields["_sender_name"] = str(meta.get("name") or "")
-    if "_sender" not in sender_fields:
-        sender_fields["_sender"] = src_cid or "unknown"
-        sender_fields["_sender_role"] = "boss"
-        sender_fields["_sender_name"] = src_cid[:12] if src_cid else "unknown"
+    meta = get_agent_session(src_cid)
+    if meta:
+        sender_fields["_sender"] = src_cid
+        sender_fields["_sender_role"] = str(meta.get("role") or "")
+        sender_fields["_sender_name"] = str(meta.get("name") or "")
+    else:
+        sender_fields["_sender"] = src_cid
+        sender_fields["_sender_role"] = "agent"
+        sender_fields["_sender_name"] = src_cid[:12]
 
-    # ── 确保目标会话已加载 ──
-    _ensure_conversation_loaded(tid)
-    target_messages = CONVERSATIONS.get(tid)
-    if not target_messages:
-        return {"ok": False, "error": {"type": "target_not_found", "message": f"目标会话 {tid} 不存在"}}
-
-    # ── 构造消息并追加（带 _sender 字段）──
-    # 发送方标识写入消息内容（LLM API 可能丢弃非标准字段，所以不能只靠 _sender 元数据）
     _sender_tag = sender_fields.get("_sender", "")
     _sender_name = sender_fields.get("_sender_name", "")
     _thread = str(thread_id or _kwargs.get("thread_id") or "").strip()
@@ -128,47 +113,64 @@ def agent_main(
         "_requires_reply": requires_reply_bool,
     }
     user_msg.update(sender_fields)
+    preview = utf8_preview(msg, 200)
 
-    # ── 在发送者会话中标记已发出 requires_reply=true ──
-    if requires_reply_bool and src_cid and src_cid != tid:
-        _ensure_conversation_loaded(src_cid)
-        src_msgs = CONVERSATIONS.get(src_cid)
-        if src_msgs is not None:
-            sentinel = {
-                "role": "system",
-                "content": "",
-                "_requires_reply_sentinel": True,
-                "_target_id": tid,
-                "_thread_id": _thread,
-            }
-            _append_session_message_v2(src_cid, src_msgs, sentinel, new_round=False)
-            CONVERSATIONS[src_cid] = src_msgs
-            _save_conversation(src_cid, src_msgs)
+    if requires_reply_bool and src_cid != tid:
+        with conversation_run_locks(src_cid):
+            _ensure_conversation_loaded(src_cid)
+            src_msgs = CONVERSATIONS.get(src_cid)
+            if src_msgs is not None:
+                sentinel = {
+                    "role": "system",
+                    "content": "_requires_reply_sentinel",
+                    "_requires_reply_sentinel": True,
+                    "_target_id": tid,
+                    "_thread_id": _thread,
+                }
+                _append_session_message_v2(src_cid, src_msgs, sentinel, new_round=False)
+                CONVERSATIONS[src_cid] = src_msgs
+                _save_conversation(src_cid, src_msgs)
 
-    if _ACTIVE_CONVERSATION_RUNS.get(tid):
-        queued = enqueue_session_inbox(tid, user_msg)
-        publish_conversation_event(
-            tid,
-            {
-                "type": "inbox_queued",
-                "queued_count": queued,
-                "from": sender_fields.get("_sender", ""),
-                "from_name": sender_fields.get("_sender_name", ""),
-            },
-        )
+    queued = False
+    turn_started = False
+    with conversation_run_locks(tid):
+        _ensure_conversation_loaded(tid)
+        target_messages = CONVERSATIONS.get(tid)
+        if not target_messages:
+            return {"ok": False, "error": {"type": "target_not_found", "message": f"目标会话 {tid} 不存在"}}
+
+        if _ACTIVE_CONVERSATION_RUNS.get(tid):
+            queued_count = enqueue_session_inbox(tid, user_msg)
+            publish_conversation_event(
+                tid,
+                {
+                    "type": "inbox_queued",
+                    "queued_count": queued_count,
+                    "from": sender_fields.get("_sender", ""),
+                    "from_name": sender_fields.get("_sender_name", ""),
+                },
+            )
+            queued = True
+        else:
+            turn_started = _append_incoming_session_message_impl(tid, user_msg)
+
+    if queued:
         return {
             "ok": True,
             "data": {
                 "target_id": tid,
                 "queued": True,
-                "queued_count": queued,
-                "message_sent": msg[:200] if len(msg.encode("utf-8")) <= 200 else msg.encode("utf-8")[:200].decode("utf-8", "ignore"),
+                "queued_count": queued_count,
+                "message_sent": preview,
                 "_sender": sender_fields,
             },
         }
 
-    _append_incoming_session_message(tid, user_msg)
-    run_id = start_background_agent_turn(tid, "", resume_after_user_confirm=True)
+    run_id = str(_ACTIVE_CONVERSATION_RUNS.get(tid) or "")
+    if not turn_started and not run_id:
+        run_id = start_background_agent_turn(
+            tid, "", resume_after_user_confirm=True, peer_triggered=True
+        ) or ""
 
     return {
         "ok": True,
@@ -176,7 +178,7 @@ def agent_main(
             "target_id": tid,
             "queued": False,
             "run_id": run_id,
-            "message_sent": msg[:200] if len(msg.encode("utf-8")) <= 200 else msg.encode("utf-8")[:200].decode("utf-8", "ignore"),
+            "message_sent": preview,
             "_sender": sender_fields,
         },
     }

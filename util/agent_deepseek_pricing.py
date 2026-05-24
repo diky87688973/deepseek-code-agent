@@ -130,9 +130,10 @@ def get_model_pricing_snapshot(conversation_id: str, model: str) -> Dict[str, An
         _PRICING_CACHE[key] = err
         return err
 
+    page_url = str(_AGENT_CONFIG.get("AGENT_PRICING_PAGE_URL") or "").strip()
     rows = _fetch_rows()
     if not rows or len(rows) < 3:
-        err = {"ok": False, "error": "fetch_or_parse", "source": PRICING_URL}
+        err = {"ok": False, "error": "fetch_or_parse", "source": page_url or "AGENT_PRICING_PAGE_URL"}
         _PRICING_CACHE[key] = err
         return err
     col = 0 if m == "deepseek-v4-flash" else 1
@@ -148,7 +149,7 @@ def get_model_pricing_snapshot(conversation_id: str, model: str) -> Dict[str, An
         "cache_hit_cny_per_m": hit_w,
         "cache_miss_cny_per_m": miss_w,
         "output_cny_per_m": out_w,
-        "source": PRICING_URL,
+        "source": page_url,
     }
     _PRICING_CACHE[key] = ok_row
     return ok_row

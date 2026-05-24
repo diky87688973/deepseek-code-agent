@@ -9,7 +9,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 BUILTIN_MAX_DIFF_CHARS = 200_000
 BUILTIN_LOG_MAX = 20
@@ -28,7 +28,7 @@ def _run_git(cwd: Path, *args: str, timeout: int = 120) -> subprocess.CompletedP
     )
 
 
-def _truncate(s: str, max_chars: int) -> tuple[str, bool]:
+def _truncate(s: str, max_chars: int) -> Tuple[str, bool]:
     if len(s) <= max_chars:
         return s, False
     return s[:max_chars], True
@@ -87,7 +87,7 @@ def _mode_worktree(root: Path, max_chars: int) -> dict:
 
     lines = [ln for ln in (st.stdout or "").splitlines() if ln.strip()]
     branch_line = ""
-    porcelain: list[dict[str, str]] = []
+    porcelain: List[Dict[str, str]] = []
     for ln in lines:
         if ln.startswith("## "):
             branch_line = ln[3:].strip()
@@ -116,7 +116,7 @@ def _mode_log(root: Path, max_n: int) -> dict:
     cp = _run_git(root, "log", f"-n{max_n}", f"--pretty=format:{fmt}", "--no-color")
     if cp.returncode != 0:
         raise RuntimeError(cp.stderr.strip() or cp.stdout.strip() or "git log 失败")
-    entries: list[dict[str, str]] = []
+    entries: List[Dict[str, str]] = []
     raw = (cp.stdout or "").strip()
     if not raw:
         return {"mode": "log", "path": str(root), "log_max": max_n, "entries": entries}
@@ -143,7 +143,7 @@ def _mode_blame(root: Path, rel_path: str, start_line: Optional[int], end_line: 
         raise ValueError(f"文件过大（>{BUILTIN_BLAME_MAX_BYTES} 字节），请指定 start_line / end_line（blame）")
 
     rel_git = target.resolve().relative_to(root.resolve()).as_posix()
-    cmd: list[str] = ["blame", "--line-porcelain", "--no-color"]
+    cmd: List[str] = ["blame", "--line-porcelain", "--no-color"]
     if start_line is not None and end_line is not None:
         if start_line < 1 or end_line < 1 or start_line > end_line:
             raise ValueError("blame 下行范围非法：start_line / end_line 须为 >=1 且 start_line<=end_line")
@@ -156,7 +156,7 @@ def _mode_blame(root: Path, rel_path: str, start_line: Optional[int], end_line: 
 
     lines_out: List[Dict[str, Union[str, int]]] = []
     cur: Optional[Dict[str, Union[int, str]]] = None
-    meta: dict[str, str] = {}
+    meta: Dict[str, str] = {}
     for line in (cp.stdout or "").splitlines():
         m = _HEADER_RE.match(line)
         if m:
@@ -206,7 +206,7 @@ def _mode_show(root: Path, ref: str, max_chars: int) -> dict:
     if ns_cp.returncode != 0:
         raise RuntimeError(ns_cp.stderr.strip() or ns_cp.stdout.strip() or "git diff-tree 失败")
 
-    files: list[dict[str, str]] = []
+    files: List[Dict[str, str]] = []
     for ln in (ns_cp.stdout or "").splitlines():
         ln = ln.strip()
         if not ln:

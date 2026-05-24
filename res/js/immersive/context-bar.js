@@ -67,7 +67,7 @@
             : 0;
         mid = ac + "/" + cnt;
       }
-      var meta = pct + "% | " + mid + " | " + tok.toLocaleString() + " tokens";
+      var meta = pct + "% | " + mid + " | " + tok.toLocaleString() + " 令牌";
       parts.push(
         '<div class="ctx-tip-line">' +
           '<span class="ctx-tip-br">' +

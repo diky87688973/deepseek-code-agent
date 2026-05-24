@@ -61,12 +61,17 @@ except ImportError:
     AGENT_CONFIG = {}
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from util.agent_tool_budget import (
+    apply_turn_tool_budget_to_result,
+    tool_call_limit_reached_result,
+    turn_tool_budget_exhausted,
+)
 from util.agent_prompt_constants import (
-    AGENT_MAX_TOOL_ROUNDS_USER_HINT,
     TOOL_AGENT_EXECUTE_MODE_PROMPT,
     TOOL_AGENT_PLAN_MODE_PROMPT,
 	TOOL_AGENT_AUTO_MODE_PROMPT,
     TOOL_AGENT_SYSTEM_PROMPT,
+    format_agent_max_tool_rounds_user_hint,
 )
 from util.agent_model_dispatch import ALLOWED_MODELS, default_model_from_env, effective_model, set_conversation_model
 from util.agent_deepseek_pricing import get_model_pricing_snapshot
@@ -2910,6 +2915,7 @@ def run_agent_turn(
     em = effective_model(conversation_id)
     yield {"type": "conversation", "conversation_id": conversation_id, "message_count": len(messages), "mode": mode, "model": em, "reasoning_effort": _get_reasoning_effort(conversation_id)}
     turn_tool_records: List[Dict[str, Any]] = []
+    turn_tool_invocations_used = 0
 
     api_messages = _build_api_messages_for_model(messages, conversation_id)
     for _round in range(MAX_TOOL_ROUNDS):
@@ -3017,7 +3023,34 @@ def run_agent_turn(
                         if clean_ip:
                             args["ip"] = clean_ip
                             exec_args["ip"] = clean_ip
-                if not script:
+                _budget_limit_blocked = turn_tool_budget_exhausted(
+                    turn_tool_invocations_used, MAX_TOOL_ROUNDS
+                )
+                if _budget_limit_blocked:
+                    result = tool_call_limit_reached_result(
+                        used=turn_tool_invocations_used, limit=MAX_TOOL_ROUNDS
+                    )
+                    result = attach_tool_help_on_failure(script or "(unknown)", None, result)
+                    _log_agent_console_tool(
+                        conversation_id, api_name, script or "(unknown)", args, result
+                    )
+                    yield {
+                        "type": "tool_start",
+                        "api_name": api_name,
+                        "script": script or "(unknown)",
+                        "args": args,
+                        "tool_call_id": tc.get("id"),
+                        "step_title": step_title,
+                    }
+                    yield {
+                        "type": "tool_end",
+                        "api_name": api_name,
+                        "script": script or "(unknown)",
+                        "tool_call_id": tc.get("id"),
+                        "ok": False,
+                        "preview": preview_tool_result(script or "(unknown)", result),
+                    }
+                elif not script:
                     result = _unknown_tool_result(api_name, script_by_api)
                     result = attach_tool_help_on_failure("(unknown)", None, result)
                     if not (isinstance(result, dict) and result.get("ok") is True):
@@ -3253,6 +3286,12 @@ def run_agent_turn(
                     _preview = _build_direct_preview_message(script, result, user_text_for_preview)
                     if _preview:
                         direct_preview_content.append(_preview)
+                result, turn_tool_invocations_used = apply_turn_tool_budget_to_result(
+                    result,
+                    turn_tool_invocations_used=turn_tool_invocations_used,
+                    limit=MAX_TOOL_ROUNDS,
+                    limit_blocked=_budget_limit_blocked,
+                )
                 turn_tool_records.append({"api_name": api_name, "script": script or "(unknown)", "ok": bool(result.get("ok"))})
                 _append_session_message_v1(
                     conversation_id,
@@ -3293,26 +3332,24 @@ def run_agent_turn(
             yield {"type": "assistant", "content": content}
         break
     else:
-        max_rounds_rollback_messages = copy.deepcopy(rollback_messages)
-        _append_session_message_v1(
-            conversation_id,
-            messages,
-            {"role": "user", "content": AGENT_MAX_TOOL_ROUNDS_USER_HINT},
-        )
         if _consume_conversation_stop_requested(conversation_id, run_id):
-            yield _finish_conversation_stopped(conversation_id, max_rounds_rollback_messages)
+            yield _finish_conversation_stopped(conversation_id, rollback_messages)
             return
         yield {"type": "llm_round", "round": MAX_TOOL_ROUNDS + 1}
         api_messages = _build_api_messages_for_model(messages, conversation_id)
+        wrap_messages = list(api_messages)
+        wrap_messages.append(
+            {"role": "user", "content": format_agent_max_tool_rounds_user_hint(MAX_TOOL_ROUNDS)}
+        )
         reff = _get_reasoning_effort(conversation_id)
         wrap_body: Dict[str, Any] = {
             "model": em,
-            "messages": api_messages,
+            "messages": wrap_messages,
             "reasoning_effort": reff,
             "thinking": {"type": "enabled"},
             "temperature": 0.2,
         }
-        yield {"type": "llm_request", "round": MAX_TOOL_ROUNDS + 1, "params": {"model": em, "thinking": True, "reasoning_effort": reff, "temperature": 0.2, "messagesCount": len(api_messages), "toolsCount": 0, "hasTools": False}}
+        yield {"type": "llm_request", "round": MAX_TOOL_ROUNDS + 1, "params": {"model": em, "thinking": True, "reasoning_effort": reff, "temperature": 0.2, "messagesCount": len(wrap_messages), "toolsCount": 0, "hasTools": False}}
         last_choice_message_wrap: Optional[Dict[str, Any]] = None
         try:
             usage: Dict[str, Any] = {}
@@ -3363,13 +3400,8 @@ def run_agent_turn(
             content = _finalize_stream_content_text(content, last_choice_message_wrap)
         for _rfe in _reasoning_stream_finalize_events(reasoning_before_finalize, rc, MAX_TOOL_ROUNDS + 1):
             yield _rfe
-        content = content.strip()
         reasoning_content = rc.strip()
         yield {"type": "llm_response", "round": MAX_TOOL_ROUNDS + 1, "params": {"toolCallsCount": len(tcalls), "contentChars": len(content), "reasoningChars": len(reasoning_content), "usage": usage}}
-        if tcalls:
-            content = content or (
-                "已达到工具调用次数上限；模型在收尾时仍尝试调用工具。请把任务拆成更小步骤或在本对话中追问。"
-            )
         assistant_msg = {"role": "assistant", "content": content, "reasoning_content": reasoning_content or ""}
         _append_session_message_v1(conversation_id, messages, assistant_msg)
         if content and not content_parts:

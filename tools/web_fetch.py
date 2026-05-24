@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 BUILTIN_TIMEOUT_SEC = 20
 BUILTIN_MAX_CHARS = 20000
@@ -47,10 +47,10 @@ def _strip_html_to_text(raw_html: str) -> str:
     return s.strip()
 
 
-def _parse_keywords(raw: Optional[str]) -> list[str]:
+def _parse_keywords(raw: Optional[str]) -> List[str]:
     if not raw:
         return []
-    out: list[str] = []
+    out: List[str] = []
     for x in str(raw).split(","):
         k = x.strip()
         if not k:
@@ -60,8 +60,37 @@ def _parse_keywords(raw: Optional[str]) -> list[str]:
     return out
 
 
+def _ascii_safe_url(url: str) -> str:
+    """将含非 ASCII 主机名的 URL 转为 IDNA，避免 urllib 按 latin-1 编码请求行。"""
+    parsed = urllib.parse.urlsplit(url)
+    host = parsed.hostname or ""
+    if not host:
+        return url
+    try:
+        host.encode("ascii")
+        return url
+    except UnicodeEncodeError:
+        pass
+    try:
+        host_ascii = host.encode("idna").decode("ascii")
+    except Exception:
+        return url
+    userinfo = ""
+    if parsed.username:
+        userinfo = parsed.username
+        if parsed.password:
+            userinfo += ":" + parsed.password
+        userinfo += "@"
+    port = parsed.port
+    netloc = userinfo + host_ascii + (f":{port}" if port else "")
+    return urllib.parse.urlunsplit(
+        (parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment)
+    )
+
+
 def _fetch_url(url: str, timeout_sec: int, max_chars: int, user_agent: str) -> dict:
-    req = urllib.request.Request(url, headers={"User-Agent": user_agent})
+    safe_url = _ascii_safe_url(url)
+    req = urllib.request.Request(safe_url, headers={"User-Agent": user_agent})
     with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
         final_url = resp.geturl()
         status = getattr(resp, "status", 200)
@@ -90,6 +119,7 @@ def _fetch_url(url: str, timeout_sec: int, max_chars: int, user_agent: str) -> d
 
     return {
         "url": url,
+        "request_url": safe_url,
         "final_url": final_url,
         "status": int(status),
         "content_type": content_type,
@@ -100,7 +130,7 @@ def _fetch_url(url: str, timeout_sec: int, max_chars: int, user_agent: str) -> d
     }
 
 
-def _run_hard_checks(text: str, *, min_chars: Optional[int], keywords: list[str]) -> Tuple[bool, dict]:
+def _run_hard_checks(text: str, *, min_chars: Optional[int], keywords: List[str]) -> Tuple[bool, dict]:
     checks: dict = {"min_chars": min_chars, "require_keywords": keywords, "hit_keywords": []}
     if min_chars is not None:
         if len(text) < min_chars:

@@ -10,26 +10,26 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import agent_common as ac
 
 
-def _load_csv(path: Path, *, delimiter: str = ",") -> list[dict]:
+def _load_csv(path: Path, *, delimiter: str = ",") -> List[dict]:
     enc = "utf-8-sig"
     with open(path, "r", encoding=enc) as f:
         reader = csv.DictReader(f, delimiter=delimiter)
         return list(reader)
 
 
-def _load_excel(path: Path, sheet: Optional[str]) -> list[dict]:
+def _load_excel(path: Path, sheet: Optional[str]) -> List[dict]:
     import openpyxl
 
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
         ws = wb[sheet] if sheet else wb.active
         rows = []
-        headers: list[str] = []
+        headers: List[str] = []
         for i, row in enumerate(ws.iter_rows(values_only=True)):
             if i == 0:
                 headers = [str(c) if c is not None else f"col{j}" for j, c in enumerate(row)]
@@ -55,7 +55,7 @@ def _detect_format(path: Path) -> str:
     return "unknown"
 
 
-def _load_table(path: Path, sheet: Optional[str]) -> Tuple[str, list[dict]]:
+def _load_table(path: Path, sheet: Optional[str]) -> Tuple[str, List[dict]]:
     fmt = _detect_format(path)
     if fmt == "xlsx":
         return fmt, _load_excel(path, sheet)
@@ -65,21 +65,21 @@ def _load_table(path: Path, sheet: Optional[str]) -> Tuple[str, list[dict]]:
     raise ValueError(f"不支持的文件格式: {path.suffix}（支持 .xlsx / .csv / .tsv）")
 
 
-def _do_preview(rows: list[dict], limit: int) -> dict:
+def _do_preview(rows: List[dict], limit: int) -> dict:
     if not rows:
         return {"total_rows": 0, "columns": [], "preview": [], "limit": limit}
     columns = list(rows[0].keys())
     return {"total_rows": len(rows), "columns": columns, "preview": rows[:limit], "limit": limit}
 
 
-def _do_filter(rows: list[dict], col: str, val: str, regex: bool) -> list[dict]:
+def _do_filter(rows: List[dict], col: str, val: str, regex: bool) -> List[dict]:
     if regex:
         pat = re.compile(val, re.IGNORECASE)
         return [r for r in rows if str(r.get(col, "")).strip() and pat.search(str(r.get(col, "")))]
     return [r for r in rows if str(r.get(col, "")).strip().lower() == val.lower()]
 
 
-def _do_sort(rows: list[dict], col: str, desc: bool) -> list[dict]:
+def _do_sort(rows: List[dict], col: str, desc: bool) -> List[dict]:
     return sorted(
         rows,
         key=lambda r: (str(r.get(col, "")) if r.get(col) is not None else ""),
@@ -87,7 +87,7 @@ def _do_sort(rows: list[dict], col: str, desc: bool) -> list[dict]:
     )
 
 
-def _do_stats(rows: list[dict], col: str) -> dict:
+def _do_stats(rows: List[dict], col: str) -> dict:
     values = []
     for r in rows:
         v = r.get(col)
@@ -105,11 +105,11 @@ def _do_stats(rows: list[dict], col: str) -> dict:
     return stats
 
 
-def _do_to_json(rows: list[dict]) -> str:
+def _do_to_json(rows: List[dict]) -> str:
     return json.dumps(rows, ensure_ascii=False, indent=2, default=str)
 
 
-def _do_to_csv(rows: list[dict]) -> str:
+def _do_to_csv(rows: List[dict]) -> str:
     if not rows:
         return ""
     output = io.StringIO()
@@ -119,7 +119,7 @@ def _do_to_csv(rows: list[dict]) -> str:
     return output.getvalue()
 
 
-def _do_to_md(rows: list[dict], limit: int) -> str:
+def _do_to_md(rows: List[dict], limit: int) -> str:
     if not rows:
         return "(空表)"
     cols = list(rows[0].keys())

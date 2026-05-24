@@ -17,11 +17,11 @@ import os
 import sys
 from configparser import ConfigParser
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 
 # ── INI section.key → 内部 AGENT_* 键名映射 ──
-INI_TO_AGENT_MAP: dict[str, str] = {
+INI_TO_AGENT_MAP: Dict[str, str] = {
     "model.api_base_url": "AGENT_MODEL_API_BASE_URL",
     "model.api_key": "AGENT_MODEL_API_KEY",
     "server.port": "AGENT_SERVER_PORT",
@@ -33,14 +33,18 @@ INI_TO_AGENT_MAP: dict[str, str] = {
     "skills.dir": "AGENT_SKILLS_DIR",
     "skills.max_file_size": "AGENT_SKILLS_MAX_FILE_SIZE",
     "agent.name_pool": "AGENT_TEAM_NAME_POOL",
+    "agent.user_rules_file": "AGENT_USER_RULES_FILE",
+    "agent.audit_intent_keys": "AGENT_AUDIT_INTENT_KEYS",
+    "agent.max_consecutive_peer_turns": "AGENT_MAX_CONSECUTIVE_PEER_TURNS",
+    "agent.min_peer_turn_interval_sec": "AGENT_MIN_PEER_TURN_INTERVAL_SEC",
     "tts.engine": "AGENT_TTS_ENGINE",
     "tts.voice": "AGENT_TTS_VOICE",
     "tts.enabled": "AGENT_TTS_ENABLED",
+    "tts.max_segment_chars": "AGENT_TTS_MAX_SEGMENT_CHARS",
     "session.encryption": "AGENT_SESSION_ENCRYPTION",
     "session.key_file": "AGENT_SESSION_KEY_FILE",
     "context.full_user_rounds": "AGENT_CONTEXT_FULL_USER_ROUNDS",
     "context.pure_user_rounds": "AGENT_CONTEXT_PURE_USER_ROUNDS",
-    "context.token_method": "AGENT_CONTEXT_TOKEN_METHOD",
     "context.token_estimate_en_per_char": "AGENT_TOKEN_ESTIMATE_EN_PER_CHAR",
     "context.token_estimate_zh_per_char": "AGENT_TOKEN_ESTIMATE_ZH_PER_CHAR",
     "context.layout_budget_tokens": "AGENT_CONTEXT_LAYOUT_BUDGET_TOKENS",
@@ -65,6 +69,7 @@ INI_TO_AGENT_MAP: dict[str, str] = {
     "misc.pricing_page_url": "AGENT_PRICING_PAGE_URL",
     "model.allowed_models": "AGENT_ALLOWED_MODELS",
     "model.default_model": "AGENT_DEFAULT_MODEL",
+    "model.model_context_tokens_json": "AGENT_MODEL_CONTEXT_TOKENS_JSON",
     "kling.api_key": "AGENT_KLING_API_KEY",
     "kling.secret_key": "AGENT_KLING_SECRET_KEY",
     "kling.api_base_url": "AGENT_KLING_API_BASE_URL",
@@ -72,10 +77,10 @@ INI_TO_AGENT_MAP: dict[str, str] = {
 }
 
 # AGENT_* → INI section.key 反向映射
-AGENT_TO_INI_MAP: dict[str, str] = {v: k for k, v in INI_TO_AGENT_MAP.items()}
+AGENT_TO_INI_MAP: Dict[str, str] = {v: k for k, v in INI_TO_AGENT_MAP.items()}
 
 # 配置键 → 环境变量名映射
-CONFIG_TO_ENV_MAP: dict[str, str] = {
+CONFIG_TO_ENV_MAP: Dict[str, str] = {
     "AGENT_MODEL_API_BASE_URL": "CHAT_API_BASE_URL",
     "AGENT_MODEL_API_KEY": "CHAT_API_KEY",
     "AGENT_SERVER_PORT": "PORT",
@@ -108,14 +113,14 @@ CONFIG_TO_ENV_MAP: dict[str, str] = {
 }
 
 # 配置键 → 必须配置的关键项（缺失时 load_config 会报错）
-REQUIRED_CONFIG_KEYS: list[str] = [
+REQUIRED_CONFIG_KEYS: List[str] = [
     "AGENT_MODEL_API_KEY",
 ]
 
 
 def _find_config_ini() -> Optional[Path]:
     """按优先级查找 config.ini"""
-    candidates: list[str] = []
+    candidates: List[str] = []
 
     # 1) 可执行文件/脚本所在目录
     base_dir: Optional[Path] = None
@@ -149,12 +154,12 @@ def _find_config_ini() -> Optional[Path]:
     return None
 
 
-def _read_ini(path: Path) -> dict[str, Any]:
+def _read_ini(path: Path) -> Dict[str, Any]:
     """解析 config.ini，返回 AGENT_* 键名的扁平字典"""
     cp = ConfigParser()
     cp.read(path, encoding="utf-8")
 
-    result: dict[str, Any] = {}
+    result: Dict[str, Any] = {}
     for section in cp.sections():
         for key, value in cp.items(section):
             agent_key = INI_TO_AGENT_MAP.get(f"{section}.{key}")
@@ -179,7 +184,7 @@ def _read_ini(path: Path) -> dict[str, Any]:
             elif _is_float(value):
                 typed = float(value)
             # 列表（逗号分隔）
-            elif agent_key in ("AGENT_PREVIEW_INTENT_KEYS",):
+            elif agent_key in ("AGENT_PREVIEW_INTENT_KEYS", "AGENT_AUDIT_INTENT_KEYS"):
                 typed = [x.strip() for x in value.split(",") if x.strip()]
             # 空字符串
             elif value == "":
@@ -200,13 +205,13 @@ def _is_float(s: str) -> bool:
         return False
 
 
-def load_config(verbose: bool = True) -> dict[str, Any]:
+def load_config(verbose: bool = True) -> Dict[str, Any]:
     """
     加载配置，返回合并后的完整配置字典（键名为 AGENT_* 大写格式）。
     优先级：config.ini（配置文件） > 环境变量
     关键配置缺失时抛出 ValueError。
     """
-    result: dict[str, Any] = {}
+    result: Dict[str, Any] = {}
 
     # 1) 先从环境变量读取（低优先级，可被配置文件覆盖）
     for cfg_key, env_key in CONFIG_TO_ENV_MAP.items():

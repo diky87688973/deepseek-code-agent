@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """静态/运行时符号检查：拆包后 agent_core 与 routes 的引用是否齐全。"""
 from __future__ import annotations
+from typing import List, Set, Tuple
 
 import dis
 import re
@@ -13,20 +14,20 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 
-def _load_global_names() -> set[str]:
+def _load_global_names() -> Set[str]:
     import builtins
     from agent_v2 import agent_core as core
 
     return {n for n in dir(core) if not n.startswith("__")} | set(dir(builtins))
 
 
-def _missing_globals_in_module(module_name: str, attr: str) -> list[tuple[str, str, int]]:
+def _missing_globals_in_module(module_name: str, attr: str) -> List[Tuple[str, str, int]]:
     import importlib
 
     mod = importlib.import_module(module_name)
     fn = getattr(mod, attr)
     known = _load_global_names()
-    out: list[tuple[str, str, int]] = []
+    out: List[Tuple[str, str, int]] = []
     for ins in dis.get_instructions(fn):
         if ins.opname != "LOAD_GLOBAL":
             continue
@@ -37,7 +38,7 @@ def _missing_globals_in_module(module_name: str, attr: str) -> list[tuple[str, s
     return out
 
 
-def _routes_core_refs() -> list[str]:
+def _routes_core_refs() -> List[str]:
     from agent_v2 import agent_core as core
 
     src = (Path(__file__).parent / "routes.py").read_text(encoding="utf-8")
@@ -45,14 +46,14 @@ def _routes_core_refs() -> list[str]:
     return [n for n in names if not hasattr(core, n)]
 
 
-def _no_globals_injection() -> list[str]:
+def _no_globals_injection() -> List[str]:
     src = (Path(__file__).parent / "agent_core.py").read_text(encoding="utf-8")
     if "globals()[_name]" in src or "globals()[" in src and "getattr(_pkg" in src:
         return ["agent_core.py 仍使用 globals() 动态灌入 bootstrap/live_state"]
     return []
 
 
-def _bootstrap_live_import_coverage() -> list[str]:
+def _bootstrap_live_import_coverage() -> List[str]:
     """agent_core / routes 用到的 bootstrap·live_state 符号须在 agent_core 顶部显式 import。"""
     import ast
 
@@ -69,7 +70,7 @@ def _bootstrap_live_import_coverage() -> list[str]:
     need = sorted(used & boot_live)
 
     tree = ast.parse(core_src)
-    imported: set[str] = set()
+    imported: Set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.ImportFrom):
             continue
@@ -83,7 +84,7 @@ def _bootstrap_live_import_coverage() -> list[str]:
 
 
 def main() -> int:
-    errors: list[str] = []
+    errors: List[str] = []
 
     errors.extend(_no_globals_injection())
     missing_explicit = _bootstrap_live_import_coverage()

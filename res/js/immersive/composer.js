@@ -151,7 +151,7 @@
     var c = CM.byId(id);
     if (!c) return;
     var t0 = String(c.title || "");
-    if (t0 && !/^会话\s+[A-Za-z0-9._:-]{8}$/.test(t0) && t0 !== "生成标题中…") return;
+    if (t0 && !/^会话\s+[A-Za-z0-9._:-]{8}$/.test(t0) && t0 !== "生成标题中…" && t0 !== "新会话") return;
     CM.updateTitle(id, "生成标题中…");
     try {
       var r = await fetch("/api/chat/title", {
@@ -162,7 +162,8 @@
       if (!r.ok) return;
       var j = await r.json();
       var title = String((j && j.title) || "").trim();
-      if (title) CM.updateTitle(id, title.slice(0, 18));
+      if (title && title !== "新会话") CM.updateTitle(id, title.slice(0, 18));
+      else if (title === "新会话") CM.updateTitle(id, "会话 " + id.slice(0, 8));
     } catch (e) {}
   }
 
@@ -272,7 +273,6 @@
       }
       var j = await r.json();
       if (j && j.run_id) col.s.activeRunId = String(j.run_id || "");
-      void refreshConversationTitle(sendCid);
     } catch (err) {
       if (!(err && err.name === "AbortError")) {
         IMM.immHideChatLoading(col.s);
@@ -934,4 +934,6 @@
     IMM.updateComposerBusy();
     if (typeof IMM.updateImmersiveContextBar === "function") IMM.updateImmersiveContextBar();
   };
+
+  IMM.refreshConversationTitle = refreshConversationTitle;
 })(window);

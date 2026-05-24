@@ -20,6 +20,19 @@ import requests
 _CLIENT_ID = "178c6fc778ccc68e1d6a"
 
 
+def _gh_err(message: str, err_type: str = "GitHubError", **data_extra: Any) -> Dict[str, Any]:
+    data = dict(data_extra) if data_extra else None
+    return {
+        "ok": False,
+        "data": data,
+        "error": {"type": err_type, "message": str(message)},
+    }
+
+
+def _gh_ok(data: Any) -> Dict[str, Any]:
+    return {"ok": True, "data": data, "error": None}
+
+
 def _find_token() -> str:
     """查找 GitHub Token。优先级：GH_TOKEN 环境变量 > gh_token.txt"""
     env = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
@@ -47,8 +60,11 @@ def _save_token(token: str) -> None:
 def _api(repo: str, path: str, method: str = "GET", data: Any = None) -> Dict[str, Any]:
     token = _find_token()
     if not token:
-        return {"ok": False, "action": "login_required",
-                "error": "GitHub Token 未找到。请执行 --action login"}
+        return _gh_err(
+            "GitHub Token 未找到。请执行 --action login",
+            "LoginRequired",
+            action="login_required",
+        )
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github.v3+json",
@@ -62,11 +78,11 @@ def _api(repo: str, path: str, method: str = "GET", data: Any = None) -> Dict[st
         elif method == "PUT":
             r = requests.put(url, headers=headers, json=data, timeout=15)
         else:
-            return {"ok": False, "error": f"不支持的 HTTP 方法: {method}"}
+            return _gh_err(f"不支持的 HTTP 方法: {method}", "ValueError")
         r.raise_for_status()
-        return {"ok": True, "data": r.json()}
+        return _gh_ok(r.json())
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return _gh_err(str(e), e.__class__.__name__)
 
 
 def cmd_login() -> Dict[str, Any]:
@@ -76,7 +92,7 @@ def cmd_login() -> Dict[str, Any]:
             "https://github.com/login/device/code",
             headers={"Accept": "application/json"},
             data={"client_id": _CLIENT_ID, "scope": "repo,read:org,admin:public_key"},
-            timeout=15
+            timeout=15,
         )
         data = r.json()
         user_code = data["user_code"]
@@ -90,11 +106,12 @@ def cmd_login() -> Dict[str, Any]:
 
         try:
             import webbrowser
+
             webbrowser.open(verification_uri)
         except Exception:
             pass
 
-        for attempt in range(120):
+        for _attempt in range(120):
             time.sleep(interval)
             r2 = requests.post(
                 "https://github.com/login/oauth/access_token",
@@ -102,26 +119,26 @@ def cmd_login() -> Dict[str, Any]:
                 data={
                     "client_id": _CLIENT_ID,
                     "device_code": device_code,
-                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code"
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
                 },
-                timeout=15
+                timeout=15,
             )
             result = r2.json()
             if "access_token" in result:
                 _save_token(result["access_token"])
-                return {"ok": True, "message": "登录成功！Token 已保存。"}
+                return _gh_ok({"message": "登录成功！Token 已保存。"})
             error = result.get("error", "")
             if error == "authorization_pending":
                 continue
-            elif error == "slow_down":
+            if error == "slow_down":
                 interval += 5
                 continue
-            elif error == "expired_token":
-                return {"ok": False, "error": "验证码已过期，请重新运行。"}
-            return {"ok": False, "error": str(result)}
-        return {"ok": False, "error": "等待超时(10分钟)。"}
+            if error == "expired_token":
+                return _gh_err("验证码已过期，请重新运行。", "ExpiredToken")
+            return _gh_err(str(result), "OAuthError")
+        return _gh_err("等待超时(10分钟)。", "TimeoutError")
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return _gh_err(str(e), e.__class__.__name__)
 
 
 def cmd_get_repo(repo: str) -> Dict[str, Any]:
@@ -157,33 +174,34 @@ def agent_main(
     action = (action or "").strip().lower()
     repo = (repo or "").strip().strip("/")
     if not action:
-        return {"ok": False, "error": "action 必填"}
+        return _gh_err("action 必填", "ValueError")
     if action != "login" and not repo:
-        return {"ok": False, "error": "repo 必填，格式: owner/repo"}
+        return _gh_err("repo 必填，格式: owner/repo", "ValueError")
 
     if action == "login":
         return cmd_login()
-    elif action == "get_repo":
+    if action == "get_repo":
         return cmd_get_repo(repo)
-    elif action == "list_issues":
+    if action == "list_issues":
         return cmd_list_issues(repo, state or "open")
-    elif action == "create_issue":
+    if action == "create_issue":
         return cmd_create_issue(repo, title or "", body or "")
-    elif action == "list_releases":
+    if action == "list_releases":
         return cmd_list_releases(repo)
-    elif action == "set_topics":
+    if action == "set_topics":
         topics_list = [t.strip() for t in (topics or "").split(",") if t.strip()]
         return cmd_set_topics(repo, topics_list)
-    else:
-        return {"ok": False, "error": f"未知 action: {action}"}
+    return _gh_err(f"未知 action: {action}", "ValueError")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="GitHub API 工具")
-    parser.add_argument("--action", required=True,
-                        choices=["login", "get_repo", "list_issues", "create_issue",
-                                 "list_releases", "set_topics"],
-                        help="操作类型")
+    parser.add_argument(
+        "--action",
+        required=True,
+        choices=["login", "get_repo", "list_issues", "create_issue", "list_releases", "set_topics"],
+        help="操作类型",
+    )
     parser.add_argument("--repo", default="", help="仓库名 owner/repo（login 可省略）")
     parser.add_argument("--title", default="", help="Issue 标题")
     parser.add_argument("--body", default="", help="Issue 描述")

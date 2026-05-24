@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import re
 import sys
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import agent_common as ac
 
@@ -19,7 +19,7 @@ _PENDING_ERROR: dict = {
 }
 
 
-def _interactive_resolve(title: str, confirms: list[str]) -> str:
+def _interactive_resolve(title: str, confirms: List[str]) -> str:
     print(title, file=sys.stderr)
     for i, c in enumerate(confirms, start=1):
         print(f"  [{i}] {c}", file=sys.stderr)
@@ -37,10 +37,10 @@ def _interactive_resolve(title: str, confirms: list[str]) -> str:
     return s
 
 
-def _normalize_confirms(raw: object) -> list[str]:
+def _normalize_confirms(raw: object) -> List[str]:
     if not isinstance(raw, list) or len(raw) < 1:
         raise ValueError("confirms 须为非空字符串数组")
-    out: list[str] = []
+    out: List[str] = []
     for i, x in enumerate(raw):
         if not isinstance(x, str) or not x.strip():
             raise ValueError(f"confirms[{i}] 须为非空字符串")
@@ -89,7 +89,7 @@ def agent_main(
             resolved = _interactive_resolve(t, cl)
             return ac.ok({"confirm": resolved})
 
-        pending: dict[str, object] = {"title": t, "confirms": cl}
+        pending: Dict[str, object] = {"title": t, "confirms": cl}
         if multi:
             pending["multi"] = True
         if custom_option_index is not None:

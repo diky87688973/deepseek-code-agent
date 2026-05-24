@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Dict, List, Optional
 
 
 class TTSProvider(ABC):
@@ -35,6 +35,6 @@ class TTSProvider(ABC):
         ...
 
     @property
-    def available_voices(self) -> list[dict[str, str]]:
+    def available_voices(self) -> List[Dict[str, str]]:
         """返回可用音色列表，每项含 name/display/性别等。默认返回空。"""
         return []

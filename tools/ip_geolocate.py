@@ -10,13 +10,13 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any
+from typing import Any, Dict
 
 BUILTIN_TIMEOUT_SEC = 12
 API_URL = "https://ipwho.is"
 
 
-def _http_json(url: str, timeout_sec: int) -> dict[str, Any]:
+def _http_json(url: str, timeout_sec: int) -> Dict[str, Any]:
     req = urllib.request.Request(url, headers={"User-Agent": "ip-geolocate/1"})
     with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
         raw = resp.read().decode("utf-8", errors="replace")

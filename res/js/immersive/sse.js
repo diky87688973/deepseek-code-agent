@@ -37,43 +37,59 @@
     scrollMsgs(msgsEl);
   }
 
+  function peerAvatarLetter(name) {
+    var s = String(name || "A").trim();
+    return s ? s.charAt(0).toUpperCase() : "A";
+  }
+
+  function buildPeerMetaHtml(metaRaw) {
+    var line = String(metaRaw || "")
+      .trim()
+      .replace(/\|/g, " ");
+    if (!line) return "";
+    return (
+      '<span class="peer-meta-tag">' + IMM.escapeHtml(line) + "</span>"
+    );
+  }
+
   function addPeerUser(msgsEl, text, name, cid) {
     if (!msgsEl) return;
-    var e = document.createElement("div");
-    e.className = "b u peer-agent-msg";
     var label = String(name || cid || "Agent");
     var content = text || "";
     var metaHtml = "";
-    // 解析真实 agent 消息的 [from=...] 元数据前缀
     if (content.indexOf("[from=") === 0) {
       var ci = content.indexOf("]");
       if (ci > 0) {
         var metaRaw = content.slice(1, ci);
         content = content.slice(ci + 1).trim();
-        var parts = metaRaw.split("|");
-        var metaItems = [];
-        for (var pi = 0; pi < parts.length; pi++) {
-          var kv = parts[pi].trim();
-          if (kv) {
-            var eq = kv.indexOf("=");
-            if (eq > 0) {
-              metaItems.push("<span>" + IMM.escapeHtml(kv.slice(0, eq)) + "</span>=" + IMM.escapeHtml(kv.slice(eq + 1)));
-            }
-          }
-        }
-        if (metaItems.length) {
-          metaHtml = '<div class="peer-meta">' + metaItems.join(" ") + "</div>";
-        }
+        metaHtml = buildPeerMetaHtml(metaRaw);
       }
     }
+    var e = document.createElement("div");
+    e.className = "peer-chat-row";
+    var nameLine = IMM.escapeHtml(label);
+    if (cid && cid !== label) {
+      nameLine += ' <span class="peer-agent-cid">' + IMM.escapeHtml(String(cid).slice(0, 8)) + "</span>";
+    }
     e.innerHTML =
-      '<div style="font-size:11px;color:#667;margin-bottom:4px">' +
+      '<div class="peer-top">' +
+      '<div class="peer-avatar" title="' +
       IMM.escapeHtml(label) +
-      (cid && cid !== label ? " / " + IMM.escapeHtml(String(cid).slice(0, 12)) : "") +
+      '">' +
+      IMM.escapeHtml(peerAvatarLetter(label)) +
       "</div>" +
-      metaHtml +
-      '<div style="white-space:pre-wrap"></div>';
-    e.lastChild.textContent = content;
+      '<div class="peer-top-text">' +
+      '<div class="peer-agent-name">' +
+      nameLine +
+      "</div>" +
+      (metaHtml || "") +
+      "</div></div>" +
+      '<div class="peer-bubble"><div class="peer-agent-body b a"></div></div>';
+    var bodyEl = e.querySelector(".peer-agent-body");
+    if (bodyEl) {
+      bodyEl.className = "peer-agent-body b a";
+      bodyEl.innerHTML = IMM.renderMarkdown(content || "");
+    }
     msgsEl.appendChild(e);
     scrollMsgs(msgsEl);
   }
@@ -488,6 +504,7 @@
       s.abortController = null;
       s.activeRunId = "";
       hideChatLoading(s);
+      if (typeof IMM.refreshConversationTitle === "function") void IMM.refreshConversationTitle(packetCid);
       if (typeof IMM.updateComposerBusy === "function") IMM.updateComposerBusy();
     } else if (ev.type === "stopped") {
       resetTurnState(col);
@@ -650,6 +667,7 @@
           } else if (ev.type === "done") {
             promoteReasoningToChatIfNeeded(col);
             finalizeStream(col, "");
+            if (typeof IMM.refreshConversationTitle === "function") void IMM.refreshConversationTitle(packetCid);
           } else if (ev.type === "stopped") {
             resetTurnState(col);
             if (ev.message) addAssistantMarkdown(msgsEl, ev.message);

@@ -66,7 +66,14 @@ def _fetch_with_playwright(url: str, wait_sec: float = 3.0, max_chars: int = 100
 def agent_main(*, url: str = "", wait_sec: float = 3.0, max_chars: int = 100000) -> dict:
     if not url:
         return ac.err(ValueError("缺少 url 参数"))
-    return _fetch_with_playwright(url, wait_sec, max_chars)
+    try:
+        ws = float(wait_sec)
+        mc = int(max_chars)
+    except (TypeError, ValueError) as e:
+        return ac.err(ValueError(f"wait_sec / max_chars 必须为数字: {e}"))
+    if mc <= 0:
+        return ac.err(ValueError("max_chars 必须 > 0"))
+    return _fetch_with_playwright(url, ws, mc)
 
 
 def main() -> None:

@@ -128,34 +128,57 @@ def _list_archive(source: Path, password: Optional[str], glob_pattern: Optional[
         close_fn()
 
 
-def _extract_archive(source: Path, dest: Path, password: Optional[str], glob_pattern: Optional[str]) -> dict:
-    dest.mkdir(parents=True, exist_ok=True)
+def _extract_archive(
+    source: Path,
+    dest: Path,
+    password: Optional[str],
+    glob_pattern: Optional[str],
+    *,
+    dry_run: bool = False,
+) -> dict:
     arc, fmt, close_fn = _open_archive(source, password)
     try:
         if fmt == "zip":
             members = arc.infolist()
             if glob_pattern:
                 members = [m for m in members if fnmatch.fnmatch(m.filename, glob_pattern)]
-            for m in members:
-                arc.extract(m, path=dest)
             count = len(members)
         elif fmt == "rar":
             members = arc.infolist()
             if glob_pattern:
                 members = [m for m in members if fnmatch.fnmatch(m.filename, glob_pattern)]
-            arc.extractall(dest, members=members)
             count = len(members)
         else:
             members = arc.getmembers()
             if glob_pattern:
                 members = [m for m in members if fnmatch.fnmatch(m.name, glob_pattern)]
-            arc.extractall(dest, members=members)
             count = len(members)
+        if dry_run:
+            return {
+                "action": "extract",
+                "source": str(source),
+                "dest": str(dest),
+                "format": fmt,
+                "dry_run": True,
+                "written": False,
+                "extracted_count": count,
+                "would_extract_count": count,
+            }
+        dest.mkdir(parents=True, exist_ok=True)
+        if fmt == "zip":
+            for m in members:
+                arc.extract(m, path=dest)
+        elif fmt == "rar":
+            arc.extractall(dest, members=members)
+        else:
+            arc.extractall(dest, members=members)
         return {
             "action": "extract",
             "source": str(source),
             "dest": str(dest),
             "format": fmt,
+            "dry_run": False,
+            "written": True,
             "extracted_count": count,
         }
     finally:
@@ -200,9 +223,29 @@ def _add_to_tar(tf: tarfile.TarFile, root: Path, current: Path, glob_pattern: Op
     return count
 
 
-def _create_archive(source: Path, dest: Path, fmt: str, glob_pattern: Optional[str]) -> dict:
+def _create_archive(
+    source: Path,
+    dest: Path,
+    fmt: str,
+    glob_pattern: Optional[str],
+    *,
+    dry_run: bool = False,
+) -> dict:
     if not source.exists():
         raise FileNotFoundError(f"源不存在: {source}")
+
+    if dry_run:
+        count = _count_archive_create(source, fmt, glob_pattern)
+        return {
+            "action": "create",
+            "source": str(source),
+            "dest": str(dest),
+            "format": fmt,
+            "dry_run": True,
+            "written": False,
+            "added_count": count,
+            "would_add_count": count,
+        }
 
     dest.parent.mkdir(parents=True, exist_ok=True)
 
@@ -229,8 +272,34 @@ def _create_archive(source: Path, dest: Path, fmt: str, glob_pattern: Optional[s
         "source": str(source),
         "dest": str(dest),
         "format": fmt,
+        "dry_run": False,
+        "written": True,
         "added_count": count,
     }
+
+
+def _count_archive_create(source: Path, fmt: str, glob_pattern: Optional[str]) -> int:
+    """dry_run 创建：只统计将打包的文件数，不写 dest。"""
+    if fmt == "zip":
+        import io
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            return _add_to_zip(zf, source, source, glob_pattern)
+    mode_map = {
+        "tar.gz": "w:gz",
+        "tar.bz2": "w:bz2",
+        "tar.xz": "w:xz",
+        "tar": "w",
+    }
+    mode = mode_map.get(fmt)
+    if not mode:
+        raise ValueError(f"不支持的输出格式: {fmt}（支持 zip / tar.gz / tar.bz2 / tar.xz / tar）")
+    import io
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode=mode) as tf:
+        return _add_to_tar(tf, source, source, glob_pattern)
 
 
 def agent_main(
@@ -241,13 +310,15 @@ def agent_main(
     output_format: Optional[str] = None,
     password: Optional[str] = None,
     glob_pattern: Optional[str] = None,
+    dry_run: bool = True,
     restrict_to_workspace: bool = False,
     run_type: str = "",
 ) -> dict:
     act = str(action or "").strip().lower()
     rt = str(run_type or "").strip().lower()
     write_actions = frozenset({"extract", "create"})
-    if act in write_actions and rt == "plan":
+    preview = bool(dry_run)
+    if act in write_actions and not preview and rt == "plan":
         return {
             "ok": False,
             "data": None,
@@ -258,12 +329,14 @@ def agent_main(
         src = ac.resolve_path(source, allow_outside_workspace=not restrict_to_workspace)
         if act == "list":
             data = _list_archive(src, password, glob_pattern)
+            if preview:
+                data = {**data, "dry_run": True}
             return ac.ok(data)
         if act == "extract":
             if not dest:
                 return ac.err(ValueError("extract 需要 dest"))
             dst = ac.resolve_path(dest, allow_outside_workspace=not restrict_to_workspace)
-            data = _extract_archive(src, dst, password, glob_pattern)
+            data = _extract_archive(src, dst, password, glob_pattern, dry_run=preview)
             return ac.ok(data)
         if act == "create":
             if not dest:
@@ -276,7 +349,7 @@ def agent_main(
                 out_fmt = _detect_format(dst)
                 if out_fmt == "unknown":
                     out_fmt = "zip"
-            data = _create_archive(src, dst, out_fmt, glob_pattern)
+            data = _create_archive(src, dst, out_fmt, glob_pattern, dry_run=preview)
             return ac.ok(data)
         return ac.err(ValueError(f"未知 action: {act}"))
     except Exception as e:
@@ -291,6 +364,9 @@ def main() -> None:
     p.add_argument("--output_format", default=None)
     p.add_argument("--password", default=None)
     p.add_argument("--glob_pattern", default=None)
+    p.set_defaults(dry_run=True)
+    p.add_argument("--dry_run", dest="dry_run", action="store_true")
+    p.add_argument("--commit", dest="dry_run", action="store_false")
     p.add_argument(
         "--restrict_to_workspace",
         action="store_true",
@@ -306,6 +382,7 @@ def main() -> None:
         output_format=args.output_format,
         password=args.password,
         glob_pattern=args.glob_pattern,
+        dry_run=bool(args.dry_run),
         restrict_to_workspace=bool(args.restrict_to_workspace),
         run_type=str(args.run_type or ""),
     )

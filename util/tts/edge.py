@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from typing import Optional
+from typing import Dict, List, Optional
 
 from .base import TTSProvider
 
@@ -13,14 +13,14 @@ class EdgeTTSProvider(TTSProvider):
 
     name = "edge"
 
-    # 常见中文音色
-    VOICES = [
+    VOICES: List[Dict[str, str]] = [
         {"name": "zh-CN-XiaoxiaoNeural", "display": "晓晓（女声-亲切）", "gender": "female"},
         {"name": "zh-CN-XiaoyiNeural", "display": "晓伊（女声-自然）", "gender": "female"},
         {"name": "zh-CN-YunjianNeural", "display": "云健（男声-沉稳）", "gender": "male"},
         {"name": "zh-CN-YunxiNeural", "display": "云希（男声-阳光）", "gender": "male"},
         {"name": "zh-CN-YunyangNeural", "display": "云扬（男声-成熟）", "gender": "male"},
         {"name": "zh-CN-XiaochenNeural", "display": "晓辰（女声-可爱）", "gender": "female"},
+        {"name": "zh-CN-XiaohanNeural", "display": "晓涵（女声-温润）", "gender": "female"},
     ]
 
     def __init__(self, voice: str = "zh-CN-XiaoxiaoNeural"):
@@ -38,7 +38,7 @@ class EdgeTTSProvider(TTSProvider):
         return self._voice
 
     @property
-    def available_voices(self) -> list[dict[str, str]]:
+    def available_voices(self) -> List[Dict[str, str]]:
         return list(self.VOICES)
 
     def synthesize(self, text: str, *, voice: Optional[str] = None) -> bytes:

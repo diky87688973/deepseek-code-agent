@@ -7,7 +7,7 @@ import fnmatch
 import os
 import re
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import List, Optional, Set, Tuple, Union
 
 from util.config_loader import load_config
 
@@ -78,7 +78,35 @@ def read_file_text(path: Path, encoding: str) -> str:
     return path.read_text(encoding=encoding, errors="replace")
 
 
-def rglob_files(root: Path, glob_pat: str, *, recursive: bool) -> list[Path]:
+def parse_tool_bool(v: object, default: bool = True) -> bool:
+    """工具参数布尔解析：兼容 true/false、1/0、是/否 等。"""
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return default
+    s = str(v).strip().lower()
+    if s in ("0", "false", "no", "off", "否", "不"):
+        return False
+    if s in ("1", "true", "yes", "on", "是"):
+        return True
+    return default
+
+
+def utf8_preview(text: str, max_bytes: int = 200) -> str:
+    """按 UTF-8 字节数截断预览，不在多字节字符中间切断。"""
+    raw = str(text or "").encode("utf-8")
+    if len(raw) <= max_bytes:
+        return str(text or "")
+    chunk = raw[:max_bytes]
+    while chunk:
+        try:
+            return chunk.decode("utf-8")
+        except UnicodeDecodeError:
+            chunk = chunk[:-1]
+    return ""
+
+
+def rglob_files(root: Path, glob_pat: str, *, recursive: bool) -> List[Path]:
     pat = glob_pat or "*"
     if not root.is_dir():
         return [root] if root.is_file() else []
@@ -89,7 +117,7 @@ def rglob_files(root: Path, glob_pat: str, *, recursive: bool) -> list[Path]:
 # 目录内「内容搜索」省略 glob_pattern 时使用：常见以纯文本/源码形式编辑的扩展名，及少量无扩展名工程文件名。
 # 非文本类文件一律不纳入默认集合（含各类压缩包、图片、音视频、办公二进制、可执行体、字体、大型 blob 等）；
 # 若确需对任意扩展名/二进制做内容检索，请显式传 glob_pattern=\"*\"。
-TEXT_SEARCH_SOURCE_GLOBS: tuple[str, ...] = (
+TEXT_SEARCH_SOURCE_GLOBS: Tuple[str, ...] = (
     "*.py",
     "*.pyi",
     "*.pyw",
@@ -191,7 +219,7 @@ def iter_source_files(root: Path, glob_pattern: Optional[str], *, recursive: boo
                 yield p
         return
     if not gp:
-        seen: set[Path] = set()
+        seen: Set[Path] = set()
         for pat in TEXT_SEARCH_SOURCE_GLOBS:
             try:
                 it = root.rglob(pat) if recursive else root.glob(pat)
@@ -225,7 +253,7 @@ def progress_abort_requested(progress_dict: Optional[dict]) -> bool:
     return bool(progress_dict.get("_abort"))
 
 
-def collect_source_files(root: Path, glob_pattern: Optional[str], *, recursive: bool) -> list[Path]:
+def collect_source_files(root: Path, glob_pattern: Optional[str], *, recursive: bool) -> List[Path]:
     """单文件返回 [root]；目录返回按路径排序的文件列表（glob 语义同 iter_source_files）。"""
     if root.is_file():
         return [root]
@@ -234,7 +262,7 @@ def collect_source_files(root: Path, glob_pattern: Optional[str], *, recursive: 
     return sorted(iter_source_files(root, glob_pattern, recursive=recursive), key=lambda x: str(x).lower())
 
 
-def filter_by_gitignore(paths: list[Path], repo_root: Optional[Path]) -> list[Path]:
+def filter_by_gitignore(paths: List[Path], repo_root: Optional[Path]) -> List[Path]:
     if repo_root is None:
         return paths
     git_dir = repo_root / ".git"
@@ -243,7 +271,7 @@ def filter_by_gitignore(paths: list[Path], repo_root: Optional[Path]) -> list[Pa
     try:
         import subprocess
 
-        spec: set[str] = set()
+        spec: Set[str] = set()
         for p in paths:
             try:
                 rel = p.resolve().relative_to(repo_root.resolve())
@@ -291,9 +319,9 @@ def resolve_end_column_open(end_value: int, line_content_len: int) -> int:
     return line_content_len + end_value + 1
 
 
-def line_meta_keepends(lines_keepends: list[str]) -> tuple[list[int], list[int]]:
-    starts: list[int] = []
-    content_lens: list[int] = []
+def line_meta_keepends(lines_keepends: List[str]) -> Tuple[List[int], List[int]]:
+    starts: List[int] = []
+    content_lens: List[int] = []
     cur = 0
     for ln in lines_keepends:
         starts.append(cur)
@@ -303,7 +331,7 @@ def line_meta_keepends(lines_keepends: list[str]) -> tuple[list[int], list[int]]
     return starts, content_lens
 
 
-def text_slice_by_lines(lines_keepends: list[str], start_line: int, end_line: int) -> str:
+def text_slice_by_lines(lines_keepends: List[str], start_line: int, end_line: int) -> str:
     total = len(lines_keepends)
     if start_line < 1 or start_line > total:
         return ""
@@ -316,12 +344,12 @@ def text_slice_by_lines(lines_keepends: list[str], start_line: int, end_line: in
 
 def abs_span_lines_columns(
     full_text: str,
-    lines_keepends: list[str],
+    lines_keepends: List[str],
     start_line: int,
     start_column: int,
     end_line: int,
     end_column: int,
-) -> tuple[int, int]:
+) -> Tuple[int, int]:
     """行列矩形区间 → 全文半开区间 [abs_start, abs_end)。列号 1-based，end_column 为开区间。"""
     total = len(lines_keepends)
     if start_line < 1:
@@ -358,7 +386,7 @@ def abs_span_lines_columns(
 
 def text_slice_lines_columns(
     full_text: str,
-    lines_keepends: list[str],
+    lines_keepends: List[str],
     start_line: int,
     start_column: int,
     end_line: int,
@@ -370,7 +398,7 @@ def text_slice_lines_columns(
     return full_text[a0:a1]
 
 
-def text_slice_offsets(full_text: str, start_idx: int, end_idx: int) -> tuple[str, int, int]:
+def text_slice_offsets(full_text: str, start_idx: int, end_idx: int) -> Tuple[str, int, int]:
     """按字符下标切片；end 为非负时半开；为负时从文末倒推（与 read_file 字符区间一致）。"""
     n = len(full_text)
     if start_idx < 0:
@@ -404,7 +432,7 @@ def apply_range_replace(text: str, replacement: str, start_idx: int, end_idx: in
     return text[:start_py] + replacement + text[end_py:]
 
 
-def offset_to_line_column_onebased(lines_keepends: list[str], offset: int) -> tuple[int, int]:
+def offset_to_line_column_onebased(lines_keepends: List[str], offset: int) -> Tuple[int, int]:
     """0-based 全文偏移 → (1-based 行, 1-based 列)，列按行 body（无 \\r\\n）计。"""
     if not lines_keepends:
         return 1, 1
@@ -426,7 +454,7 @@ def offset_to_line_column_onebased(lines_keepends: list[str], offset: int) -> tu
     return len(lines_keepends), 1
 
 
-def offset_to_line_open_column_onebased(lines_keepends: list[str], abs_end: int) -> tuple[int, int]:
+def offset_to_line_open_column_onebased(lines_keepends: List[str], abs_end: int) -> Tuple[int, int]:
     """半开右端 abs_end → (end_line, end_column 开区间 1-based)，与 replace 行列矩形一致。"""
     if not lines_keepends:
         return 1, 1
@@ -450,7 +478,7 @@ def offset_to_line_open_column_onebased(lines_keepends: list[str], abs_end: int)
 
 def span_region_rowcols(
     full_text: str, region_start: int, region_end: int
-) -> tuple[int, int, int, int]:
+) -> Tuple[int, int, int, int]:
     """全文半开区间 → start_line、start_column、end_line、end_column(开)。"""
     lines_keepends = full_text.splitlines(keepends=True)
     sl, sc = offset_to_line_column_onebased(lines_keepends, region_start)

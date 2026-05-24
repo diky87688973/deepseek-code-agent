@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Tuple
 
 import difflib
 
@@ -16,9 +16,9 @@ def _merge_literal_rules(
     old_text: Optional[str],
     new_text: Optional[str],
     rules: Optional[list],
-) -> list[tuple[str, str]]:
+) -> List[Tuple[str, str]]:
     has_pair = old_text is not None or new_text is not None
-    out: list[tuple[str, str]] = []
+    out: List[Tuple[str, str]] = []
     if has_pair:
         if old_text is None or new_text is None:
             raise ValueError("old_text 与 new_text 必须成对出现")
@@ -43,12 +43,12 @@ def _merge_literal_rules(
 
 def _apply_rules_sequential(
     original: str,
-    rules: list[tuple[str, str]],
+    rules: List[Tuple[str, str]],
     *,
     replace_all: bool,
-) -> tuple[str, list[int]]:
+) -> Tuple[str, List[int]]:
     cur = original
-    counts: list[int] = []
+    counts: List[int] = []
     for old_s, new_s in rules:
         if replace_all:
             c = cur.count(old_s)
@@ -152,7 +152,7 @@ def agent_main(
                 "data": None,
                 "error": {
                     "type": "ValueError",
-                    "message": "rules 须为 list[dict]，禁止传入 JSON 字符串；由宿主解析或仅用 CLI --rules_file。",
+                    "message": "rules 须为 List[dict]，禁止传入 JSON 字符串；由宿主解析或仅用 CLI --rules_file。",
                 },
             }
         rt = str(run_type or "").strip().lower()
@@ -179,8 +179,8 @@ def agent_main(
             raise FileNotFoundError(f"文件不存在: {fp}")
 
         original = ac.read_file_text(fp, encoding)
-        counts_per_rule: list[int]
-        rule_list: list[tuple[str, str]] = []
+        counts_per_rule: List[int]
+        rule_list: List[Tuple[str, str]] = []
 
         if mode == "literal":
             rule_list = _merge_literal_rules(old_text, new_text, rules)
@@ -263,6 +263,9 @@ def agent_main(
             )
             counts_per_rule = [1 if new_body != original else 0]
         elif mode == "linerange":
+            rep = "" if new_text is None else str(new_text)
+            lines_keepends = original.splitlines(keepends=True)
+            total = len(lines_keepends)
             ls = int(line_start) - 1  # 转 0-based
             le = int(line_end) - 1
             if ls < 0:

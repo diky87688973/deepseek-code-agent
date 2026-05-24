@@ -4,18 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-
-def _as_bool(v: Any, default: bool = True) -> bool:
-    if isinstance(v, bool):
-        return v
-    if v is None:
-        return default
-    s = str(v).strip().lower()
-    if s in ("0", "false", "no", "off", "否", "不"):
-        return False
-    if s in ("1", "true", "yes", "on", "是"):
-        return True
-    return default
+from tools.agent_common import parse_tool_bool
 
 
 def _normalize_target_ids(raw: Any) -> List[str]:
@@ -34,6 +23,7 @@ def agent_main(
     message: str = "",
     channel: str = "group",
     thread_id: str = "",
+    priority: str = "normal",
     requires_reply: Optional[bool] = None,
     **_kwargs: Any,
 ) -> Dict[str, Any]:
@@ -61,11 +51,31 @@ def agent_main(
             message=msg,
             channel=channel,
             thread_id=str(thread_id or _kwargs.get("thread_id") or ""),
-            requires_reply=_as_bool(_rr, True),
+            priority=str(priority or _kwargs.get("priority") or "normal"),
+            requires_reply=parse_tool_bool(_rr, True),
             conversation_id=str(_kwargs.get("conversation_id") or ""),
         )
         if r.get("ok"):
             sent.append({"target_id": tid, "queued": bool((r.get("data") or {}).get("queued"))})
         else:
             skipped.append({"target_id": tid, "error": r.get("error")})
-    return {"ok": True, "data": {"sent": sent, "skipped": skipped, "count": len(sent), "thread_id": str(thread_id or "")}}
+    if not sent:
+        return {
+            "ok": False,
+            "error": {
+                "type": "all_targets_failed",
+                "message": "所有目标发送均失败，请检查 target_ids 与网络状态。",
+            },
+            "data": {"sent": sent, "skipped": skipped, "count": 0, "thread_id": str(thread_id or ""), "partial": False, "all_sent": False},
+        }
+    return {
+        "ok": True,
+        "data": {
+            "sent": sent,
+            "skipped": skipped,
+            "count": len(sent),
+            "thread_id": str(thread_id or ""),
+            "partial": bool(skipped),
+            "all_sent": not skipped,
+        },
+    }

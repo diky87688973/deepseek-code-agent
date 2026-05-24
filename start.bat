@@ -5,7 +5,6 @@ setlocal enabledelayedexpansion
 title DeepSeek Code Agent
 
 :: ── 自动提权：ACL 安全锁需要管理员权限 ──
-:: 用 whoami 检查管理员组 SID，比 net session 更可靠
 whoami /groups | find "S-1-16-12288" >nul 2>&1
 if !errorlevel! neq 0 (
     echo [信息] ACL 安全锁需要管理员权限，正在提权...
@@ -14,22 +13,18 @@ if !errorlevel! neq 0 (
 )
 
 echo.
-echo === DeepSeek Code Agent v1.2 快速启动 ===
+echo === DeepSeek Code Agent v1.4 快速启动 ===
 echo.
 
-:: ── 从 config.ini [server] 读取 port（首条匹配 ^port *=）──
+:: ── 从 config.ini [server] 读取 port（与 util.config_loader 一致）──
 set PORT=
-for /f "usebackq tokens=2 delims==" %%a in (`findstr /r /i "^[ ]*port[ ]*=" config.ini 2^>nul`) do (
-    if not defined PORT (
-        set PORT=%%a
-        set PORT=!PORT: =!
-    )
-)
+for /f "delims=" %%p in ('python -c "import configparser;c=configparser.ConfigParser();c.read('config.ini',encoding='utf-8');print(c.getint('server','port'))" 2^>nul') do set PORT=%%p
 if not defined PORT (
     echo [错误] 未在 config.ini 的 [server] 节找到 port 配置
     pause
     exit /b 1
 )
+echo [信息] 服务端口: !PORT! （实际由 main_tray / config_loader 加载）
 
 :: 检查是否在项目根目录
 if not exist "main_tray.py" (
@@ -50,14 +45,12 @@ if exist "venv\Scripts\activate.bat" (
     echo [信息] 未找到虚拟环境，使用系统 Python
 )
 
-:: 检查 config.ini（与 util.config_loader 一致）
 if not exist "config.ini" (
     echo [警告] 未找到 config.ini！
-    echo.       请复制模板并配置 [model] api_key、[server] port 等后再启动
+    echo.       请配置 [model] api_key、[server] port 等后再启动
     echo.
 )
 
-:: 检查依赖是否已安装
 echo [信息] 检测依赖...
 python -c "import fastapi" 2>nul
 if !errorlevel! neq 0 (

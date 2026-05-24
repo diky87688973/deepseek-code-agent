@@ -11,7 +11,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 BUILTIN_FORECAST_DAYS = 2
 BUILTIN_TIMEOUT_SEC = 15
@@ -20,7 +20,7 @@ GEO_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FC_URL = "https://api.open-meteo.com/v1/forecast"
 IP_GEO_URL = "https://ipwho.is"
 
-CN_CITY_ALIAS: dict[str, tuple[float, float, str, str, str]] = {
+CN_CITY_ALIAS: Dict[str, Tuple[float, float, str, str, str]] = {
     "北京": (39.9042, 116.4074, "北京", "北京市", "中国"),
     "北京市": (39.9042, 116.4074, "北京", "北京市", "中国"),
     "上海": (31.2304, 121.4737, "上海", "上海市", "中国"),
@@ -38,7 +38,7 @@ CN_CITY_ALIAS: dict[str, tuple[float, float, str, str, str]] = {
 }
 
 
-def _http_json(url: str, timeout_sec: int) -> dict[str, Any]:
+def _http_json(url: str, timeout_sec: int) -> Dict[str, Any]:
     req = urllib.request.Request(url, headers={"User-Agent": "open-meteo-weather/1"})
     with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
         raw = resp.read().decode("utf-8", errors="replace")
@@ -53,7 +53,7 @@ def _has_cjk(s: str) -> bool:
     return re.search(r"[\u3400-\u9fff]", str(s or "")) is not None
 
 
-def _score_geo_result(query: str, hit: dict[str, Any]) -> float:
+def _score_geo_result(query: str, hit: Dict[str, Any]) -> float:
     qn = _normalize_name(query)
     nm = str(hit.get("name") or "")
     nn = _normalize_name(nm)
@@ -97,7 +97,7 @@ def _resolve_cn_alias(query: str) -> Optional[Tuple[float, float, str, str, str]
     return CN_CITY_ALIAS.get(q)
 
 
-def _pick_geo_result(query: str, js: dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _pick_geo_result(query: str, js: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     results = js.get("results")
     if not isinstance(results, list) or not results:
         return None
@@ -269,7 +269,7 @@ def _run_core(
     display_plain = f"{name_used}{tail}"
     display_region_zh = "【解析地区】" + display_plain
 
-    lines: list[str] = [display_region_zh]
+    lines: List[str] = [display_region_zh]
     if note:
         lines.append(note)
     lines.append(f"坐标：{lat:.4f}, {lon:.4f}")

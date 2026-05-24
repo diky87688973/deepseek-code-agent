@@ -2,28 +2,43 @@
   "version": "1.0",
   "title": "Agent workspace tools",
   "agent_hints": {
+    "five_layer_stack": "Agent 效果 = ①system 提示词(agent_prompt_constants) + ②本 catalog 的 function schema + ③宿主 run_agent_turn 循环 + ④上下文组包/摘要/ephemeral + ⑤用户 rules。只改 prompt 不够，四者需一起调。",
+    "agent_workflow": "标准 SOP：0)先分类 1)glob_files/grep_files 定位后并行 read_file 2)最小 diff，写前 dry_run 预览 3)unified_diagnose 或 py_compile 验证 4)结论先行。用户说只报告时不调写盘 function。",
+    "task_routing": "纯问答→read_file/grep_files 后文字回答，默认不改代码。修 bug→调查→最小修复→验证。大范围→Plan+dry_run，用户切 Execute 再 write_file/replace_in_file。排查→先日志/配置/调用链再给结论。",
+    "priority_table": "P0:requires_reply 未协作回复→session_send/session_multisend/session_broadcast 第一个 tool。P1:Boss 消息。P2:Execute 写盘须 todo_list+dry_run。P3:todo_list(action=query) 或 todo_list(action=check)。P4:单回合只读可跳过 todo_list(action=create)。",
+    "parallel_readonly_tools": "同一 assistant 回合可并行多个无依赖只读 function（read_file、glob_files、grep_files、todo_list(action=query) 等）。有依赖则先 grep_files 定位行号再 read_file 局部。",
+    "prefer_tools_over_questions": "缺路径/配置/定义时，先 glob_files/grep_files/read_file 取证，仍无法确定再问用户。",
+    "natural_language_to_user": "对用户用自然语言描述动作，不要对用户复述 function 名（别说「正在调用 grep_files」）。",
+    "conversation_intent": "最新消息继承前文；中途消息多为修正当前任务（steering），除非明确换题。",
+    "summary_verify": "摘要/远期折叠仅作定位线索；涉及文件内容、行号、配置值、API 行为时须 read_file/grep_files 复核，勿凭摘要断言。",
+    "skill_precedence": "任务匹配某 Skill 时先 skill_manage(action=read,name=…) 再执行；与通用 system 冲突时以 Skill 为准。",
+    "read_before_write": "改文件前须 read_file 或 grep_files/find_in_file 确认上下文；大文件先 grep_files 再 read_file 局部（line_start/region）。",
+    "tool_retry_policy": "ok=false 时读 error.tool_help 修正参数；同一错误不盲重试。连续两次仍失败则停止并说明原因与所需信息。",
+    "step_title": "每个 tool 调用建议传 step_title：一句≤40字中文说明本次用途，宿主用于侧栏步骤标题；省略则用默认动作名。",
+    "scope_and_git": "最小改动：不顺手重构、不扩大 scope。用户未明确要求时不 git commit/push。destructive git 操作需用户明示。",
     "stdio_utf8": "工具进程与宿主约定 UTF-8；工作区根来自环境变量 WORKSPACE_DIR。",
     "workspace_safety": "默认可访问 WORKSPACE_DIR 内外的绝对路径；仅当需要沙箱时再传 restrict_to_workspace:true（将路径限定在工作区根下）。",
     "dry_run": "write_file、read_write、replace_in_file、apply_patch、delete_file、file_ops 默认 dry_run=true（仅预览）；真实写盘/移入回收站须显式 dry_run=false。",
     "openapi_tool_name_rule": "catalog 中 name 去掉 .py 即为 function 名。",
-    "param_naming": "相同语义的参数统一命名：目录或仓库根路径用 path（--path）；glob 过滤用 glob_pattern（--glob_pattern）；匹配行上下文宽度用 context_lines（--context_lines）；跳过 .gitignore 用 no_gitignore（--no_gitignore，true=不应用忽略）；超时用 timeout_sec（--timeout_sec）；会话模式用 run_type（--run_type）。",
+    "param_naming": "相同语义的参数统一命名：目录或仓库根路径用 path（--path）；文件名过滤用 glob_pattern（--glob_pattern）；匹配行上下文宽度用 context_lines（--context_lines）；跳过 .gitignore 用 no_gitignore（--no_gitignore，true=不应用忽略）；超时用 timeout_sec（--timeout_sec）；会话模式用 run_type（--run_type）。",
     "text_search_glob": "grep_files、regex_locate、file_search：path 为目录时，省略 glob_pattern（或空字符串）→ 仅扫描内置「以文本/源码形式编辑」的扩展名（见 agent_common.TEXT_SEARCH_SOURCE_GLOBS）；默认不扫任何非文本类文件（压缩包、图片、音视频、可执行体、通用二进制等）。确需对任意类型做内容检索时须显式传 glob_pattern=\"*\"（慎用，耗时长）。",
     "read_write_encoding": "read_write：encoding 为读源编码（默认 utf-8，可 auto）；encoding_write 为写入 dest 的编码（OpenAPI 参数名 encoding_write，省略则与读侧相同）。",
     "archive_plan": "archive：action=list 可读；extract/create 在 Plan 模式会被工具拒绝；传 run_type 与当前执行模式一致。",
+    "run_command_safe_mode": "run_command 默认 safe_mode=true：command 为单条命令，禁止 shell 链式/重定向/子命令符号 — 字符 ; & | ` $ > < 任一出现即拒（勿用 cd X && python …、勿用 cmd 的 &）。多条命令须多次 run_command，或用 cwd 指定目录后只跑 python/npm/git 等一条。禁止黑名单动词：del/rm/rmdir/remove-item/format/dd 等（用 delete_file）。管道/重定向须 safe_mode=false 且用户授权。Layer0 示例：cwd=项目根 + command=python -m unittest discover -s tests -v，不要拼 Set-Location/&&。",
     "delete_safe": "delete_file 不落盘 unlink，而是将文件移到 DATA_ROOT/safe_delete 下按日期分桶；默认 dry_run。",
     "catalog_examples": "各工具的 examples 会并入宿主下发给模型的 function.description（及失败时的 tool_help）；示例键名与 function schema 完全一致，布尔为 JSON true/false。",
     "tool_help_on_failure": "凡工具返回 ok=false，宿主在 error.tool_help 中附带 argparse 等效 --help 全文 + 本清单摘要；模型须据此纠错。",
     "region_replace_safety": "replace_in_file 提供四种替换方式：① line_start+line_end（行替换，推荐）：按行号替换，坐标永不漂移。② regions 数组：一次传入 [{region_start,region_end,new_text},...]，工具自动降序防漂移。③ 单次 region_start+region_end：精确替换。④ rules 数组：字面 old_text→new_text 批量替换。",
-    "literal_replace_ambiguity": "⚠️ old_text+new_text 字面替换默认 replace_all=true。若某文件中有多处相同匹配会全部误伤。安全铁律：① 每次必须设 expected_replacements=n 校验替换次数（等于提供「唯一性断言」，匹配数不符则拒绝）；② old_text 包含足够长的唯一上下文；③ 可改用 line_start+line_end 或 region_start/region_end 精确区间；④ 不确定匹配数时先用 find_in_file 看匹配位置。",
+    "literal_replace_ambiguity": "⚠️ old_text+new_text 字面替换默认 replace_all=true。若某文件中有多处相同匹配会全部误伤。安全建议：① 建议设 expected_replacements=n 校验替换次数；② old_text 包含足够长的唯一上下文；③ 可改用 line_start+line_end 或 region_start/region_end；④ 不确定匹配数时先用 find_in_file 看匹配位置。",
     "string_escape": "⚠️ 字符串参数（old_text、new_text、pattern、patch_text、code 等）中的反斜杠 \\ 按 JSON 标准转义。例如：arguments 中 \\n 表示字面反斜杠+n（而非换行符），\\\\ 表示单个反斜杠。不确定时优先用 line_start+line_end 或 region 替换，避免转义问题。",
     "kling_video_markdown": "【🔴 强制规则】视频播放必须用 `![播放视频](url)` 格式，禁止任何其他写法。\n规则：\n1. kling_generate(action=query_result) 返回的 data.message 已包含正确格式，必须原样逐字输出，不得改写、不得省略、不得追加评论。\n2. 如果 data.message 中有多个 ![播放视频](url)，必须全部保留。\n3. 禁止用 [下载视频](url)、视频链接：xxx、![video](url)、Markdown video 标签、HTML video 标签 — 前端只认 ![播放视频](url) 这一种格式。\n4. 若工具未返回 message（如任务还在处理中），但你手上有视频 URL，也必须自行组装 ![播放视频](url) 格式。\n5. 验证方法：你输出后如果没看到视频播放控件，说明你写错格式了，必须立刻修正。",
-    "kling_image_markdown": "【🔴 强制规则】图片预览必须用 `![图片](url)` 格式。\n规则：\n1. kling_generate(action=query_result) 的 data.message 中已包含正确格式的 `![图片](url)`，必须原样逐字输出，不得改写、不得省略。\n2. 禁止用 data URI/base64 嵌入图片（浪费 token）、禁止用 [下载链接](url)、禁止用 HTML <img> 标签。\n3. 前端只认 `![图片](url)` 这一种格式。\n4. 如果 url 是 CDN 链接返回 403，请使用 data.message 中的 /kling-tasks/ 本地 HTTP 路径。\n5. 验证方法：你输出后如果没看到图片，说明你写错格式了，必须立刻修正。"
+    "kling_image_markdown": "【🔴 强制规则】图片预览必须用 `![图片](url)` 格式。\n规则：\n1. kling_generate(action=query_result) 的 data.message 中已包含正确格式的 `![图片](url)`，必须原样逐字输出，不得改写、不得省略。\n2. 禁止用 data URI/base64 嵌入图片（浪费 token）、禁止用 [下载链接](url)、禁止用 HTML <img> 标签。\n3. 前端只认 `![图片](url)` 这一种格式。\n4. 如果 url 是 CDN 链接返回 403，请使用 data.message 中的 /workspace/kling_tasks/ 本地 HTTP 路径。\n5. 验证方法：你输出后如果没看到图片，说明你写错格式了，必须立刻修正。"
   },
   "tools": [
     {
       "name": "run_type.py",
       "path": "tools/run_type.py",
-      "purpose": "会话运行模式（Auto / Plan / Execute）：由宿主按会话维护。不传 run_type 为查询当前模式；传入则为请求切换。Plan 下多数写盘工具会拒绝；Execute 表示用户已授权真实写盘。",
+      "purpose": "run_type：查询/切换会话运行模式（Auto / Plan / Execute），由宿主按会话维护。省略 run_type 参数为查询当前模式；传 run_type=auto/plan/execute 为请求切换。run_type=plan 时多数写盘工具会拒绝；run_type=execute 表示用户已授权真实写盘。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -69,7 +84,7 @@
     {
       "name": "read_file.py",
       "path": "tools/read_file.py",
-      "purpose": "读取单个文本文件全文或局部。支持四种互斥切片（勿混用）：①仅 max_chars 截断全文；②line_start+line_end 行闭区间；③行闭区间 + start_column+end_column 行列矩形（end_column 为开区间，可为负从行末倒推）；④char_start+char_end 字符半开区间（char_end 为负表示相对文末）。需与 replace_in_file 对齐的精确区间请用 find_in_file / regex_locate 得到 region_start/end 再读或替换。",
+      "purpose": "read_file：读取单个文本文件 path 的全文或局部。改文件前**必须先 read_file** 确认上下文（见 agent_hints.read_before_write）。大文件先 grep_files 定位行号再按 line_start/region 用 read_file 读局部，避免一次 read_file 全文。切片模式互斥：max_chars；line_start+line_end；行列矩形；char_start+char_end。精确区间请用 find_in_file/regex_locate 得 region_start/end 再 read_file 或 replace_in_file。",
       "stdout_output": "{ok,data:{content,path,...}}",
       "args": [
         {
@@ -82,7 +97,7 @@
           "flag": "--encoding",
           "type": "string",
           "required": false,
-          "description": "utf-8（默认）按该编码解码；auto 依次尝试 utf-8、gb18030、gbk 等，失败则 replace。"
+          "description": "utf-8（默认）按 encoding 解码；auto 依次尝试 utf-8、gb18030、gbk 等，解码失败则容错字符替换（非 replace_in_file）。"
         },
         {
           "flag": "--line_start",
@@ -199,7 +214,7 @@
     {
       "name": "grep_files.py",
       "path": "tools/grep_files.py",
-      "purpose": "在单个文件或目录根 path 下搜索字面或正则 pattern，返回匹配行列表（含 file、line、column、match、region_start、region_end、上下文）。每条命中的 region_start/region_end 可直接作为 replace_in_file 的区间替换参数。path 为目录时：省略 glob_pattern 则仅扫内置文本/源码类扩展名，默认排除一切非文本类文件；需纳入任意类型时传 glob_pattern=\"*\"。recursive 控制子目录；no_gitignore=true 可扫被 Git 忽略的路径。大目录时宿主会推送 tool_progress。",
+      "purpose": "grep_files：在 path（文件或目录根）下搜索 pattern，返回 matches（含 file、line、column、match、region_start、region_end、上下文）。调查阶段首选 grep_files，再 read_file 读局部；可与 read_file 同轮并行。region 可直接作 replace_in_file 区间。目录 path：省略 glob_pattern 仅扫内置文本/源码扩展名；任意类型传 glob_pattern=\"*\"。recursive、no_gitignore 控制范围。",
       "stdout_output": "{ok,data:{matches:[{file,line,column,match,region_start,region_end,text,context?}],...}}",
       "args": [
         {
@@ -218,7 +233,7 @@
           "flag": "--glob_pattern",
           "type": "string",
           "required": false,
-          "description": "目录遍历时文件名 glob（如 *.py、*.tsx）。省略或空=仅内置文本/源码类扩展名，不含非文本类型；传 \"*\" 表示全部文件（含各类非文本/二进制，慎用）。"
+          "description": "glob_pattern 参数（文件名通配，如 *.py、*.tsx）。省略或空=仅内置文本/源码类扩展名，不含非文本类型；传 \"*\" 表示全部文件（含各类非文本/二进制，慎用）。"
         },
         {
           "flag": "--regex",
@@ -277,7 +292,7 @@
             "plan",
             "execute"
           ],
-          "description": "占位与清单一致；grep 只读不拦截。"
+          "description": "占位与清单一致；grep_files 只读不拦截。"
         }
       ],
       "examples": [
@@ -303,8 +318,8 @@
           }
         },
         {
-          "title": "目录递归 + glob",
-          "note": "在所有 .py 中搜 TODO。",
+          "title": "目录递归 + glob_pattern",
+          "note": "glob_pattern=*.py 递归搜索 pattern。",
           "args": {
             "path": ".",
             "pattern": "TODO",
@@ -343,7 +358,7 @@
         },
         {
           "title": "含被忽略目录",
-          "note": "需要查 venv/build 时打开 no_gitignore；仍建议显式 glob（如 *.py）而非 *。",
+          "note": "需要查 venv/build 时打开 no_gitignore；仍建议显式 glob_pattern（如 *.py）而非 *。",
           "args": {
             "path": ".",
             "pattern": "SECRET",
@@ -369,7 +384,7 @@
     {
       "name": "find_in_file.py",
       "path": "tools/find_in_file.py",
-      "purpose": "在单个文件内定位 pattern 的第 occurrence 次命中，返回与磁盘编码一致的 region_start/region_end（0-based 半开区间），可直接传入 replace_in_file。字面与正则由 regex 控制；多命中时增大 occurrence。",
+      "purpose": "find_in_file：在单个文件 path 内定位 pattern 的第 occurrence 次命中，返回 region_start/region_end（0-based 半开区间），可直接传入 replace_in_file。字面与正则由 regex 参数控制；多命中时增大 occurrence。",
       "stdout_output": "{ok,data:{region_start,region_end,matched_text,...}}",
       "args": [
         {
@@ -469,7 +484,7 @@
     {
       "name": "regex_locate.py",
       "path": "tools/regex_locate.py",
-      "purpose": "在单文件或目录下用 Python 正则检索；每条命中含 region_start/region_end（0-based 半开）、line/column、match 文本等。path 为目录时：省略 glob_pattern 则仅扫内置文本/源码类扩展名，默认排除非文本类文件；需任意类型传 glob_pattern=\"*\"。recursive+glob 控制范围；multiline=true 等价 re.DOTALL。大目录时宿主会推送 tool_progress。",
+      "purpose": "regex_locate：在单文件或目录 path 下用 Python 正则检索；每条命中含 region_start/region_end（0-based 半开）、line/column、match 文本等。path 为目录时：省略 glob_pattern 则仅扫内置文本/源码类扩展名，默认排除非文本类文件；需任意类型传 glob_pattern=\"*\"。recursive 与 glob_pattern 控制范围；multiline=true 等价 re.DOTALL。大目录时宿主会推送 tool_progress。",
       "stdout_output": "{ok,data:{count,items:[{region_start,region_end,match,...}],...}}",
       "args": [
         {
@@ -500,13 +515,13 @@
           "flag": "--recursive",
           "type": "boolean",
           "required": false,
-          "description": "path 为目录时是否递归；默认 false（仅当前层 glob）。"
+          "description": "path 为目录时是否递归；默认 false（仅当前层 glob_pattern 过滤）。"
         },
         {
           "flag": "--glob_pattern",
           "type": "string",
           "required": false,
-          "description": "目录内文件名 glob。省略或空=仅内置文本/源码类扩展名；\"*\"=全部文件（含非文本/二进制，慎用）。"
+          "description": "glob_pattern 参数（文件名通配）。省略或空=仅内置文本/源码类扩展名；\"*\"=全部文件（含非文本/二进制，慎用）。"
         },
         {
           "flag": "--encoding",
@@ -572,7 +587,7 @@
     {
       "name": "file_search.py",
       "path": "tools/file_search.py",
-      "purpose": "大目录或长耗时场景下在 path 内搜索文件内容（字面/正则），返回与 grep_files 对齐的命中字段：file、line、column、text、match、region_start、region_end、上下文；region_start/region_end 可直接交给 replace_in_file。宿主可推送进度。轻量搜索优先 grep_files；超大目录或需要 UI 进度时用 file_search。path 为目录时：省略 glob_pattern 则仅扫内置文本/源码类扩展名；需任意类型全文检索须显式 glob_pattern=\"*\"（慎用）。单目录默认最多扫 10000 个文件。",
+      "purpose": "file_search：大目录或长耗时场景下在 path 内搜索文件内容（字面/正则），返回与 grep_files 对齐的命中字段：file、line、column、text、match、region_start、region_end、上下文；region_start/region_end 可直接交给 replace_in_file。宿主可推送进度。轻量搜索优先 grep_files；超大目录或需要 UI 进度时用本 function。path 为目录时：省略 glob_pattern 则仅扫内置文本/源码类扩展名；需任意类型全文检索须显式 glob_pattern=\"*\"（慎用）。单目录默认最多扫 10000 个文件。",
       "stdout_output": "{ok,data:{matches:[{file,line,column,text,match,region_start,region_end,...}],...}}",
       "args": [
         {
@@ -597,7 +612,7 @@
           "flag": "--glob_pattern",
           "type": "string",
           "required": false,
-          "description": "相对 path 的文件名 glob（如 *.ts、*.vue）。省略或空=仅内置文本/源码类扩展名；\"*\"=全部文件（含非文本/二进制，慎用）。"
+          "description": "glob_pattern 参数（文件名通配，如 *.ts、*.vue）。省略或空=仅内置文本/源码类扩展名；\"*\"=全部文件（含非文本/二进制，慎用）。"
         },
         {
           "flag": "--recursive",
@@ -691,7 +706,7 @@
         },
         {
           "title": "不递归当前层",
-          "note": "recursive=false 仅 path 下一层；省略 glob 仍走默认文本后缀。",
+          "note": "recursive=false 仅 path 下一层；省略 glob_pattern 仍走默认文本后缀。",
           "args": {
             "path": "src",
             "pattern": "FIXME",
@@ -716,7 +731,7 @@
     {
       "name": "glob_files.py",
       "path": "tools/glob_files.py",
-      "purpose": "在目录 path 下列出路径，不读取文件内容。OpenAI function 名固定为 glob_files（禁止臆造 cli_directory_list 等）。匹配模式用 glob_pattern；若模型习惯传 pattern，也可传 pattern 作为 glob_pattern 的别名（若与显式 glob_pattern 冲突则以 glob_pattern 为准）。默认 **/* 会包含根目录直下文件。entry_type 控制列出文件、目录或二者；可选按 .gitignore 过滤。",
+      "purpose": "glob_files：在 path 目录下列出路径（不读内容）。function 名固定 glob_files。匹配用 glob_pattern（pattern 为别名）。entry_type 控制 file/dir/all；可选 no_gitignore 过滤。",
       "stdout_output": "{ok,data:{path,paths,items:[{path,relative_path,kind}],count,truncated,git_repo_root,...}}",
       "args": [
         {
@@ -729,7 +744,7 @@
           "flag": "--glob_pattern",
           "type": "string",
           "required": false,
-          "description": "相对 path 的 glob，默认 **/*；如 **/*.test.ts。"
+          "description": "glob_pattern 参数，相对 path，默认 **/*；如 **/*.test.ts。"
         },
         {
           "flag": "--pattern",
@@ -816,7 +831,7 @@
     {
       "name": "git_workspace.py",
       "path": "tools/git_workspace.py",
-      "purpose": "Git 仓库只读：mode=worktree 看状态与 diff；log 看提交；blame 看行归属；show 看某提交补丁。依赖本机 git 可执行文件，不执行写入。path 须为含 .git 的仓库根。",
+      "purpose": "git_workspace：Git 仓库只读；mode=worktree 看状态与 diff；mode=log 看提交；mode=blame 看行归属；mode=show 看某提交补丁。依赖本机 git 可执行文件，不执行写入。path 须为含 .git 的仓库根。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -918,7 +933,7 @@
     {
       "name": "web_fetch.py",
       "path": "tools/web_fetch.py",
-      "purpose": "HTTP(S) GET 抓取网页，抽取正文纯文本。支持超时、最大长度、可选落盘 out_file；min_chars / require_keywords 用于简单验收（防空页或错误页）。仅在确需联网核对时使用。",
+      "purpose": "web_fetch：HTTP(S) GET 抓取 url，抽取正文纯文本。支持 timeout_sec、max_chars、可选落盘 out_file；min_chars / require_keywords 用于简单验收（防空页或错误页）。仅在确需联网核对时使用。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -996,7 +1011,7 @@
     {
       "name": "unified_diagnose.py",
       "path": "tools/unified_diagnose.py",
-      "purpose": "对项目 path 下 Python 文件做语法（AST）解析，并可选调用 ruff check。返回 diagnostics 列表与汇总；写盘后建议调用以尽早发现语法/风格问题。--no_ruff 为 true 时仅语法扫描。",
+      "purpose": "unified_diagnose：对项目 path 下 Python 文件做语法（AST）解析，并可选调用 ruff check。返回 diagnostics 列表与汇总；写盘后建议调用以尽早发现语法/风格问题。no_ruff=true 时仅语法扫描。",
       "stdout_output": "{ok,data:{path,glob_pattern,files_scanned,diagnostics,summary,...}}",
       "args": [
         {
@@ -1009,7 +1024,7 @@
           "flag": "--glob_pattern",
           "type": "string",
           "required": false,
-          "description": "枚举 .py 的 glob，默认 **/*.py。"
+          "description": "glob_pattern 参数，默认 **/*.py；限定待扫描 Python 文件。"
         },
         {
           "flag": "--limit",
@@ -1067,7 +1082,7 @@
     {
       "name": "text_diff.py",
       "path": "tools/text_diff.py",
-      "purpose": "对左右两侧文本生成 unified diff（只读、不落盘）。左侧二选一：left_file 或 left_text；右侧二选一：right_file 或 right_text。context 控制 diff 上下文行数。",
+      "purpose": "text_diff：对左右两侧文本生成 unified diff（只读、不落盘）。左侧二选一 left_file 或 left_text；右侧二选一 right_file 或 right_text。context 参数控制 diff 上下文行数。",
       "stdout_output": "{ok,data:{summary,diff[],diff_markdown}}",
       "args": [
         {
@@ -1144,7 +1159,7 @@
     {
       "name": "write_file.py",
       "path": "tools/write_file.py",
-      "purpose": "写入或覆盖单个文本文件。默认 dry_run=true 仅校验与预览 diff，不落盘；须 dry_run=false 且非 Plan 才实际写入。create_only=true 时若目标已存在则失败。",
+      "purpose": "write_file：写入或覆盖单个文本文件 path。默认 dry_run=true 仅校验与预览 diff，不落盘；须 dry_run=false 且 run_type≠plan 才实际写入。create_only=true 时若目标已存在则失败。",
       "stdout_output": "{ok,data:{path,existed_before,changed,diff_text,written,...}}",
       "args": [
         {
@@ -1192,7 +1207,7 @@
             "plan",
             "execute"
           ],
-          "description": "plan 时工具拒绝真实写盘。"
+          "description": "run_type=plan 时 write_file 拒绝真实写盘。"
         }
       ],
       "examples": [
@@ -1231,7 +1246,7 @@
     {
       "name": "read_write.py",
       "path": "tools/read_write.py",
-      "purpose": "管道式：从 source_path 按 read_file 相同语义读取片段，再写入 dest_path。用于复制/抽取落盘，减少模型搬运大段正文。支持整文件、行区间、行列矩形、字符区间；这些切片模式互斥。max_chars=0 表示读侧不截断。读编码用 encoding；若目标需不同编码写出，须显式传 encoding_write。",
+      "purpose": "read_write：管道式从 source_path 按 read_file 相同语义读取片段，再写入 dest_path。用于复制/抽取落盘，减少模型搬运大段正文。支持整文件、行区间、行列矩形、字符区间（互斥）。max_chars=0 表示读侧不截断。读编码用 encoding；写目标用 encoding_write。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -1327,7 +1342,7 @@
             "plan",
             "execute"
           ],
-          "description": "plan 禁止写目标。"
+          "description": "run_type=plan 时 read_write 禁止写 dest。"
         }
       ],
       "examples": [
@@ -1393,7 +1408,7 @@
     {
       "name": "delete_file.py",
       "path": "tools/delete_file.py",
-      "purpose": "安全删除：将文件移入宿主回收目录（非 unlink）。默认 dry_run；Plan 拒绝真实移动；Execute 且满足宿主策略时才移动。",
+      "purpose": "delete_file：安全删除 path 对应文件（移入宿主回收目录，非 unlink）。默认 dry_run=true；run_type=plan 拒绝真实移动；run_type=execute 且满足宿主策略时才移动。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -1423,7 +1438,7 @@
             "plan",
             "execute"
           ],
-          "description": "plan 拒绝真实删除。"
+          "description": "run_type=plan 时 delete_file 拒绝真实删除。"
         }
       ],
       "examples": [
@@ -1457,7 +1472,7 @@
     {
       "name": "file_ops.py",
       "path": "tools/file_ops.py",
-      "purpose": "文件系统操作：delete（至回收站或 purge）、rename、copy、move。source 必填；delete 勿传 dest；delete 目录须 recursive=true。可选 security_root 限制 source/dest 均在其下。默认 dry_run=true。",
+      "purpose": "file_ops：action=delete（至回收站或 purge）、action=rename、action=copy、action=move。source 必填；action=delete 时勿传 dest；action=delete 目录须 recursive=true。可选 security_root 限制 source/dest 均在其下。默认 dry_run=true。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -1470,7 +1485,7 @@
             "copy",
             "move"
           ],
-          "description": "操作类型。"
+          "description": "操作类型：action=delete / action=rename / action=copy / action=move。"
         },
         {
           "flag": "--source",
@@ -1482,7 +1497,7 @@
           "flag": "--dest",
           "type": "string",
           "required": false,
-          "description": "目标路径；rename/copy/move 必填；delete 省略。"
+          "description": "目标路径；action=rename/copy/move 必填；action=delete 时省略。"
         },
         {
           "flag": "--security_root",
@@ -1494,7 +1509,7 @@
           "flag": "--recursive",
           "type": "boolean",
           "required": false,
-          "description": "delete 目录时必须 true。"
+          "description": "action=delete 目录时必须 true。"
         },
         {
           "flag": "--dry_run",
@@ -1517,7 +1532,7 @@
             "plan",
             "execute"
           ],
-          "description": "plan 禁止真实写操作。"
+          "description": "run_type=plan 时 file_ops 禁止真实写操作。"
         }
       ],
       "examples": [
@@ -1750,7 +1765,7 @@
             "plan",
             "execute"
           ],
-          "description": "plan 禁止写盘。"
+          "description": "run_type=plan 时 replace_in_file 禁止写盘。"
         }
       ],
       "examples": [
@@ -1905,7 +1920,7 @@
     {
       "name": "apply_patch.py",
       "path": "tools/apply_patch.py",
-      "purpose": "将 unified diff 补丁应用到 path 根下的已有文件（不支持 add/rename 语义，仅更新）。patch_text 与 patch_file 二选一。默认 dry_run 校验与列出将变更文件，并返回 diff_text 供可视化预览。",
+      "purpose": "apply_patch：将 unified diff 补丁应用到 path 根下的已有文件（不支持 add/rename 语义，仅更新）。patch_text 与 patch_file 二选一。默认 dry_run=true 校验与列出将变更文件，并返回 diff_text 供可视化预览。",
       "stdout_output": "{ok,data:{path,changed_files,diff_text,...}}",
       "args": [
         {
@@ -1947,7 +1962,7 @@
             "plan",
             "execute"
           ],
-          "description": "plan 禁止应用。"
+          "description": "run_type=plan 时 apply_patch 禁止应用。"
         }
       ],
       "examples": [
@@ -1984,7 +1999,7 @@
     {
       "name": "todo_list.py",
       "path": "tools/todo_list.py",
-      "purpose": "会话 Todo：create 建列表；check/uncheck 用 indices（0-based 下标数组）；add_item/remove_item/replace_item 维护条目；collapse/close 结束态；query 查询。Execute 写盘前宿主可要求先有 Todo。",
+      "purpose": "todo_list：action=create 建列表；action=check/uncheck 用 indices（0-based 下标数组）；action=add_item/remove_item/replace_item 维护条目；action=collapse/close 结束态；action=query 查询。Execute 写盘前宿主强制先 todo_list(action=create)。【何时用】预计 3 步以上、跨文件、或 Execute 要写盘时 action=create/action=query；单回合只读 Q&A 可跳过。多步任务每完成一步立即 action=check，全部完成 action=close。优先级低于 requires_reply 协作回复（见 agent_hints.priority_table）。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -2002,7 +2017,7 @@
             "remove_item",
             "replace_item"
           ],
-          "description": "操作类型。"
+          "description": "操作类型：action=create / action=check / action=uncheck / action=add_item / action=remove_item / action=replace_item / action=collapse / action=close / action=query。"
         },
         {
           "flag": "--items",
@@ -2011,7 +2026,7 @@
           "array_items": {
             "type": "string"
           },
-          "description": "create：步骤标题字符串数组。"
+          "description": "action=create 时：步骤标题字符串数组。"
         },
         {
           "flag": "--indices",
@@ -2020,19 +2035,19 @@
           "array_items": {
             "type": "integer"
           },
-          "description": "check/uncheck：要切换的条目下标列表，如 [0] 或 [0,2]。"
+          "description": "action=check/action=uncheck 时：要切换的条目下标列表，如 [0] 或 [0,2]。"
         },
         {
           "flag": "--item_index",
           "type": "integer",
           "required": false,
-          "description": "remove_item/replace_item 必填；add_item 可选插入位置。"
+          "description": "action=remove_item/action=replace_item 必填；action=add_item 可选插入位置。"
         },
         {
           "flag": "--text",
           "type": "string",
           "required": false,
-          "description": "add_item / replace_item 的文本。"
+          "description": "action=add_item / action=replace_item 的文本。"
         }
       ],
       "examples": [
@@ -2104,9 +2119,22 @@
         },
         {
           "title": "查询",
-          "note": "看当前列表。",
+          "note": "多步/Execute 任务回合开始时可 query；单回合只读问答可省略。",
           "args": {
             "action": "query"
+          }
+        },
+        {
+          "title": "Execute 写盘前建清单",
+          "note": "宿主在 Execute 下会拒绝无 todo_list 清单的写盘；先 todo_list(action=create) 再 replace_in_file 等。",
+          "args": {
+            "action": "create",
+            "items": [
+              "读目标文件",
+              "dry_run 预览改动",
+              "dry_run=false 执行",
+              "跑诊断验证"
+            ]
           }
         }
       ]
@@ -2114,7 +2142,7 @@
     {
       "name": "user_confirm.py",
       "path": "tools/user_confirm.py",
-      "purpose": "阻塞式用户确认：首次调用传 title + confirms（选项文案数组），返回 needs_confirm；宿主展示 UI 后第二次调用传入用户选择的 confirm 字符串。multi 控制是否多选；custom_option_index 用于「其他」类选项。",
+      "purpose": "user_confirm：阻塞式用户确认。首次调用传 title + confirms（选项文案数组），返回 needs_confirm；宿主展示 UI 后第二次调用传入 confirm 参数（用户选择项）。multi 控制是否多选；custom_option_index 用于「其他」类选项。",
       "stdout_output": "needs_confirm: ok=false 且 error.code=E_USER_CONFIRM_REQUIRED；完成: data.confirm",
       "args": [
         {
@@ -2205,7 +2233,7 @@
     {
       "name": "ip_geolocate.py",
       "path": "tools/ip_geolocate.py",
-      "purpose": "调用免费 ipwho.is 查询 IP 地理信息（国家、城市、经纬度、时区等）。省略 ip 时查当前出口公网；私网或 localhost 视为未指定。",
+      "purpose": "ip_geolocate：调用免费 ipwho.is 查询 ip 地理信息（国家、城市、经纬度、时区等）。省略 ip 时查当前出口公网；私网或 localhost 视为未指定。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -2247,7 +2275,7 @@
     {
       "name": "env_probe.py",
       "path": "tools/env_probe.py",
-      "purpose": "探测本机可用 shell（cmd/PowerShell/bash）与 python/py 路径、平台与 cwd；无业务必填参数，用于生成可移植命令前缀。",
+      "purpose": "env_probe：探测本机可用 shell（cmd/PowerShell/bash）与 python/py 路径、平台与 cwd；无业务必填参数，用于生成可移植命令前缀。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -2293,7 +2321,7 @@
     {
       "name": "open_meteo_weather.py",
       "path": "tools/open_meteo_weather.py",
-      "purpose": "Open-Meteo 天气预报（免 Key）。location 文本 与 latitude+longitude 二选一优先；否则可用 ip 推断地区。forecast_days 1–7。",
+      "purpose": "open_meteo_weather：Open-Meteo 天气预报（免 Key）。location 与 latitude+longitude 二选一；否则可用 ip 推断地区。forecast_days 1–7。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -2372,7 +2400,7 @@
     {
       "name": "archive.py",
       "path": "tools/archive.py",
-      "purpose": "压缩包：list 列成员；extract 解压到 dest；create 从 source 打包到 dest。支持 zip/tar/tar.gz/tar.bz2/tar.xz；rar 只读。Plan 下 extract/create 会被拒绝。password 用于读加密包。",
+      "purpose": "archive：action=list 列成员；action=extract 解压到 dest；action=create 从 source 打包到 dest。支持 zip/tar/tar.gz/tar.bz2/tar.xz；rar 只读。extract/create 默认 dry_run=true 预览（would_extract_count / would_add_count），实写传 dry_run=false。Plan 下仅 dry_run=false 的 extract/create 会被拒绝。password 用于读加密包。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -2384,25 +2412,25 @@
             "extract",
             "create"
           ],
-          "description": "操作。"
+          "description": "操作类型：action=list / action=extract / action=create。"
         },
         {
           "flag": "--source",
           "type": "string",
           "required": true,
-          "description": "list/extract 时为包路径；create 时为待打包文件或目录。"
+          "description": "action=list/action=extract 时为包路径；action=create 时为待打包文件或目录。"
         },
         {
           "flag": "--dest",
           "type": "string",
           "required": false,
-          "description": "extract 解压目标目录；create 输出包路径。"
+          "description": "action=extract 解压目标目录；action=create 输出包路径。"
         },
         {
           "flag": "--output_format",
           "type": "string",
           "required": false,
-          "description": "create 时格式；默认同 dest 后缀。"
+          "description": "action=create 时格式；默认同 dest 后缀。"
         },
         {
           "flag": "--password",
@@ -2414,7 +2442,13 @@
           "flag": "--glob_pattern",
           "type": "string",
           "required": false,
-          "description": "成员过滤 glob。"
+          "description": "glob_pattern 参数，压缩包成员过滤。"
+        },
+        {
+          "flag": "--dry_run",
+          "type": "boolean",
+          "required": false,
+          "description": "默认 true。extract/create 为 true 时只预览不写盘；false 执行解压或打包。list 忽略此参数。"
         },
         {
           "flag": "--restrict_to_workspace",
@@ -2431,7 +2465,7 @@
             "plan",
             "execute"
           ],
-          "description": "plan 禁止 extract/create。"
+          "description": "run_type=plan 时 archive 禁止 dry_run=false 的 extract/create。"
         }
       ],
       "examples": [
@@ -2477,7 +2511,7 @@
         },
         {
           "title": "加密包只读",
-          "note": "list 带密码。",
+          "note": "action=list 且传 password。",
           "args": {
             "action": "list",
             "source": "secret.zip",
@@ -2489,7 +2523,7 @@
     {
       "name": "image_ocr.py",
       "path": "tools/image_ocr.py",
-      "purpose": "对图片做 OCR 文字识别，支持 pytesseract（本地引擎）和 easyocr（AI引擎）。依赖：easyocr 按需安装（pip install easyocr），首次调用自动检测。pytesseract 需额外安装 Tesseract 系统程序。",
+      "purpose": "image_ocr：对 source 图片做 OCR 文字识别，engine 可选 pytesseract（本地）或 easyocr（AI）。easyocr 按需 pip install；pytesseract 需系统 Tesseract。",
       "stdout_output": "{ok,data:{full_text,...}}",
       "args": [
         {
@@ -2566,7 +2600,7 @@
     {
       "name": "data_table.py",
       "path": "tools/data_table.py",
-      "purpose": "读取 .xlsx / .csv / .tsv：preview 看前几行；filter 按列值筛；sort 排序；stats 数值列统计；to_json/to_csv/to_md 导出；sheets 列 Excel 工作表名。filter 需 filter_col+filter_val；sort 需 sort_col。",
+      "purpose": "data_table：action=preview 看前几行；action=filter 按列值筛；action=sort 排序；action=stats 数值列统计；action=to_json/action=to_csv/action=to_md 导出；action=sheets 列 Excel 工作表名。action=filter 需 filter_col+filter_val；action=sort 需 sort_col。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -2583,7 +2617,7 @@
             "to_md",
             "sheets"
           ],
-          "description": "操作类型。"
+          "description": "操作类型：action=preview / action=filter / action=sort / action=stats / action=to_json / action=to_csv / action=to_md / action=sheets。"
         },
         {
           "flag": "--source",
@@ -2601,43 +2635,43 @@
           "flag": "--limit",
           "type": "integer",
           "required": false,
-          "description": "preview/to_md 等行数上限，默认 20。"
+          "description": "action=preview/action=to_md 等行数上限，默认 20。"
         },
         {
           "flag": "--filter_col",
           "type": "string",
           "required": false,
-          "description": "filter 列名。"
+          "description": "action=filter 列名。"
         },
         {
           "flag": "--filter_val",
           "type": "string",
           "required": false,
-          "description": "filter 匹配值。"
+          "description": "action=filter 匹配值。"
         },
         {
           "flag": "--regex",
           "type": "boolean",
           "required": false,
-          "description": "filter 时 filter_val 按正则。"
+          "description": "action=filter 时 filter_val 按正则。"
         },
         {
           "flag": "--sort_col",
           "type": "string",
           "required": false,
-          "description": "sort 列名。"
+          "description": "action=sort 列名。"
         },
         {
           "flag": "--sort_desc",
           "type": "boolean",
           "required": false,
-          "description": "sort 降序。"
+          "description": "action=sort 降序。"
         },
         {
           "flag": "--col",
           "type": "string",
           "required": false,
-          "description": "stats 数值列名。"
+          "description": "action=stats 数值列名。"
         },
         {
           "flag": "--restrict_to_workspace",
@@ -2731,14 +2765,14 @@
     {
       "name": "run_command.py",
       "path": "tools/run_command.py",
-      "purpose": "【最低优先级】在 shell 中执行 command，收集 stdout/stderr/exit_code；宿主会推送 tool_progress 实时输出。文件操作用专用工具。safe_mode 默认 true。winget 须非交互：--accept-package-agreements --accept-source-agreements；若仍出现 [Y/N] 协议提示，用户可在步骤卡片点 Y/N 或自定义输入。安装类 timeout_sec≥300。",
+      "purpose": "run_command：【最低优先级】在 shell 中执行单条 command（非脚本块），收集 stdout/stderr/exit_code；宿主推送 tool_progress。文件操作用 read_file/write_file 等专用 function。safe_mode 默认 true：禁止 command 中含 ; & | ` $ > <（勿用 &&/||/管道/重定向）；多条命令请多次调用或设 cwd 后只传一条（如 python -m unittest …）。黑名单含 del/rm/format/dd 等（删文件用 delete_file）。安装类 timeout_sec≥300。",
       "stdout_output": "{ok,data:{stdout,stderr,exit_code}}",
       "args": [
         {
           "flag": "--command",
           "type": "string",
           "required": true,
-          "description": "整条 shell 命令字符串。"
+          "description": "单条 shell 命令（非多行脚本）。safe_mode=true（默认）时禁止 ; & | ` $ > <，禁止 cd … && … 链式；换目录用 cwd，分步多次调用。黑名单：del/rm/rmdir/remove-item/format/dd 等。"
         },
         {
           "flag": "--cwd",
@@ -2767,7 +2801,7 @@
           "flag": "--safe_mode",
           "type": "boolean",
           "required": false,
-          "description": "默认 true；false 放宽检查（自担风险）。"
+          "description": "默认 true：拦截 ; & | ` $ > < 与链式写法。仅用户明确要求且接受风险时传 false（方可管道/重定向）。"
         },
         {
           "flag": "--restrict_to_workspace",
@@ -2784,7 +2818,7 @@
             "plan",
             "execute"
           ],
-          "description": "plan 拒绝。"
+          "description": "run_type=plan 时 run_command 拒绝执行。"
         }
       ],
       "examples": [
@@ -2816,12 +2850,23 @@
           }
         },
         {
+          "title": "Layer0 单测（分步）",
+          "note": "勿用 &&/;；cwd 为仓库根（相对路径如 . 或子目录），每次一条 command。",
+          "args": {
+            "command": "python -m unittest discover -s tests -v",
+            "cwd": ".",
+            "timeout_sec": 120,
+            "shell": "cmd"
+          }
+        },
+        {
           "title": "PowerShell 管道",
-          "note": "显式 shell。",
+          "note": "管道含 |，须 safe_mode=false 且用户授权。",
           "args": {
             "command": "Get-ChildItem | Measure-Object",
             "shell": "powershell",
-            "cwd": "."
+            "cwd": ".",
+            "safe_mode": false
           }
         }
       ]
@@ -2829,7 +2874,7 @@
     {
       "name": "python_inline.py",
       "path": "tools/python_inline.py",
-      "purpose": "【胶水】exec 执行一段 Python 源码（不经 shell），stdout/stderr 由宿主捕获；宿主推送 tool_progress 实时输出（print 会滚动显示）。复杂编排可用；Plan 拒绝。勿用本工具代替 run_command 跑 winget/npm 等 shell 安装。代码内不要字面调用 file_search/grep_files 工具名字符串代替真实 function call。",
+      "purpose": "python_inline：exec 执行 code 源码（不经 shell），stdout/stderr 由宿主捕获并推送 tool_progress。复杂编排可用；run_type=plan 拒绝。勿代替 run_command 跑 winget/npm 等 shell 安装。",
       "stdout_output": "{ok,data:{stdout,stderr,exit_code,timeout}}",
       "args": [
         {
@@ -2865,7 +2910,7 @@
             "plan",
             "execute"
           ],
-          "description": "plan 拒绝执行。"
+          "description": "run_type=plan 时 python_inline 拒绝执行。"
         }
       ],
       "examples": [
@@ -2905,20 +2950,20 @@
     {
       "name": "dreamina_generate.py",
       "path": "tools/dreamina_generate.py",
-      "purpose": "即梦 Dreamina 文生图/文生视频工具。封装 dreamina CLI，支持登录/OAuth认证/余额查询/文生图/文生视频/图生视频/图生图/异步结果查询/任务列表。需先安装 dreamina CLI（curl -s https://jimeng.jianying.com/cli | bash）。",
+      "purpose": "dreamina_generate：即梦 Dreamina 文生图/文生视频。action=login/check_login/logout/user_credit/text2image/text2video/image2video/image2image/query_result/list_task 等。需先安装 dreamina CLI。",
       "stdout_output": "{ok,data}",
       "args": [
         {
           "flag": "--action",
           "type": "string",
           "required": false,
-          "description": "操作类型：login（发起登录）/ check_login（检查登录，需device_code）/ logout / user_credit / text2image（文生图）/ text2video（文生视频）/ image2video（图生视频，需image_path）/ image2image（图生图，需image_path）/ query_result（查询结果，需submit_id）/ list_task（任务列表）。默认user_credit。"
+          "description": "action 参数：action=login / action=check_login / action=logout / action=user_credit / action=text2image / action=text2video / action=image2video / action=image2image / action=query_result / action=list_task；默认 action=user_credit。"
         },
         {
           "flag": "--prompt",
           "type": "string",
           "required": false,
-          "description": "生成提示词（text2image/text2video/image2video/image2image 必填）。"
+          "description": "action=text2image/action=text2video/action=image2video/action=image2image 时必填。"
         },
         {
           "flag": "--gen_type",
@@ -2930,13 +2975,13 @@
           "flag": "--submit_id",
           "type": "string",
           "required": false,
-          "description": "查询异步任务结果时使用（query_result action）。"
+          "description": "action=query_result 时必填 submit_id。"
         },
         {
           "flag": "--device_code",
           "type": "string",
           "required": false,
-          "description": "OAuth 设备码（check_login action 时使用）。"
+          "description": "action=check_login 时使用 device_code。"
         },
         {
           "flag": "--ratio",
@@ -2972,7 +3017,7 @@
           "flag": "--gen_status",
           "type": "string",
           "required": false,
-          "description": "按状态筛选任务（list_task action）。可选：success/fail/querying/all。"
+          "description": "action=list_task 时按 gen_status 筛选：success/fail/querying/all。"
         },
         {
           "flag": "--limit",
@@ -3034,20 +3079,20 @@
     {
       "name": "kling_generate.py",
       "path": "tools/kling_generate.py",
-      "purpose": "⚠️ 可灵 Kling AI 全能力工具（消耗积分）。支持文生视频/图生视频/多模态视频/多图参考生视频/动作控制/视频延长/对口型/数字人/文生图/图生图/Omni图像/多图参考生图/虚拟试穿/文生音效/视频配音效/语音合成/视频特效/扩图/智能补全主体图/图像识别/自定义音色/主体管理/账号信息查询。生成类操作由agent层统一拦截确认。查询结果(query_result)和账号信息(account_info)不消耗积分。",
+      "purpose": "kling_generate：可灵 Kling AI 全能力（消耗积分）。action=text2video/image2video/…/account_info/query_result 等；action=query_result 与 action=account_info 不耗积分。生成类由 agent 层拦截确认。",
       "stdout_output": "{ok,data}",
       "args": [
         {
           "flag": "--run_type",
           "type": "string",
           "required": false,
-          "description": "会话模式。plan 模式下拒绝执行生成操作。"
+          "description": "run_type=plan 时 kling_generate 拒绝生成类 action。"
         },
         {
           "flag": "--action",
           "type": "string",
           "required": false,
-          "description": "操作类型：text2video(文生视频) / image2video(图生视频) / multimodal2video(多模态视频) / multi_image2video(多图参考生视频) / motion_control(动作控制) / video_extend(视频延长) / lip_sync(对口型) / avatar(数字人) / text2image(文生图) / image2image(图生图) / omni_image(Omni图像) / multi_image2image(多图参考生图) / virtual_try_on(虚拟试穿) / text2audio(文生音效) / video_to_audio(视频配音效) / tts(语音合成) / video_effect(视频特效) / image_expansion(扩图) / ai_multi_shot(智能补全主体图) / image_recognize(图像识别) / custom_voice_create(创建自定义音色) / custom_voice_delete(删除自定义音色) / element_create(创建主体) / account_info(账号信息查询，免费) / query_result(查询结果)."
+          "description": "action 参数：action=text2video / action=image2video / action=multimodal2video / action=text2image / action=image2image / action=account_info（免费） / action=query_result 等；详见 schema enum。"
         },
         {
           "flag": "--prompt",
@@ -3350,7 +3395,7 @@
     {
       "name": "web_fetch_render.py",
       "path": "tools/web_fetch_render.py",
-      "purpose": "支持 JS 渲染的网页抓取工具。使用 Playwright 无头浏览器加载页面，等待 JS 渲染完成后提取正文文本。适合抓取 SPA 动态页面。依赖：pip install playwright && python -m playwright install chromium（按需安装，首次使用时会引导）",
+      "purpose": "web_fetch_render：支持 JS 渲染的网页抓取；Playwright 加载 url 后提取正文。适合 SPA。依赖 playwright（按需安装）。",
       "stdout_output": "{ok,data}",
       "args": [
         {
@@ -3394,7 +3439,7 @@
     {
       "name": "skill_manage.py",
       "path": "tools/skill_manage.py",
-      "purpose": "管理 Skills 技能：列出所有可用技能名称与描述（list），或按名称读取指定技能完整正文（read）。读取的正文会以 tool 消息形式出现在对话区，不影响前缀缓存。必须直接调用本工具，不要用 python_inline 或 run_command 或任何其他方式替代。",
+      "purpose": "skill_manage：action=list 列出所有可用技能名称与描述，或 action=read 按名称读取指定技能完整正文。读取的正文会以 tool 消息形式出现在对话区，不影响前缀缓存。必须直接调用 skill_manage，不要用 python_inline 或 run_command 或任何其他方式替代。",
       "stdout_output": "{ok,data:{name,content}}",
       "args": [
         {
@@ -3405,13 +3450,13 @@
             "list",
             "read"
           ],
-          "description": "操作类型：list=列出所有可用技能（名称+描述）；read=读取指定技能的完整正文。"
+          "description": "操作类型：action=list 列出所有可用技能（名称+描述）；action=read 读取指定技能的完整正文。"
         },
         {
           "flag": "--name",
           "type": "string",
           "required": false,
-          "description": "技能名称（action=read 时必填）。从 list 或上下文前缀的【可用技能清单】获取。"
+          "description": "技能名称（action=read 时必填）。从 skill_manage(action=list) 或上下文前缀的【可用技能清单】获取。"
         }
       ],
       "examples": [
@@ -3435,7 +3480,7 @@
     {
       "name": "session_send.py",
       "path": "tools/session_send.py",
-      "purpose": "向一个指定 Agent 会话发送消息并触发对方执行。用于点对点沟通、追问、汇报结果。目标忙时自动进入持久化 inbox 队列。",
+      "purpose": "session_send：向 target_id 指定 Agent 发 message 并触发执行（action=send）。点对点沟通、追问、汇报；目标忙时入 inbox 队列。requires_reply、thread_id 见参数说明。",
       "stdout_output": "{ok,data:{target_id,queued,run_id,message_sent}}",
       "args": [
         {
@@ -3445,7 +3490,7 @@
           "values": [
             "send"
           ],
-          "description": "操作类型。send=发消息给目标 Agent。"
+          "description": "操作类型；session_send 仅支持 action=send。"
         },
         {
           "flag": "--target_id",
@@ -3487,12 +3532,34 @@
       "examples": [
         {
           "title": "点对点询问",
-          "note": "发给指定 Agent，并带 thread_id 便于等待回复。",
+          "note": "发给指定 Agent，并带 thread_id 便于等待回复。requires_reply 必填。",
           "args": {
             "action": "send",
             "target_id": "uuid-a1",
             "thread_id": "task-login-api",
-            "message": "请评审登录 API 方案并回复结论。"
+            "message": "请评审登录 API 方案并回复结论。",
+            "requires_reply": true
+          }
+        },
+        {
+          "title": "回复入站 requires_reply=true",
+          "note": "本回合 P0：收到 peer 要求回复时，第一个 tool 应是 session_send；target_id 用 sender_cid。",
+          "args": {
+            "action": "send",
+            "target_id": "uuid-peer-sender",
+            "thread_id": "task-login-api",
+            "message": "已收到，结论如下：……",
+            "requires_reply": false
+          }
+        },
+        {
+          "title": "纯通知",
+          "note": "不要求对方回复时 requires_reply=false。",
+          "args": {
+            "action": "send",
+            "target_id": "uuid-a1",
+            "message": "后端部署已完成，无需回复。",
+            "requires_reply": false
           }
         }
       ]
@@ -3500,7 +3567,7 @@
     {
       "name": "session_multisend.py",
       "path": "tools/session_multisend.py",
-      "purpose": "向指定多个 Agent 发送同一条消息。用于小组私聊、并行派工、狼人夜间小范围沟通等。",
+      "purpose": "session_multisend：向 target_ids 多个 Agent 发送同一条 message（action=send 或 action=multisend）。小组私聊、并行派工等。requires_reply 必填。",
       "stdout_output": "{ok,data:{sent,skipped,count,thread_id}}",
       "args": [
         {
@@ -3511,7 +3578,7 @@
             "send",
             "multisend"
           ],
-          "description": "操作类型，默认 send。"
+          "description": "操作类型，默认 action=send；action=multisend 为同义别名。"
         },
         {
           "flag": "--target_ids",
@@ -3538,6 +3605,12 @@
           "description": "小组通道名，如 werewolves-night-1 / frontend-review。"
         },
         {
+          "flag": "--priority",
+          "type": "string",
+          "required": false,
+          "description": "消息优先级，默认 normal（与 session_send 一致）。"
+        },
+        {
           "flag": "--requires_reply",
           "type": "boolean",
           "required": true,
@@ -3556,7 +3629,8 @@
             ],
             "thread_id": "night-1",
             "channel": "werewolves",
-            "message": "请讨论今晚行动目标。"
+            "message": "请讨论今晚行动目标。",
+            "requires_reply": true
           }
         }
       ]
@@ -3564,7 +3638,7 @@
     {
       "name": "session_broadcast.py",
       "path": "tools/session_broadcast.py",
-      "purpose": "向 Agent 网络广播消息。可全员广播，也可按 role/tag 筛选。目标忙时由 session_send 自动入队。",
+      "purpose": "session_broadcast：向 Agent 网络广播 message（action=broadcast）。必须传 tag 筛选目标群组，禁止全员广播。目标忙时自动入队。",
       "stdout_output": "{ok,data:{sent,skipped,count}}",
       "args": [
         {
@@ -3574,7 +3648,7 @@
           "values": [
             "broadcast"
           ],
-          "description": "操作类型。broadcast=广播。"
+          "description": "操作类型；session_broadcast 仅支持 action=broadcast。"
         },
         {
           "flag": "--role",
@@ -3585,8 +3659,8 @@
         {
           "flag": "--tag",
           "type": "string",
-          "required": false,
-          "description": "按标签筛选，空则不限。"
+          "required": true,
+          "description": "⚠️ 必填。按标签筛选目标群组（如 spy-game），禁止空值全员广播。"
         },
         {
           "flag": "--exclude_self",
@@ -3601,6 +3675,18 @@
           "description": "广播消息内容。"
         },
         {
+          "flag": "--thread_id",
+          "type": "string",
+          "required": false,
+          "description": "协作线程 ID，会传递给各目标的 session_send。"
+        },
+        {
+          "flag": "--priority",
+          "type": "string",
+          "required": false,
+          "description": "消息优先级，默认 normal（与 session_send 一致）。"
+        },
+        {
           "flag": "--requires_reply",
           "type": "boolean",
           "required": true,
@@ -3609,18 +3695,21 @@
       ],
       "examples": [
         {
-          "title": "全员公告",
-          "note": "向所有 Agent 广播。",
+          "title": "按 tag 群发公告",
+          "note": "向指定 tag 的 Agent 广播。",
           "args": {
             "action": "broadcast",
-            "message": "天亮了，请所有存活玩家准备发言。"
+            "tag": "spy-game",
+            "message": "天亮了，请所有存活玩家准备发言。",
+            "requires_reply": true
           }
         },
         {
           "title": "纯通知广播",
-          "note": "不要求回复的广播。",
+          "note": "按 tag 广播，不要求回复。",
           "args": {
             "action": "broadcast",
+            "tag": "spy-game",
             "message": "系统维护通知",
             "requires_reply": false
           }
@@ -3630,7 +3719,7 @@
     {
       "name": "session_list.py",
       "path": "tools/session_list.py",
-      "purpose": "列出当前 Agent Session Mesh 中的所有自由 Agent，会返回 cid/name/role/status/tags/queueSize。",
+      "purpose": "session_list：列出 Session Mesh 中自由 Agent（action=list），返回 cid/name/role/status/tags/queueSize。",
       "stdout_output": "{ok,data:{agents,count}}",
       "args": [
         {
@@ -3640,7 +3729,7 @@
           "values": [
             "list"
           ],
-          "description": "操作类型，默认 list。"
+          "description": "操作类型，默认 action=list。"
         }
       ],
       "examples": [
@@ -3656,7 +3745,7 @@
     {
       "name": "session_wait.py",
       "path": "tools/session_wait.py",
-      "purpose": "检查指定 Agent 是否已在当前会话回复某个 thread_id。用于顺序控制。推荐 action=wait 或 suspend=true：若目标未回复，后端会挂起当前 Agent，本轮立即结束；目标通过 session_send 回到本会话后自动恢复，避免同轮反复轮询浪费 token。",
+      "purpose": "session_wait：检查 target_ids 是否已在 thread_id 下回复（action=check/action=wait）。推荐 action=wait 或 suspend=true：pending 时挂起当前 Agent；目标 session_send 回复后自动恢复。",
       "stdout_output": "{ok,data:{completed,pending,messages,all_done,thread_id,should_stop_turn?,suspend?,wait_state?,instruction?}}",
       "args": [
         {
@@ -3667,7 +3756,7 @@
             "check",
             "wait"
           ],
-          "description": "操作类型。check=只检查；wait=若 pending 则挂起当前 Agent，等待目标回复后自动恢复。"
+          "description": "操作类型。action=check 只检查；action=wait 若 pending 则挂起当前 Agent，等待目标回复后自动恢复。"
         },
         {
           "flag": "--target_ids",
@@ -3705,7 +3794,7 @@
     {
       "name": "session_create.py",
       "path": "tools/session_create.py",
-      "purpose": "创建一个或多个自由 Agent 会话，不依赖团队注册。支持 name/persona/count/name_prefix/tags，用于批量创建玩家、评审员、测试员等。",
+      "purpose": "session_create：创建自由 Agent 会话（action=create）。支持 name/persona/count/name_prefix/tags，批量创建玩家、评审员等。",
       "stdout_output": "{ok,data:{agents,count,session_id,name,role}}",
       "args": [
         {
@@ -3715,7 +3804,7 @@
           "values": [
             "create"
           ],
-          "description": "操作类型。create=创建 Agent。"
+          "description": "操作类型；session_create 仅支持 action=create。"
         },
         {
           "flag": "--role",
@@ -3780,7 +3869,7 @@
     {
       "name": "github_api.py",
       "path": "tools/github_api.py",
-      "purpose": "GitHub 远程 API：获取仓库信息、管理 Issues、Releases、Topics。与 git_workspace（本地 Git 只读 status/diff/log）互补，本工具专用于操作 GitHub 平台上的远程仓库。",
+      "purpose": "github_api：GitHub 远程 API（action=login/get_repo/list_issues/create_issue/list_releases/set_topics）。与 git_workspace 本地只读互补。",
       "stdout_output": "{\"ok\":true,\"data\":{...}} 或 {\"ok\":false,\"error\":\"...\"}",
       "args": [
         {
@@ -3795,37 +3884,37 @@
             "list_releases",
             "set_topics"
           ],
-          "description": "操作类型：login(设备登录) / get_repo(仓库信息) / list_issues(列出Issue) / create_issue(创建Issue) / list_releases(列出Release) / set_topics(设置Topics)"
+          "description": "action 参数：action=login / action=get_repo / action=list_issues / action=create_issue / action=list_releases / action=set_topics。"
         },
         {
           "flag": "--repo",
           "type": "string",
           "required": false,
-          "description": "仓库名 owner/repo（login 时可省略）"
+          "description": "仓库 owner/repo（action=get_repo 等时使用；action=login 可省略）。"
         },
         {
           "flag": "--title",
           "type": "string",
           "required": false,
-          "description": "Issue 标题（create_issue 时使用）"
+          "description": "action=create_issue 时 Issue 标题。"
         },
         {
           "flag": "--body",
           "type": "string",
           "required": false,
-          "description": "Issue 描述（create_issue 时使用）"
+          "description": "action=create_issue 时 Issue 描述。"
         },
         {
           "flag": "--state",
           "type": "string",
           "required": false,
-          "description": "Issue 状态筛选（list_issues 时使用，默认 open）"
+          "description": "action=list_issues 时状态筛选，默认 open。"
         },
         {
           "flag": "--topics",
           "type": "string",
           "required": false,
-          "description": "Topics 列表逗号分隔（set_topics 时使用）"
+          "description": "action=set_topics 时 topics 逗号分隔列表。"
         }
       ],
       "examples": [

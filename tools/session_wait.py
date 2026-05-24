@@ -5,19 +5,6 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 
-def _as_bool(v: Any, default: bool = False) -> bool:
-    if isinstance(v, bool):
-        return v
-    if v is None:
-        return default
-    s = str(v).strip().lower()
-    if s in ("1", "true", "yes", "on", "是"):
-        return True
-    if s in ("0", "false", "no", "off", "否", "不"):
-        return False
-    return default
-
-
 def _normalize_target_ids(raw: Any) -> List[str]:
     if isinstance(raw, list):
         return [str(x).strip() for x in raw if str(x).strip()]
@@ -25,6 +12,22 @@ def _normalize_target_ids(raw: Any) -> List[str]:
     if not s:
         return []
     return [x.strip() for x in s.replace("，", ",").split(",") if x.strip()]
+
+
+def _sentinel_index_by_target(msgs: List[Dict[str, Any]], thread: str) -> Dict[str, int]:
+    """每个 target 最近一次 requires_reply 请求哨兵的下标。"""
+    out: Dict[str, int] = {}
+    for i, m in enumerate(msgs):
+        if not isinstance(m, dict) or not m.get("_requires_reply_sentinel"):
+            continue
+        t = str(m.get("_target_id") or "").strip()
+        if not t:
+            continue
+        th = str(m.get("_thread_id") or "").strip()
+        if thread and th and th != thread:
+            continue
+        out[t] = i
+    return out
 
 
 def agent_main(*, action: str = "check", target_ids: Any = None, thread_id: str = "", suspend: Any = None, **_kwargs: Any) -> Dict[str, Any]:
@@ -70,14 +73,16 @@ def agent_main(*, action: str = "check", target_ids: Any = None, thread_id: str 
                 "type": "wait_without_request",
                 "message": (
                     f"目标 {'/'.join(_no_request_targets)} 未收到 requires_reply=true 的请求{msg_suffix}，"
-                    "不会主动回复。调 session_wait 前须先用 session_send/session_multisend 发 requires_reply=true 的消息。"
+                    "不会主动回复。调 session_wait 前须先用 session_send/session_multisend/session_broadcast "
+                    "发 requires_reply=true 的消息。"
                 ),
             },
         }
 
+    sentinel_at = _sentinel_index_by_target(msgs, thread)
     completed = set()
     replies = []
-    for m in msgs:
+    for i, m in enumerate(msgs):
         if not isinstance(m, dict):
             continue
         sender = str(m.get("_sender") or "").strip()
@@ -85,17 +90,24 @@ def agent_main(*, action: str = "check", target_ids: Any = None, thread_id: str 
             continue
         if thread and str(m.get("_thread_id") or "").strip() != thread:
             continue
-        if m.get("role") == "user":
-            completed.add(sender)
-            replies.append(
-                {
-                    "from": sender,
-                    "from_name": str(m.get("_sender_name") or ""),
-                    "content": str(m.get("content") or ""),
-                    "thread_id": str(m.get("_thread_id") or ""),
-                    "channel": str(m.get("_channel") or ""),
-                }
-            )
+        if m.get("role") != "user" or not m.get("_agent_peer_message"):
+            continue
+        # 纯通知（入站 requires_reply=false）不算 wait 意义上的「回复」
+        if m.get("_requires_reply") is False:
+            continue
+        sent_idx = sentinel_at.get(sender)
+        if sent_idx is None or i <= sent_idx:
+            continue
+        completed.add(sender)
+        replies.append(
+            {
+                "from": sender,
+                "from_name": str(m.get("_sender_name") or ""),
+                "content": str(m.get("content") or ""),
+                "thread_id": str(m.get("_thread_id") or ""),
+                "channel": str(m.get("_channel") or ""),
+            }
+        )
     pending = [t for t in targets if t not in completed]
     data: Dict[str, Any] = {
         "completed": sorted(completed),
@@ -104,16 +116,15 @@ def agent_main(*, action: str = "check", target_ids: Any = None, thread_id: str 
         "all_done": not pending,
         "thread_id": thread,
     }
-    suspend_requested = _as_bool(_kwargs.get("suspend", suspend), False) or action == "wait"
     if pending:
         data["should_stop_turn"] = True
         data["instruction"] = (
             "目标 Agent 尚未回复。不要在同一轮继续轮询 session_wait；"
             "请结束当前回复，等待对方通过 session_send 把消息写入本会话后再继续。"
         )
-        if suspend_requested:
-            from agent_v2.live_state import suspend_agent_wait
-            wait_state = suspend_agent_wait(cid, targets, thread)
-            data["suspend"] = True
-            data["wait_state"] = wait_state
+        from agent_v2.live_state import suspend_agent_wait
+
+        wait_state = suspend_agent_wait(cid, targets, thread)
+        data["suspend"] = True
+        data["wait_state"] = wait_state
     return {"ok": True, "data": data}

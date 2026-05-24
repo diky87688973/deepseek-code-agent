@@ -2,6 +2,7 @@
 """在单个文件内定位字面或正则，返回与 read_file/replace_in_file 一致的字符半开区间 [region_start, region_end)。"""
 
 from __future__ import annotations
+from typing import List, Tuple
 
 import re
 
@@ -14,8 +15,8 @@ def _collect_spans(
     *,
     regex: bool,
     ignore_case: bool,
-) -> list[tuple[int, int, str]]:
-    spans: list[tuple[int, int, str]] = []
+) -> List[Tuple[int, int, str]]:
+    spans: List[Tuple[int, int, str]] = []
     if not regex:
         sub = pattern
         if not sub:

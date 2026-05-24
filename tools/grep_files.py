@@ -7,7 +7,7 @@ agent_main 仅接受 Python 原生类型；main() 仅供人工调试；build_par
 from __future__ import annotations
 
 import time
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import agent_common as ac
 
@@ -87,7 +87,7 @@ def agent_main(
         if (not no_gitignore) and repo_root is not None:
             files = ac.filter_by_gitignore(files, repo_root)
 
-        matches: list[dict] = []
+        matches: List[dict] = []
         scanned = 0
         _last_prog = 0.0
         if _progress_dict is not None:

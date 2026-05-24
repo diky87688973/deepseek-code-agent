@@ -7,6 +7,8 @@ from contextlib import asynccontextmanager
 
 from pathlib import Path
 
+from typing import Optional
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
@@ -15,7 +17,7 @@ from agent_v2.live_state import abort_all_conversation_runs_on_shutdown
 from agent_v2.routes import router as agent_http_router
 
 
-def _is_harmless_client_disconnect(exc: BaseException | None) -> bool:
+def _is_harmless_client_disconnect(exc: Optional[BaseException]) -> bool:
     """浏览器刷新/关标签会掐断 SSE、/workspace 视频 206 等连接；Windows Proactor 清理时常报 10054。"""
     if exc is None:
         return False

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Tuple
 
 
 def norm_path(raw: str) -> str:
@@ -14,10 +14,28 @@ def norm_path(raw: str) -> str:
     return s
 
 
-def parse_unified_diff(patch_text: str) -> list[dict]:
+def _strip_git_ab_prefix(path: str) -> str:
+    """去掉 unified diff 的 a/、b/ 前缀；Windows 绝对路径如 a/E:/x 须变为 E:/x。"""
+    s = norm_path(path)
+    if len(s) >= 2 and s[0] in "ab" and s[1] == "/":
+        return s[2:]
+    return s
+
+
+def parse_diff_path_header(line_body: str) -> str:
+    """解析 --- / +++ 行路径（去掉时间戳与 a|b 前缀）。"""
+    raw = str(line_body or "").strip()
+    if "\t" in raw:
+        raw = raw.split("\t", 1)[0].strip()
+    if raw in ("/dev/null", "dev/null"):
+        return "/dev/null"
+    return _strip_git_ab_prefix(raw)
+
+
+def parse_unified_diff(patch_text: str) -> List[dict]:
     lines = patch_text.splitlines()
     i = 0
-    files: list[dict] = []
+    files: List[dict] = []
     while i < len(lines):
         line = lines[i]
         if not line.startswith("--- "):
@@ -25,13 +43,13 @@ def parse_unified_diff(patch_text: str) -> list[dict]:
             continue
         if i + 1 >= len(lines) or not lines[i + 1].startswith("+++ "):
             raise ValueError("非法 unified diff：缺少 +++ 行")
-        old_path = norm_path(lines[i][4:].strip())
-        new_path = norm_path(lines[i + 1][4:].strip())
+        old_path = parse_diff_path_header(lines[i][4:])
+        new_path = parse_diff_path_header(lines[i + 1][4:])
         i += 2
-        hunks: list[dict] = []
+        hunks: List[dict] = []
         while i < len(lines) and lines[i].startswith("@@"):
             i += 1
-            hunk_lines: list[tuple[str, str]] = []
+            hunk_lines: List[Tuple[str, str]] = []
             while i < len(lines):
                 s = lines[i]
                 if s.startswith("@@") or s.startswith("--- "):
@@ -56,7 +74,7 @@ def parse_unified_diff(patch_text: str) -> list[dict]:
     return files
 
 
-def match_hunk_at(content_lines: list[str], start: int, hunk_lines: list[tuple[str, str]]) -> bool:
+def match_hunk_at(content_lines: List[str], start: int, hunk_lines: List[Tuple[str, str]]) -> bool:
     idx = start
     for prefix, text in hunk_lines:
         if prefix in (" ", "-"):
@@ -68,7 +86,7 @@ def match_hunk_at(content_lines: list[str], start: int, hunk_lines: list[tuple[s
     return True
 
 
-def find_hunk_position(content_lines: list[str], hunk_lines: list[tuple[str, str]], search_start: int) -> int:
+def find_hunk_position(content_lines: List[str], hunk_lines: List[Tuple[str, str]], search_start: int) -> int:
     if match_hunk_at(content_lines, search_start, hunk_lines):
         return search_start
     for p in range(0, len(content_lines) + 1):
@@ -77,7 +95,7 @@ def find_hunk_position(content_lines: list[str], hunk_lines: list[tuple[str, str
     raise ValueError("hunk 上下文未匹配，无法安全应用补丁")
 
 
-def apply_hunk(content_lines: list[str], hunk_lines: list[tuple[str, str]], pos: int) -> list[str]:
+def apply_hunk(content_lines: List[str], hunk_lines: List[Tuple[str, str]], pos: int) -> List[str]:
     out = content_lines[:pos]
     idx = pos
     for prefix, text in hunk_lines:
@@ -92,7 +110,7 @@ def apply_hunk(content_lines: list[str], hunk_lines: list[tuple[str, str]], pos:
     return out
 
 
-def apply_file_patch(file_path: Path, hunks: list[dict]) -> str:
+def apply_file_patch(file_path: Path, hunks: List[dict]) -> str:
     original = file_path.read_text(encoding="utf-8", errors="replace")
     lines = original.splitlines()
     cursor = 0

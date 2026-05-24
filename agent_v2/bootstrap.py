@@ -149,6 +149,7 @@ except Exception:
 
 # ── Skills 初始化 ──
 from util.skill_manager import init_skill_manager as _init_skill_manager
+from util.agent_prompt_constants import resolve_user_rules_system_prompt
 _init_skill_manager(SKILLS_DIR, SKILLS_MAX_FILE_SIZE)
 
 
@@ -179,12 +180,39 @@ TOKEN_ESTIMATE_ZH_PER_CHAR = float(_CONTEXT_CFG["AGENT_TOKEN_ESTIMATE_ZH_PER_CHA
 CONTEXT_LAYOUT_BUDGET_TOKENS = int(_CONTEXT_CFG["AGENT_CONTEXT_LAYOUT_BUDGET_TOKENS"])
 CONTEXT_SUMMARY_TOKEN_THRESHOLD = int(_CONTEXT_CFG["AGENT_CONTEXT_SUMMARY_TOKEN_THRESHOLD"])
 SUMMARY_IN_PROGRESS_TTL_SEC = float(_CONTEXT_CFG["AGENT_SUMMARY_IN_PROGRESS_TTL_SEC"])
-MAX_TOOL_ROUNDS = int(_CONTEXT_CFG["AGENT_MAX_TOOL_ROUNDS"])
+MAX_TOOL_ROUNDS = max(1, int(_CONTEXT_CFG["AGENT_MAX_TOOL_ROUNDS"]))
+MAX_CONSECUTIVE_PEER_TURNS = int(AGENT_CONFIG["AGENT_MAX_CONSECUTIVE_PEER_TURNS"])
+MIN_PEER_TURN_INTERVAL_SEC = float(AGENT_CONFIG["AGENT_MIN_PEER_TURN_INTERVAL_SEC"])
 UI_RESTORE_MAX_TABS = int(_CONTEXT_CFG["AGENT_UI_RESTORE_MAX_TABS"])
 UI_RESTORE_MAX_CHAT_ITEMS = int(_CONTEXT_CFG["AGENT_UI_RESTORE_MAX_CHAT_ITEMS"])
 _PREVIEW_RAW = _CONTEXT_CFG["AGENT_PREVIEW_INTENT_KEYS"]
 PREVIEW_INTENT_KEYS = tuple(_PREVIEW_RAW) if isinstance(_PREVIEW_RAW, (list, tuple)) else tuple(_PREVIEW_RAW)
+_AUDIT_RAW = _CONTEXT_CFG.get("AGENT_AUDIT_INTENT_KEYS")
+if isinstance(_AUDIT_RAW, (list, tuple)):
+    AUDIT_INTENT_KEYS = tuple(str(x).strip() for x in _AUDIT_RAW if str(x).strip())
+elif isinstance(_AUDIT_RAW, str) and _AUDIT_RAW.strip():
+    AUDIT_INTENT_KEYS = tuple(x.strip() for x in _AUDIT_RAW.split(",") if x.strip())
+else:
+    AUDIT_INTENT_KEYS = (
+        "只分析",
+        "只报告",
+        "不要改代码",
+        "仅审查",
+        "仅分析",
+        "不要修改",
+        "只读审查",
+        "不要动代码",
+        "只审查",
+        "代码审查不要改",
+        "audit only",
+        "report only",
+        "不要写代码",
+        "仅报告",
+    )
 AT_MESSAGE_FILE_PREFETCH = bool(_CONTEXT_CFG["AGENT_AT_MESSAGE_FILE_PREFETCH"])
+
+_URF = str(AGENT_CONFIG.get("AGENT_USER_RULES_FILE") or "").strip()
+USER_RULES_SYSTEM_PROMPT = resolve_user_rules_system_prompt(_URF, DATA_ROOT)
 
 
 def _agent_console_log_enabled() -> bool:
@@ -309,6 +337,8 @@ __all__ = [
     "KB_BASE_DIR",
     "LAST_OPEN_SESSION_STATE_FILE",
     "MAX_TOOL_ROUNDS",
+    "MAX_CONSECUTIVE_PEER_TURNS",
+    "MIN_PEER_TURN_INTERVAL_SEC",
     "PREVIEW_INTENT_KEYS",
     "SESSION_APP_ENTROPY",
     "SESSION_DIR",

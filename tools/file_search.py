@@ -13,12 +13,12 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import agent_common as ac
 
 
-def _load_gitignore(root: Path) -> list[re.Pattern]:
+def _load_gitignore(root: Path) -> List[re.Pattern]:
     patterns = []
     gitignore_path = root / ".gitignore"
     if not gitignore_path.exists():
@@ -52,7 +52,7 @@ def _load_gitignore(root: Path) -> list[re.Pattern]:
     return patterns
 
 
-def _is_ignored(rel_path: str, ignore_patterns: list[re.Pattern]) -> bool:
+def _is_ignored(rel_path: str, ignore_patterns: List[re.Pattern]) -> bool:
     rel = rel_path.replace("\\", "/")
     for p in ignore_patterns:
         if p.search(rel):
@@ -83,7 +83,7 @@ def _search_file(
     context_lines: int,
     limit: Optional[int],
     _progress_dict: Optional[dict] = None,
-) -> list[dict]:
+) -> List[dict]:
     results = []
     try:
         enc = _detect_encoding(path)
@@ -93,7 +93,7 @@ def _search_file(
         return [{"file": str(path), "error": str(e)}]
 
     total = len(lines)
-    starts: list[int] = []
+    starts: List[int] = []
     cur = 0
     for ln in lines:
         starts.append(cur)

@@ -133,6 +133,62 @@
   padding: 0;
   border-radius: 0;
 }
+.imm-msgs .peer-bubble .peer-agent-body.b.a a { color: var(--imm-accent); }
+.imm-msgs .peer-bubble .peer-agent-body.b.a p { margin: 0 0 8px 0; }
+.imm-msgs .peer-bubble .peer-agent-body.b.a p:last-child { margin-bottom: 0; }
+.imm-msgs .peer-bubble .peer-agent-body.b.a h1,
+.imm-msgs .peer-bubble .peer-agent-body.b.a h2,
+.imm-msgs .peer-bubble .peer-agent-body.b.a h3,
+.imm-msgs .peer-bubble .peer-agent-body.b.a h4,
+.imm-msgs .peer-bubble .peer-agent-body.b.a h5,
+.imm-msgs .peer-bubble .peer-agent-body.b.a h6 { margin: 8px 0 6px 0; line-height: 1.35; }
+.imm-msgs .peer-bubble .peer-agent-body.b.a ul,
+.imm-msgs .peer-bubble .peer-agent-body.b.a ol {
+  margin: 0 0 8px 20px;
+  padding: 0;
+  list-style-position: outside;
+}
+.imm-msgs .peer-bubble .peer-agent-body.b.a ul { list-style-type: disc; }
+.imm-msgs .peer-bubble .peer-agent-body.b.a ol { list-style-type: decimal; }
+.imm-msgs .peer-bubble .peer-agent-body.b.a li { margin: 2px 0; }
+.imm-msgs .peer-bubble .peer-agent-body.b.a pre {
+  margin: 0 0 8px 0;
+  padding: 8px;
+  background: var(--imm-pre-bg);
+  border: 1px solid var(--imm-pre-border);
+  border-radius: 4px;
+  max-height: 280px;
+  overflow: auto;
+}
+.imm-msgs .peer-bubble .peer-agent-body.b.a code {
+  font-family: Consolas, ui-monospace, monospace;
+  font-size: 12px;
+  background: var(--imm-code-inline-bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.imm-msgs .peer-bubble .peer-agent-body.b.a pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+.imm-msgs .peer-bubble .peer-agent-body.b.a table {
+  border-collapse: collapse;
+  max-width: 100%;
+  margin: 0 0 8px 0;
+  font-size: 12px;
+}
+.imm-msgs .peer-bubble .peer-agent-body.b.a th,
+.imm-msgs .peer-bubble .peer-agent-body.b.a td {
+  border: 1px solid var(--imm-pre-border);
+  padding: 4px 8px;
+  vertical-align: top;
+}
+.imm-msgs .peer-bubble .peer-agent-body.b.a hr {
+  border: 0;
+  border-top: 1px solid var(--imm-pre-border);
+  margin: 8px 0;
+}
 .imm-spinner {
   display: inline-block;
   width: 14px;

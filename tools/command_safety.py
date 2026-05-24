@@ -9,7 +9,7 @@ import re
 import shutil
 import subprocess
 import threading
-from typing import Optional, Tuple, Union
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 # 命令/内联脚本：实时 tool_progress 与 tool_end.preview 共用展示上限（保持一致）
 STREAM_OUTPUT_TAIL_MAX_CHARS = 12000
@@ -24,7 +24,7 @@ _ANSI_ESC_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?\x07|\x08|\r")
 
 # ── 命令黑名单：真删除/毁灭性操作 ──
 # 无论 safe_mode=true/false，均拦截。应改用 delete_file（逻辑删除移至回收站）。
-_CMD_BLACKLIST: set[str] = {
+_CMD_BLACKLIST: Set[str] = {
     # Windows CMD
     "del",
     "erase",
@@ -68,7 +68,7 @@ _CMD_BLACKLIST: set[str] = {
 }
 
 # 映射：黑命名单命令 → 建议替代工具
-_BLACKLIST_ADVICE: dict[str, str] = {
+_BLACKLIST_ADVICE: Dict[str, str] = {
     "del": "请使用 delete_file 工具（移动到回收站）",
     "erase": "请使用 delete_file 工具（移动到回收站）",
     "rmdir": "请使用 delete_file 工具（移动到回收站）",
@@ -229,7 +229,7 @@ def sanitize_command_output_for_display(
         return ""
     t = _ANSI_ESC_RE.sub("", str(text))
     lines = t.splitlines()
-    compact: list[str] = []
+    compact: List[str] = []
     empty_run = 0
     for line in lines:
         if not line.strip():

@@ -2,6 +2,7 @@
 """探测本机可用命令行环境（shell/python 可执行文件），并给出使用建议。"""
 
 from __future__ import annotations
+from typing import Dict, List
 
 import json
 import shutil
@@ -29,7 +30,7 @@ def agent_main(*, run_type: str = "") -> dict:
         ("python", "python.exe"),
         ("py", "py.exe"),
     ]
-    available: list[dict[str, str]] = []
+    available: List[Dict[str, str]] = []
     for key, exe in candidates:
         path = shutil.which(exe) or ""
         if path:

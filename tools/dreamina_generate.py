@@ -14,7 +14,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import agent_common as ac
 
@@ -65,7 +65,7 @@ def _resolve_dreamina_cli() -> Path:
     )
 
 
-def _run_dreamina(args: list[str], timeout: int = 120) -> dict:
+def _run_dreamina(args: List[str], timeout: int = 120) -> dict:
     """运行 dreamina CLI，返回结构化结果。"""
     cli = _resolve_dreamina_cli()
     try:

@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 import time
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import agent_common as ac
 
@@ -52,7 +52,7 @@ def agent_main(
             raise ValueError(f"正则无效: {ex}") from ex
 
         files = ac.collect_source_files(root, glob_pattern, recursive=recursive)
-        items: list[dict] = []
+        items: List[dict] = []
         scanned = 0
         _last_prog = 0.0
         if _progress_dict is not None:

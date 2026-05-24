@@ -2,6 +2,7 @@
 """进程内会话表、并发 run、停止标志（从 deepseek_code_agent2 拆出）。"""
 from __future__ import annotations
 
+import contextlib
 import json
 import queue
 import sys
@@ -9,7 +10,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 # ---------- in-memory multi-round conversations (stateless API per DeepSeek docs) ----------
@@ -233,6 +234,7 @@ def kling_consume_confirm_id(confirm_id: str) -> Optional[Dict[str, Any]]:
         del _KLING_CONFIRM_IDS[confirm_id]
         return dict(info)
 CONVERSATION_MODES: Dict[str, str] = {}
+CONVERSATION_AUDIT_ONLY: Dict[str, bool] = {}
 SUMMARY_IN_PROGRESS: Dict[str, float] = {}
 PENDING_EXCERPT_PATHS: Dict[str, List[str]] = {}
 _SUMMARY_STATE_LOCK = threading.Lock()
@@ -459,3 +461,60 @@ def _get_conversation_run_lock(cid: str) -> threading.RLock:
             lock = threading.RLock()
             _CONVERSATION_RUN_LOCKS[key] = lock
         return lock
+
+
+def get_conversation_run_lock(cid: str) -> threading.RLock:
+    """按会话 id 返回可重入锁，保护 CONVERSATIONS 读写与跨 Agent 入站 append。"""
+    return _get_conversation_run_lock(cid)
+
+
+@contextlib.contextmanager
+def conversation_run_locks(*cids: str):
+    """按字典序获取多个会话锁，避免双写交错。"""
+    keys = sorted({str(c or "").strip() for c in cids if str(c or "").strip()})
+    locks = [get_conversation_run_lock(k) for k in keys]
+    for lk in locks:
+        lk.acquire()
+    try:
+        yield
+    finally:
+        for lk in reversed(locks):
+            lk.release()
+
+
+_PEER_TURN_CHAIN: Dict[str, int] = {}
+_PEER_TURN_TS: Dict[str, float] = {}
+_PEER_TURN_LOCK = threading.Lock()
+
+
+def reset_peer_turn_chain(cid: str) -> None:
+    """Boss 用户消息发起 turn 时清零连续 peer 自动 turn 计数。"""
+    key = str(cid or "").strip()
+    if not key:
+        return
+    with _PEER_TURN_LOCK:
+        _PEER_TURN_CHAIN.pop(key, None)
+        _PEER_TURN_TS.pop(key, None)
+
+
+def try_acquire_peer_turn_slot(
+    cid: str,
+    *,
+    max_consecutive: int,
+    min_interval_sec: float,
+) -> Tuple[bool, str]:
+    """peer 触发的自动 turn 限流；返回 (allowed, reason)。"""
+    key = str(cid or "").strip()
+    if not key:
+        return False, "empty conversation_id"
+    now = time.monotonic()
+    with _PEER_TURN_LOCK:
+        last = float(_PEER_TURN_TS.get(key, 0.0) or 0.0)
+        if min_interval_sec > 0 and last > 0 and (now - last) < min_interval_sec:
+            return False, f"peer turn 间隔须 >= {min_interval_sec}s"
+        n = int(_PEER_TURN_CHAIN.get(key, 0) or 0) + 1
+        if max_consecutive > 0 and n > max_consecutive:
+            return False, f"连续 peer 自动 turn 已达上限 {max_consecutive}"
+        _PEER_TURN_CHAIN[key] = n
+        _PEER_TURN_TS[key] = now
+        return True, ""

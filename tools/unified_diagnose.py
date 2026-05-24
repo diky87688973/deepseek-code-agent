@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Set, Tuple
 
 BUILTIN_GLOB = "**/*.py"
 BUILTIN_LIMIT_FILES = 500
@@ -36,8 +36,8 @@ def _root_resolve(root: Path) -> Path:
     return r
 
 
-def _collect_py_files(root: Path, glob_pattern: str, limit: int) -> list[Path]:
-    out: list[Path] = []
+def _collect_py_files(root: Path, glob_pattern: str, limit: int) -> List[Path]:
+    out: List[Path] = []
     for p in sorted(root.glob(glob_pattern)):
         if not p.is_file():
             continue
@@ -64,8 +64,8 @@ def _severity_for_ruff(code: str, message: str) -> str:
     return "warning"
 
 
-def _syntax_diagnostics(root: Path, files: list[Path], encoding: str) -> list[dict]:
-    diag: list[dict] = []
+def _syntax_diagnostics(root: Path, files: List[Path], encoding: str) -> List[dict]:
+    diag: List[dict] = []
     for path in files:
         try:
             src = _read_text(path, encoding)
@@ -133,7 +133,7 @@ def _run_ruff_json(root: Path, timeout: int) -> Tuple[Optional[List[dict]], Opti
         return None, f"ruff JSON 解析失败: {e}"
     if not isinstance(arr, list):
         return None, "ruff 输出不是 JSON 数组"
-    out: list[dict] = []
+    out: List[dict] = []
     root_s = str(root.resolve())
     for item in arr:
         if not isinstance(item, dict):
@@ -169,9 +169,9 @@ def _run_ruff_json(root: Path, timeout: int) -> Tuple[Optional[List[dict]], Opti
     return out, None
 
 
-def _dedupe(items: list[dict]) -> list[dict]:
-    seen: set[tuple] = set()
-    out: list[dict] = []
+def _dedupe(items: List[dict]) -> List[dict]:
+    seen: Set[tuple] = set()
+    out: List[dict] = []
     for d in sorted(
         items,
         key=lambda x: (
@@ -214,7 +214,7 @@ def _run_diagnose(
     files = _collect_py_files(root_r, glob_pattern, limit)
     diagnostics = _syntax_diagnostics(root_r, files, encoding)
 
-    ruff_notes: list[str] = []
+    ruff_notes: List[str] = []
     ruff_diag: Optional[List[dict]] = None
     try_ruff = BUILTIN_TRY_RUFF and not no_ruff
     if try_ruff:

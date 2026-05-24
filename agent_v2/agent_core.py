@@ -42,12 +42,17 @@ _HOST_DRY_RUN_NOTICE_ZH = (
     "【宿主提示】本次为预览（dry_run=true），磁盘未被修改。"
     "确认写入请传 dry_run: false（命令行对应 --commit），并满足当前会话模式（如 Execute）与执行清单等要求。"
 )
+_AUDIT_WRITE_BLOCK_MSG = (
+    "当前为仅审查模式（用户消息触发了只读/审查意图），写盘类工具已被宿主拒绝。"
+    "请去掉「只报告/不要改代码」类表述，并在界面切换到 Execute 模式后再修改文件。"
+)
+_CATALOG_HINTS_SYSTEM_CACHE: Optional[str] = None
 import threading
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
@@ -59,6 +64,7 @@ from agent_v2.bootstrap import (
     AGENT_CONFIG,
     AGENT_ROOT,
     AT_MESSAGE_FILE_PREFETCH,
+    AUDIT_INTENT_KEYS,
     CONTEXT_FULL_USER_ROUNDS,
     CONTEXT_LAYOUT_BUDGET_TOKENS,
     CONTEXT_PURE_USER_ROUNDS,
@@ -68,6 +74,8 @@ from agent_v2.bootstrap import (
     KB_BASE_DIR,
     LAST_OPEN_SESSION_STATE_FILE,
     MAX_TOOL_ROUNDS,
+    MAX_CONSECUTIVE_PEER_TURNS,
+    MIN_PEER_TURN_INTERVAL_SEC,
     PREVIEW_INTENT_KEYS,
     SESSION_APP_ENTROPY,
     SESSION_DIR,
@@ -82,6 +90,7 @@ from agent_v2.bootstrap import (
     TOOL_LIST_JSON,
     UI_RESTORE_MAX_CHAT_ITEMS,
     UI_RESTORE_MAX_TABS,
+    USER_RULES_SYSTEM_PROMPT,
     USAGE_ACCUM_FILE,
     _KB_CHECKED_LOCK,
     _KB_CHECKED_STATE,
@@ -96,8 +105,10 @@ from agent_v2.bootstrap import (
     _strip_config_path_value,
     _todo_list_mod,
 )
+from agent_v2.version import AGENT_APP_VERSION
 from agent_v2.live_state import (
     CONVERSATIONS,
+    CONVERSATION_AUDIT_ONLY,
     CONVERSATION_MODES,
     PENDING_EXCERPT_PATHS,
     PENDING_USER_CONFIRM,
@@ -110,27 +121,45 @@ from agent_v2.live_state import (
     _end_conversation_run,
     _peek_conversation_stop_requested,
     clear_agent_wait,
+    conversation_run_locks,
     enqueue_session_inbox,
+    get_conversation_run_lock,
     pop_session_inbox,
     pop_waits_satisfied_by,
     publish_global_sse_event,
+    reset_peer_turn_chain,
+    try_acquire_peer_turn_slot,
     _request_conversation_stop,
+    _ACTIVE_CONVERSATION_RUNS,
     server_shutting_down,
     kling_create_confirm_id,
     kling_consume_confirm_id,
 )
 
+from util.agent_tool_budget import (
+    apply_turn_tool_budget_to_result,
+    tool_call_limit_reached_result,
+    turn_tool_budget_exhausted,
+)
 from util.agent_prompt_constants import (
     AGENT_CODE_HINT_SYSTEM_PROMPT,
-    AGENT_MAX_TOOL_ROUNDS_USER_HINT,
-    TOOL_AGENT_EXECUTE_MODE_PROMPT,
+    TOOL_AGENT_AUDIT_MODE_PROMPT,
     TOOL_AGENT_PLAN_MODE_PROMPT,
     TOOL_AGENT_AUTO_MODE_PROMPT,
     TOOL_AGENT_SYSTEM_PROMPT,
     TOOL_AGENT_V2_EXECUTE_MODE_PROMPT,
     TOOL_AGENT_V2_SYSTEM_PROMPT,
+    build_catalog_hints_system_prompt,
+    ephemeral_requires_reply_priority_prompt,
+    format_agent_max_tool_rounds_user_hint,
 )
-from util.agent_model_dispatch import ALLOWED_MODELS, default_model_from_env, effective_model, set_conversation_model
+from util.agent_model_dispatch import (
+    ALLOWED_MODELS,
+    default_model_from_env,
+    effective_model,
+    model_max_context_tokens,
+    set_conversation_model,
+)
 from util.agent_deepseek_pricing import get_model_pricing_snapshot
 from util.agent_openai_compatible_client import chat_completion_request, chat_completion_stream
 
@@ -237,13 +266,15 @@ def _finish_conversation_stopped(
 
 def _ensure_conversation_loaded(cid: str) -> None:
     """加载到内存；优先从磁盘读取以捕获后台线程的异步落盘。"""
-    if not cid:
+    key = str(cid or "").strip()
+    if not key:
         return
-    loaded = _load_conversation(cid)
-    if loaded:
-        CONVERSATIONS[cid] = loaded
-    elif cid not in CONVERSATIONS:
-        CONVERSATIONS[cid] = []
+    with get_conversation_run_lock(key):
+        loaded = _load_conversation(key)
+        if loaded:
+            CONVERSATIONS[key] = loaded
+        elif key not in CONVERSATIONS:
+            CONVERSATIONS[key] = []
 
 
 _HELP_CAPTURE_MAX = 24000
@@ -318,9 +349,9 @@ def _enrich_tool_result_error(script_name: str, result: dict) -> dict:
     return result
 
 
-def _intent_tool_hints(key_lower: str, names: list[str]) -> list[str]:
+def _intent_tool_hints(key_lower: str, names: List[str]) -> List[str]:
     """未知工具名时按常见臆造后缀给出可读推荐，避免 closest-match 跑偏到无关工具。"""
-    hit: list[str] = []
+    hit: List[str] = []
     if any(
         s in key_lower
         for s in (
@@ -349,8 +380,8 @@ def _intent_tool_hints(key_lower: str, names: list[str]) -> list[str]:
         for c in ("replace_in_file", "read_write", "apply_patch", "write_file"):
             if c in names:
                 hit.append(c)
-    seen: set[str] = set()
-    out: list[str] = []
+    seen: Set[str] = set()
+    out: List[str] = []
     for x in hit:
         if x not in seen:
             seen.add(x)
@@ -666,6 +697,16 @@ def _clean_conversation_title(text: str) -> str:
     return title[:18]
 
 
+def _is_placeholder_conversation_title(title: str) -> bool:
+    """未命名占位标题：空、默认 tab 文案、生成失败占位。"""
+    t = str(title or "").strip()
+    if not t or t == "新会话" or t == "生成标题中…":
+        return True
+    if re.match(r"^会话\s+[A-Za-z0-9._:-]{8}$", t):
+        return True
+    return False
+
+
 def _generate_conversation_title(cid: str, messages: List[Dict[str, Any]]) -> str:
     history = _chat_history_from_messages(messages)[:8]
     if not history:
@@ -897,7 +938,7 @@ def _execute_tool_agent_main(script_name: str, mod: Any, args: Dict[str, Any]) -
 
     arg_copy = dict(args)
     kwargs: Dict[str, Any] = {}
-    unknown: list[str] = []
+    unknown: List[str] = []
 
     for k, v in arg_copy.items():
         if v is None:
@@ -987,11 +1028,11 @@ _TOOL_HELP_MAX_CHARS = 20000
 # 模型偶发把数组/对象序列化成字符串传入；在调用 agent_main 前解析为 Python 类型（agent_main 禁止依赖 JSON 字符串参数）。
 _COERCE_JSON_CONTAINER_KEYS = frozenset({"rules", "items", "confirms", "indices"})
 # 宿主注入、不暴露给模型的工具参数（校验时放行，session_* 等通过 _kwargs 读取）
-_HOST_INJECTED_TOOL_ARG_NAMES = frozenset({"conversation_id", "_progress_dict"})
+_HOST_INJECTED_TOOL_ARG_NAMES = frozenset({"conversation_id", "_progress_dict", "run_type"})
 
 
-def _catalog_public_arg_names(script_name: str) -> set[str]:
-    out: set[str] = {"step_title"}
+def _catalog_public_arg_names(script_name: str) -> Set[str]:
+    out: Set[str] = {"step_title"}
     try:
         cat = load_catalog()
         for t in cat.get("tools", []):
@@ -1012,7 +1053,7 @@ def _validate_public_tool_args(script_name: str, args: Dict[str, Any]) -> Option
     public = _catalog_public_arg_names(script_name)
     if not public:
         return None
-    bad: list[str] = []
+    bad: List[str] = []
     for k in args.keys():
         key = str(k).strip()
         if key.startswith("_"):
@@ -1025,7 +1066,7 @@ def _validate_public_tool_args(script_name: str, args: Dict[str, Any]) -> Option
     if not bad:
         rules = args.get("rules")
         if script_name == "replace_in_file.py" and isinstance(rules, list):
-            nested_bad: list[str] = []
+            nested_bad: List[str] = []
             for item in rules:
                 if not isinstance(item, dict):
                     continue
@@ -1063,7 +1104,7 @@ def _normalize_nested_tool_arg_keys(out: Dict[str, Any]) -> None:
     """规范嵌套对象参数：将 rules 数组内键名转为 snake_case（与 agent_main 一致）。"""
     rules = out.get("rules")
     if isinstance(rules, list):
-        norm_rules: list[Any] = []
+        norm_rules: List[Any] = []
         for item in rules:
             if not isinstance(item, dict):
                 norm_rules.append(item)
@@ -1191,20 +1232,27 @@ def execute_tool_script(script_name: str, args: Dict[str, Any], *, conversation_
             None,
             {"ok": False, "data": None, "error": {"type": "Restricted", "message": "file_search 禁止直接调用，请通过对话界面使用（支持实时进度展示）"}},
         )
-    # ── 实时模式校验：写工具在当前会话为 Plan 时直接拒绝 ──
+    # ── 实时模式校验 ──
     if script_name in WRITE_TOOL_SCRIPTS:
         cid = str(conversation_id or "").strip()
         if cid:
-            mode = CONVERSATION_MODES.get(cid, "")
-            if mode == "plan":
-                return {
-                    "ok": False,
-                    "data": None,
-                    "error": {
-                        "type": "ModeConflict",
-                        "message": f"当前为 Plan 模式，{script_name} 是写操作被拒绝。请切换到 Execute 模式后再执行写操作。",
+            if CONVERSATION_AUDIT_ONLY.get(cid):
+                return attach_tool_help_on_failure(
+                    script_name,
+                    None,
+                    {
+                        "ok": False,
+                        "data": None,
+                        "error": {"type": "AuditOnly", "message": _AUDIT_WRITE_BLOCK_MSG},
                     },
-                }
+                )
+    # 注入 run_type 给所有工具，让工具自己的检查逻辑决定是否拒绝
+    cid = str(conversation_id or "").strip()
+    if cid:
+        mode = CONVERSATION_MODES.get(cid, "")
+        if mode in ("plan", "execute"):
+            if "run_type" not in args:
+                args["run_type"] = mode
     cid = str(conversation_id or "").strip()
     with _TOOL_EXEC_LOCK:
         if cid and "conversation_id" not in args:
@@ -1730,6 +1778,23 @@ def _is_preview_intent(user_text: str) -> bool:
     return any(k in t for k in PREVIEW_INTENT_KEYS)
 
 
+def _is_audit_only_intent(user_text: str) -> bool:
+    t = str(user_text or "")
+    if not t.strip():
+        return False
+    return any(k in t for k in AUDIT_INTENT_KEYS)
+
+
+def _get_catalog_hints_system_prompt() -> str:
+    global _CATALOG_HINTS_SYSTEM_CACHE
+    if _CATALOG_HINTS_SYSTEM_CACHE is None:
+        try:
+            _CATALOG_HINTS_SYSTEM_CACHE = build_catalog_hints_system_prompt(load_catalog())
+        except Exception:
+            _CATALOG_HINTS_SYSTEM_CACHE = build_catalog_hints_system_prompt({})
+    return _CATALOG_HINTS_SYSTEM_CACHE or ""
+
+
 def _build_direct_preview_message(script_name: str, result: dict, user_text: str) -> Optional[str]:
     # 仅在用户明确提出“预览/原文”时，才允许把预览内容直出到主对话。
     if not _is_preview_intent(user_text):
@@ -1871,6 +1936,66 @@ def _merge_stream_tool_calls(chunks: List[dict]) -> List[dict]:
     return out
 
 
+def _tool_calls_from_snapshot_message(message: Optional[Dict[str, Any]]) -> List[dict]:
+    """末帧 choices[0].message.tool_calls（流式 delta 未收齐时的 API 正规降级）。"""
+    if not isinstance(message, dict):
+        return []
+    raw = message.get("tool_calls")
+    if not isinstance(raw, list):
+        return []
+    out: List[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        fn = item.get("function")
+        if not isinstance(fn, dict):
+            continue
+        name = str(fn.get("name") or "").strip()
+        if not name:
+            continue
+        tid = str(item.get("id") or "").strip() or f"call_{uuid.uuid4().hex[:12]}"
+        args_raw = fn.get("arguments")
+        if isinstance(args_raw, str):
+            args_s = args_raw or "{}"
+        else:
+            try:
+                args_s = json.dumps(args_raw if args_raw is not None else {}, ensure_ascii=False)
+            except Exception:
+                args_s = "{}"
+        out.append(
+            {
+                "id": tid,
+                "type": str(item.get("type") or "function"),
+                "function": {"name": name, "arguments": args_s},
+            }
+        )
+    return out
+
+
+def _merge_stream_tool_calls_with_snapshot(
+    stream_chunks: List[dict],
+    last_message: Optional[Dict[str, Any]],
+) -> List[dict]:
+    tcalls = _merge_stream_tool_calls(stream_chunks)
+    if tcalls:
+        return tcalls
+    snap = _tool_calls_from_snapshot_message(last_message)
+    if snap:
+        print(
+            f"WARN: stream tool_calls empty; using message.tool_calls snapshot (n={len(snap)})",
+            file=sys.stderr,
+            flush=True,
+        )
+    return snap
+
+
+def _max_tool_rounds_user_hint() -> str:
+    """收尾回合 ephemeral user 提示（不落盘）：引导模型拟人总结并请用户发「继续」。"""
+    return format_agent_max_tool_rounds_user_hint(MAX_TOOL_ROUNDS)
+
+
+def _ephemeral_max_tool_rounds_wrap_user() -> Dict[str, Any]:
+    return {"role": "user", "content": _max_tool_rounds_user_hint()}
 
 
 def _normalize_client_ip_for_tools(ip_raw: Optional[str]) -> str:
@@ -1903,18 +2028,26 @@ def _has_explicit_mode_command(text: str, commands: Tuple[str, ...]) -> bool:
 
 def _resolve_conversation_mode(conversation_id: str, user_text: str, mode_hint: str = "") -> str:
     t = str(user_text or "").lower()
+    full_text = str(user_text or "")
     mode = CONVERSATION_MODES.get(conversation_id, "execute")
     hint = str(mode_hint or "").strip().lower()
     if hint in {"auto", "plan", "execute"}:
         mode = hint
+        if hint == "execute":
+            CONVERSATION_AUDIT_ONLY.pop(conversation_id, None)
+        elif _is_audit_only_intent(full_text):
+            CONVERSATION_AUDIT_ONLY[conversation_id] = True
+            mode = "plan"
+    elif _is_audit_only_intent(full_text):
+        CONVERSATION_AUDIT_ONLY[conversation_id] = True
+        mode = "plan"
+    elif _has_explicit_mode_command(t, EXECUTE_MODE_COMMANDS) or any(k in t for k in EXECUTE_MODE_KEYS):
+        CONVERSATION_AUDIT_ONLY.pop(conversation_id, None)
+        mode = "execute"
     elif _has_explicit_mode_command(t, PLAN_MODE_COMMANDS):
         mode = "plan"
-    elif _has_explicit_mode_command(t, EXECUTE_MODE_COMMANDS):
-        mode = "execute"
     elif any(k in t for k in PLAN_MODE_KEYS):
         mode = "plan"
-    elif any(k in t for k in EXECUTE_MODE_KEYS):
-        mode = "execute"
     CONVERSATION_MODES[conversation_id] = mode
     return mode
 
@@ -2122,17 +2255,27 @@ def _strip_internal_message_for_api(msg: Dict[str, Any]) -> Dict[str, Any]:
     for k in list(out.keys()):
         if str(k).startswith("_agent_"):
             out.pop(k, None)
+    # thinking 模式：历史 assistant 必须原样回传 reasoning_content，不可因 content 非空而剥离
     return out
+
+
+def _include_message_for_api(msg: Dict[str, Any]) -> bool:
+    """落盘专用内部行（如 requires_reply 哨兵）不进入 LLM 请求。"""
+    if not isinstance(msg, dict):
+        return False
+    if msg.get("_requires_reply_sentinel"):
+        return False
+    return True
 
 
 def _normalize_persisted_conversation(messages: List[Dict[str, Any]]) -> None:
     if not messages:
-        messages.append({"role": "system", "content": TOOL_AGENT_SYSTEM_PROMPT})
+        messages.append({"role": "system", "content": TOOL_AGENT_V2_SYSTEM_PROMPT})
         return
     if messages[0].get("role") != "system":
-        messages.insert(0, {"role": "system", "content": TOOL_AGENT_SYSTEM_PROMPT})
+        messages.insert(0, {"role": "system", "content": TOOL_AGENT_V2_SYSTEM_PROMPT})
     else:
-        messages[0] = {"role": "system", "content": TOOL_AGENT_SYSTEM_PROMPT}
+        messages[0] = {"role": "system", "content": TOOL_AGENT_V2_SYSTEM_PROMPT}
 
 
 def _find_first_user_index(messages: List[Dict[str, Any]]) -> Optional[int]:
@@ -2146,6 +2289,88 @@ PURE_WINDOW_NO_FINAL_ASSISTANT = "（本轮含工具调用，完整细节见近�
 
 # 压缩后远期锚定缓存：conversation_id → pure_count（首次压缩后固定，新对话全入近期）
 _PURE_ANCHOR_CACHE: Dict[str, int] = {}
+# turn 开始时已存在的 message_id；用于 turn 结束后检测本 turn 期间新到的 peer 入站
+_TURN_START_MESSAGE_IDS: Dict[str, Set[str]] = {}
+
+
+def _message_id_set(msgs: List[Dict[str, Any]]) -> Set[str]:
+    out: Set[str] = set()
+    for m in msgs:
+        if not isinstance(m, dict):
+            continue
+        mid = str(m.get("_agent_message_id") or "").strip()
+        if mid:
+            out.add(mid)
+    return out
+
+
+def _reconcile_peer_messages_from_store(conversation_id: str, messages: List[Dict[str, Any]]) -> bool:
+    """CONVERSATIONS 与 turn 本地列表分叉时，把 store 多出的消息并入本地（避免 peer append 被覆盖丢失）。"""
+    cid = str(conversation_id or "").strip()
+    if not cid:
+        return False
+    with get_conversation_run_lock(cid):
+        stored = CONVERSATIONS.get(cid)
+        if not stored or stored is messages:
+            return False
+        seen = _message_id_set(messages)
+        added = False
+        for m in stored:
+            if not isinstance(m, dict):
+                continue
+            mid = str(m.get("_agent_message_id") or "").strip()
+            if mid and mid in seen:
+                continue
+            messages.append(copy.deepcopy(m))
+            if mid:
+                seen.add(mid)
+            added = True
+        if added:
+            CONVERSATIONS[cid] = messages
+    return added
+
+
+def _has_new_peer_messages_after_turn(conversation_id: str, turn_start_ids: Set[str]) -> bool:
+    cid = str(conversation_id or "").strip()
+    if not cid or not turn_start_ids:
+        return False
+    with get_conversation_run_lock(cid):
+        _ensure_conversation_loaded(cid)
+        for m in CONVERSATIONS.get(cid) or []:
+            if not isinstance(m, dict):
+                continue
+            if str(m.get("role") or "") != "user" or not m.get("_agent_peer_message"):
+                continue
+            mid = str(m.get("_agent_message_id") or "").strip()
+            if not mid or mid not in turn_start_ids:
+                return True
+    return False
+
+
+def _clear_turn_start_message_ids(conversation_id: str) -> None:
+    """兜底清理 turn 快照（与 _resume 配对；finally 中调用以防未 pop）。"""
+    cid = str(conversation_id or "").strip()
+    if not cid:
+        return
+    with get_conversation_run_lock(cid):
+        _TURN_START_MESSAGE_IDS.pop(cid, None)
+
+
+def _resume_turn_for_pending_peer_messages(conversation_id: str) -> None:
+    """turn / inbox drain 结束后：若本 turn 期间有新 peer 入站且当前无 run，自动 resume 处理。"""
+    cid = str(conversation_id or "").strip()
+    if not cid:
+        return
+    with get_conversation_run_lock(cid):
+        start_ids = _TURN_START_MESSAGE_IDS.pop(cid, None)
+        if not start_ids:
+            return
+        busy = bool(_ACTIVE_CONVERSATION_RUNS.get(cid))
+    if busy:
+        return
+    if not _has_new_peer_messages_after_turn(cid, start_ids):
+        return
+    start_background_agent_turn(cid, "", resume_after_user_confirm=True, peer_triggered=True)
 
 
 def _context_manager_v2(conversation_id: str) -> ContextManager:
@@ -2375,7 +2600,10 @@ def _build_context_segments(
 ) -> Tuple[
     str,
     str,
+    str,
+    str,
     List[str],
+    List[Dict[str, Any]],
     List[Dict[str, Any]],
     List[Dict[str, Any]],
     List[Dict[str, Any]],
@@ -2384,8 +2612,8 @@ def _build_context_segments(
     Dict[str, Any],
 ]:
     """与 _build_api_messages_for_model 相同的语义拆分（未 sanitize），供布局统计。
-    近期为 full_pre_stripped + full_suf_stripped，中间由 pure_folded 插入，见 _split_pure_and_full_dialogue。
-    返回中 int 为远期带内 user 条数（与 pure_user_rounds 对齐，按 pure_raw 统计）。
+    返回 13 元组：code_hint, user_rules, tool_system, catalog_hints, skill_registry, auto_load_skills,
+    kb, summaries, pure_folded, full_pre, full_suf, pure_user_turns, mode_tail。
     """
     mode = _stored_mode_for_tail(conversation_id)
     fu = _find_first_user_index(persisted)
@@ -2406,14 +2634,22 @@ def _build_context_segments(
     )
     pure_user_turns = _count_user_turns_in_messages(pure_raw)
     pure_folded = _fold_pure_window_for_api(pure_raw)
-    full_pre_stripped = [_strip_internal_message_for_api(m) for m in full_pre_raw]
-    full_suf_stripped = [_strip_internal_message_for_api(m) for m in full_suf_raw]
-    mode_tail = _ephemeral_mode_system_tail(mode)
+    full_pre_stripped = [
+        _strip_internal_message_for_api(m) for m in full_pre_raw if _include_message_for_api(m)
+    ]
+    full_suf_stripped = [
+        _strip_internal_message_for_api(m) for m in full_suf_raw if _include_message_for_api(m)
+    ]
+    mode_tail = _ephemeral_mode_system_tail(mode, conversation_id)
     skill_registry = _build_skill_registry_message()
     auto_load_skills = _build_auto_load_skill_messages()
+    sys_user_rules = str(USER_RULES_SYSTEM_PROMPT or "").strip()
+    sys_catalog_hints = _get_catalog_hints_system_prompt()
     return (
         AGENT_CODE_HINT_SYSTEM_PROMPT,
+        sys_user_rules,
         TOOL_AGENT_V2_SYSTEM_PROMPT + _build_team_role_prefix(conversation_id),
+        sys_catalog_hints,
         skill_registry,
         auto_load_skills,
         kb_parts,
@@ -2427,10 +2663,27 @@ def _build_context_segments(
 
 
 def _compute_context_layout_payload(conversation_id: str, persisted: List[Dict[str, Any]]) -> Dict[str, Any]:
-    sys_code_hint, sys_base, skill_registry, auto_load_skills, kb_parts, summaries, pure_folded, full_pre, full_suf, pure_user_turns, mode_tail = _build_context_segments(
-        persisted, conversation_id
+    (
+        sys_code_hint,
+        sys_user_rules,
+        sys_base,
+        sys_catalog_hints,
+        skill_registry,
+        auto_load_skills,
+        kb_parts,
+        summaries,
+        pure_folded,
+        full_pre,
+        full_suf,
+        pure_user_turns,
+        mode_tail,
+    ) = _build_context_segments(persisted, conversation_id)
+    t_system = (
+        _approx_tokens_text(sys_code_hint)
+        + _approx_tokens_text(sys_user_rules)
+        + _approx_tokens_text(sys_base)
+        + _approx_tokens_text(sys_catalog_hints)
     )
-    t_system = _approx_tokens_text(sys_code_hint) + _approx_tokens_text(sys_base)
     t_skill = _approx_tokens_text(skill_registry) + sum(_approx_tokens_text(c) for c in (auto_load_skills or []))
     t_kb = sum(_approx_tokens_text(k) for k in (kb_parts or []))
     t_summary = sum(_approx_tokens_message(m) for m in summaries)
@@ -2441,9 +2694,9 @@ def _compute_context_layout_payload(conversation_id: str, persisted: List[Dict[s
     skill_count = mgr.registry_count
     auto_load_count = mgr.auto_load_count
     auto_load_tokens = sum(_approx_tokens_text(c) for c in (auto_load_skills or []))
-    # label 为前端括号标题（与业务含义映射一致）
+    # label 为前端上下文条/tooltip 标题（与 context_manager_v2 / 上下文视图一致）
     labels = {
-        "system": "系统占用",
+        "system": "系统提示词",
         "skill": "Skills",
         "knowledge": "知识库",
         "summary": "记忆文件",
@@ -2469,7 +2722,9 @@ def _compute_context_layout_payload(conversation_id: str, persisted: List[Dict[s
         "full_recent": _count_user_turns_in_messages(full_pre) + _count_user_turns_in_messages(full_suf),
     }
     total_used = sum(t for _, t in keys_tokens)
-    budget = max(CONTEXT_LAYOUT_BUDGET_TOKENS, int(total_used), 1)
+    model_cap = model_max_context_tokens(effective_model(conversation_id))
+    layout_cap = min(int(CONTEXT_LAYOUT_BUDGET_TOKENS), int(model_cap))
+    budget = max(layout_cap, int(total_used), 1)
     remainder = max(0, budget - int(total_used))
     segments: List[Dict[str, Any]] = []
     for key, tok in keys_tokens:
@@ -2496,7 +2751,12 @@ def _compute_context_layout_payload(conversation_id: str, persisted: List[Dict[s
             "pct": round(pct_rem, 6),
         }
     )
-    return {"segments": segments, "total_tokens": int(total_used), "budget_tokens": int(budget)}
+    return {
+        "segments": segments,
+        "total_tokens": int(total_used),
+        "budget_tokens": int(budget),
+        "model_max_context_tokens": int(model_cap),
+    }
 
 
 def _parse_excerpt_file(raw: str) -> Tuple[dict, str]:
@@ -2724,14 +2984,18 @@ def messages_for_history_api(cid: str) -> Tuple[List[Dict[str, Any]], List[Dict[
     return stored, layout_preview
 
 
-def _ephemeral_mode_system_tail(mode: str) -> Dict[str, Any]:
+def _ephemeral_mode_system_tail(mode: str, conversation_id: str = "") -> Dict[str, Any]:
+    parts: List[str] = []
+    cid = str(conversation_id or "").strip()
+    if cid and CONVERSATION_AUDIT_ONLY.get(cid):
+        parts.append("⚠️ " + TOOL_AGENT_AUDIT_MODE_PROMPT)
     if mode == "plan":
-        text = "⚠️ " + TOOL_AGENT_PLAN_MODE_PROMPT
+        parts.append("⚠️ " + TOOL_AGENT_PLAN_MODE_PROMPT)
     elif mode == "execute":
-        text = "⚠️ " + TOOL_AGENT_V2_EXECUTE_MODE_PROMPT
+        parts.append("⚠️ " + TOOL_AGENT_V2_EXECUTE_MODE_PROMPT)
     else:
-        text = TOOL_AGENT_AUTO_MODE_PROMPT
-    return {"role": "system", "content": text}
+        parts.append(TOOL_AGENT_AUTO_MODE_PROMPT)
+    return {"role": "system", "content": "\n".join(parts)}
 
 
 def _stored_mode_for_tail(conversation_id: str) -> str:
@@ -2946,6 +3210,144 @@ def _maybe_schedule_summarization(cid: str, messages: List[Dict[str, Any]]) -> N
 
 # observer events 功能已移除
 
+_PEER_REPLY_TOOL_APIS = frozenset({"session_send", "session_multisend", "session_broadcast"})
+
+
+def _find_pending_requires_reply_peer_message(
+    messages: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """最近一条尚未应答的 peer requires_reply 入站消息。"""
+    for m in reversed(messages):
+        if not isinstance(m, dict):
+            continue
+        if str(m.get("role") or "") != "user":
+            continue
+        if not m.get("_requires_reply"):
+            continue
+        if not m.get("_agent_peer_message"):
+            continue
+        sender = str(m.get("_sender") or "").strip()
+        if sender in ("", "boss"):
+            continue
+        if m.get("_requires_reply_answered"):
+            continue
+        return m
+    return None
+
+
+def _exec_requires_reply_true(exec_args: Dict[str, Any]) -> bool:
+    v = exec_args.get("requires_reply")
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return False
+    return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _normalize_sent_target_ids(sent: Any) -> List[str]:
+    if not isinstance(sent, list):
+        return []
+    out: List[str] = []
+    for x in sent:
+        if isinstance(x, dict):
+            tid = str(x.get("target_id") or "").strip()
+        else:
+            tid = str(x).strip()
+        if tid:
+            out.append(tid)
+    return out
+
+
+def _mark_requires_reply_answered_for_senders(
+    messages: List[Dict[str, Any]],
+    sender_cids: Iterable[str],
+    *,
+    thread_id: str = "",
+) -> bool:
+    """对方会话 ID 与入站 _sender 一致时，标记 requires_reply 已应答（可选 thread 粒度）。"""
+    targets = {str(s).strip() for s in sender_cids if str(s).strip()}
+    if not targets:
+        return False
+    thread = str(thread_id or "").strip()
+    changed = False
+    for m in messages:
+        if not isinstance(m, dict) or str(m.get("role") or "") != "user":
+            continue
+        if not m.get("_requires_reply"):
+            continue
+        sender = str(m.get("_sender") or "").strip()
+        if sender not in targets or m.get("_requires_reply_answered"):
+            continue
+        if thread:
+            msg_thread = str(m.get("_thread_id") or "").strip()
+            if msg_thread and msg_thread != thread:
+                continue
+        m["_requires_reply_answered"] = True
+        changed = True
+    return changed
+
+
+def _extract_reply_tool_target_ids(
+    script: str, exec_args: Dict[str, Any], result: dict
+) -> List[str]:
+    if not isinstance(result, dict) or not result.get("ok"):
+        return []
+    api = script[:-3] if script.endswith(".py") else script
+    if api == "session_send":
+        tid = str(exec_args.get("target_id") or "").strip()
+        return [tid] if tid else []
+    data = result.get("data")
+    if not isinstance(data, dict):
+        return []
+    return _normalize_sent_target_ids(data.get("sent"))
+
+
+def _turn_replied_to_peer(turn_tool_records: List[Dict[str, Any]], peer_cid: str) -> bool:
+    """本回合是否已用 session_* 工具成功回复指定 peer（与出站 requires_reply 无关）。"""
+    if not peer_cid:
+        return False
+    for r in turn_tool_records:
+        if not r.get("ok"):
+            continue
+        api = str(r.get("api_name") or "").replace(".py", "")
+        if api not in _PEER_REPLY_TOOL_APIS:
+            continue
+        tids = r.get("target_ids") or []
+        if peer_cid in tids:
+            return True
+    return False
+
+
+def _apply_inbound_requires_reply_answered(
+    conversation_id: str,
+    messages: List[Dict[str, Any]],
+    turn_rr_state: Dict[str, Optional[Dict[str, Any]]],
+    target_ids: Iterable[str],
+    *,
+    thread_id: str = "",
+) -> bool:
+    """入站 requires_reply=true 的应答：任意成功的 session_* 命中 sender 即标记，并清 ephemeral tail。"""
+    if not _mark_requires_reply_answered_for_senders(
+        messages, target_ids, thread_id=thread_id
+    ):
+        return False
+    CONVERSATIONS[conversation_id] = messages
+    _save_conversation(conversation_id, messages)
+    turn_rr_state["tail"] = None
+    return True
+
+
+def _ephemeral_requires_reply_priority(peer_cid: str, thread_id: str = "") -> Dict[str, Any]:
+    """与执行模式 tail 相同：仅拼入当次 API 请求，不写入会话持久化。"""
+    return {"role": "system", "content": ephemeral_requires_reply_priority_prompt(peer_cid, thread_id)}
+
+
+def _api_messages_with_ephemeral_tail(
+    base: List[Dict[str, Any]], tail: Optional[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    if not tail:
+        return base
+    return base + [dict(tail)]
 
 
 def run_agent_turn(
@@ -2970,13 +3372,6 @@ def run_agent_turn(
     _normalize_persisted_conversation(messages)
     _ensure_conversation_message_ids_v2(messages)
     _context_manager_v2(conversation_id).try_load_pending_mem_file(messages, _merge_pending_excerpts_for_conversation)
-    rollback_messages = copy.deepcopy(messages)
-    active_round_id: Optional[str] = None
-    for _m in reversed(messages):
-        if _m.get("role") == "user":
-            active_round_id = str(_m.get("_agent_round_id") or "").strip() or None
-            break
-    rollback_messages = copy.deepcopy(messages)
     active_round_id: Optional[str] = None
     for _m in reversed(messages):
         if _m.get("role") == "user":
@@ -2998,14 +3393,34 @@ def run_agent_turn(
                 user_text_for_preview = str(_m.get("content") or "")
                 break
     active_sender = ""
+    active_sender_is_peer = False
     for _m in reversed(messages):
-        if _m.get("role") == "user":
-            active_sender = str(_m.get("_sender") or "").strip()
-            break
-    active_sender_is_peer = bool(active_sender and active_sender not in ("boss", "unknown"))
+        if _m.get("role") != "user":
+            continue
+        active_sender = str(_m.get("_sender") or "").strip()
+        active_sender_is_peer = bool(_m.get("_agent_peer_message"))
+        break
+    with get_conversation_run_lock(conversation_id):
+        _TURN_START_MESSAGE_IDS[conversation_id] = _message_id_set(messages)
     em = effective_model(conversation_id)
-    yield {"type": "conversation", "conversation_id": conversation_id, "message_count": len(messages), "mode": mode, "model": em, "reasoning_effort": _get_reasoning_effort(conversation_id)}
+    yield {
+        "type": "conversation",
+        "conversation_id": conversation_id,
+        "message_count": len(messages),
+        "mode": mode,
+        "audit_only": bool(CONVERSATION_AUDIT_ONLY.get(conversation_id)),
+        "model": em,
+        "reasoning_effort": _get_reasoning_effort(conversation_id),
+    }
     turn_tool_records: List[Dict[str, Any]] = []
+    turn_tool_invocations_used = 0
+    _turn_rr_state: Dict[str, Optional[Dict[str, Any]]] = {"tail": None}
+    _pending_turn_rr = _find_pending_requires_reply_peer_message(messages)
+    if _pending_turn_rr is not None:
+        _turn_rr_state["tail"] = _ephemeral_requires_reply_priority(
+            str(_pending_turn_rr.get("_sender") or ""),
+            str(_pending_turn_rr.get("_thread_id") or ""),
+        )
 
     api_messages = _build_api_messages_for_model(messages, conversation_id)
     for _round in range(MAX_TOOL_ROUNDS):
@@ -3016,15 +3431,16 @@ def run_agent_turn(
             return
         yield {"type": "llm_round", "round": _round + 1}
         reff = _get_reasoning_effort(conversation_id)
+        messages_for_llm = _api_messages_with_ephemeral_tail(api_messages, _turn_rr_state.get("tail"))
         body: Dict[str, Any] = {
             "model": em,
-            "messages": api_messages,
+            "messages": messages_for_llm,
             "reasoning_effort": reff,
             "thinking": {"type": "enabled"},
             "temperature": 0.2,
             "tools": otools_sorted,
         }
-        yield {"type": "llm_request", "round": _round + 1, "params": {"model": em, "thinking": True, "reasoning_effort": reff, "temperature": 0.2, "messagesCount": len(api_messages), "toolsCount": len(otools_sorted), "hasTools": True}}
+        yield {"type": "llm_request", "round": _round + 1, "params": {"model": em, "thinking": True, "reasoning_effort": reff, "temperature": 0.2, "messagesCount": len(messages_for_llm), "toolsCount": len(otools_sorted), "hasTools": True}}
         last_choice_message: Optional[Dict[str, Any]] = None
         try:
             usage: Dict[str, Any] = {}
@@ -3074,13 +3490,13 @@ def run_agent_turn(
         if usage:
             yield {"type": "usage", "usage": usage}
 
-        tcalls = _merge_stream_tool_calls(stream_tool_calls)
         content = "".join(content_parts)
         reasoning_before_finalize = "".join(reasoning_parts)
         reasoning_content = reasoning_before_finalize
         if last_choice_message is not None:
             reasoning_content = _finalize_stream_reasoning(reasoning_content, last_choice_message)
             content = _finalize_stream_content_text(content, last_choice_message)
+        tcalls = _merge_stream_tool_calls_with_snapshot(stream_tool_calls, last_choice_message)
         for _rfe in _reasoning_stream_finalize_events(reasoning_before_finalize, reasoning_content, _round + 1):
             yield _rfe
         yield {"type": "llm_response", "round": _round + 1, "params": {"toolCallsCount": len(tcalls), "contentChars": len(content), "reasoningChars": len(reasoning_content), "usage": usage}}
@@ -3135,7 +3551,44 @@ def run_agent_turn(
                         if clean_ip:
                             args["ip"] = clean_ip
                             exec_args["ip"] = clean_ip
-                if not script:
+                _budget_limit_blocked = turn_tool_budget_exhausted(
+                    turn_tool_invocations_used, MAX_TOOL_ROUNDS
+                )
+                if _budget_limit_blocked:
+                    result = tool_call_limit_reached_result(
+                        used=turn_tool_invocations_used, limit=MAX_TOOL_ROUNDS
+                    )
+                    result = attach_tool_help_on_failure(script or "(unknown)", None, result)
+                    if not script:
+                        _record_tool_debug_failure(
+                            conversation_id=conversation_id,
+                            api_name=api_name,
+                            script="(unknown)",
+                            tool_call_id=tc.get("id"),
+                            request=args,
+                            response=result,
+                            source="tool_call_limit",
+                        )
+                    _log_agent_console_tool(
+                        conversation_id, api_name, script or "(unknown)", args, result
+                    )
+                    yield {
+                        "type": "tool_start",
+                        "api_name": api_name,
+                        "script": script or "(unknown)",
+                        "args": args,
+                        "tool_call_id": tc.get("id"),
+                        "step_title": step_title,
+                    }
+                    yield {
+                        "type": "tool_end",
+                        "api_name": api_name,
+                        "script": script or "(unknown)",
+                        "tool_call_id": tc.get("id"),
+                        "ok": False,
+                        "preview": preview_tool_result(script or "(unknown)", result),
+                    }
+                elif not script:
                     result = _unknown_tool_result(api_name, script_by_api)
                     result = attach_tool_help_on_failure("(unknown)", None, result)
                     if not (isinstance(result, dict) and result.get("ok") is True):
@@ -3192,7 +3645,14 @@ def run_agent_turn(
                     else:
                         if script in WRITE_TOOL_SCRIPTS:
                             current_mode = CONVERSATION_MODES.get(conversation_id, "")
-                            if current_mode == "plan":
+                            if CONVERSATION_AUDIT_ONLY.get(conversation_id):
+                                result = {
+                                    "ok": False,
+                                    "data": None,
+                                    "error": {"type": "AuditOnly", "message": _AUDIT_WRITE_BLOCK_MSG},
+                                }
+                                result = attach_tool_help_on_failure(script, None, result)
+                            elif current_mode == "plan":
                                 # Plan 模式：replace_in_file 仅允许 dry_run 预览；其余写类工具一律拒绝
                                 if script == "replace_in_file.py":
                                     _dr = exec_args.get("dry_run", True)
@@ -3355,6 +3815,8 @@ def run_agent_turn(
                     }
                     if (
                         active_sender_is_peer
+                        and active_sender
+                        and active_sender not in ("boss",)
                         and script == "user_confirm.py"
                         and _is_user_confirm_required(result)
                         and isinstance(exec_args, dict)
@@ -3396,9 +3858,13 @@ def run_agent_turn(
                     _suspend_wait = (
                         script == "session_wait.py"
                         and isinstance(result, dict)
+                        and result.get("ok")
                         and isinstance(result.get("data"), dict)
-                        and bool(result["data"].get("suspend"))
                         and bool(result["data"].get("pending"))
+                        and (
+                            bool(result["data"].get("suspend"))
+                            or bool(result["data"].get("should_stop_turn"))
+                        )
                     )
                     if script == "todo_list.py" and isinstance(result, dict) and result.get("ok"):
                         _td = result.get("data")
@@ -3456,7 +3922,32 @@ def run_agent_turn(
                     _preview = _build_direct_preview_message(script, result, user_text_for_preview)
                     if _preview:
                         direct_preview_content.append(_preview)
-                turn_tool_records.append({"api_name": api_name, "script": script or "(unknown)", "ok": bool(result.get("ok"))})
+                result, turn_tool_invocations_used = apply_turn_tool_budget_to_result(
+                    result,
+                    turn_tool_invocations_used=turn_tool_invocations_used,
+                    limit=MAX_TOOL_ROUNDS,
+                    limit_blocked=_budget_limit_blocked,
+                )
+                _tool_rec: Dict[str, Any] = {
+                    "api_name": api_name,
+                    "script": script or "(unknown)",
+                    "ok": bool(result.get("ok")),
+                }
+                if script in ("session_send.py", "session_multisend.py", "session_broadcast.py"):
+                    _out_rr = _exec_requires_reply_true(exec_args)
+                    _tool_rec["requires_reply_out"] = _out_rr
+                    _reply_tids = _extract_reply_tool_target_ids(script, exec_args, result)
+                    if _reply_tids:
+                        _tool_rec["target_ids"] = _reply_tids
+                        if result.get("ok"):
+                            _apply_inbound_requires_reply_answered(
+                                conversation_id,
+                                messages,
+                                _turn_rr_state,
+                                _reply_tids,
+                                thread_id=str(exec_args.get("thread_id") or ""),
+                            )
+                turn_tool_records.append(_tool_rec)
                 _append_session_message_v2(
                     conversation_id,
                     messages,
@@ -3508,31 +3999,42 @@ def run_agent_turn(
         display_content = str(assistant_msg.get("content") or "").strip()
         if display_content and not content_parts:
             yield {"type": "assistant", "content": display_content}
+        # requires_reply：仅入站 requires_reply=true 会挂 ephemeral；工具回复 peer 即可标记（出站 requires_reply 可为 false）
+        _pending_rr = _find_pending_requires_reply_peer_message(messages)
+        if _pending_rr is not None:
+            _peer_cid = str(_pending_rr.get("_sender") or "").strip()
+            if _turn_replied_to_peer(turn_tool_records, _peer_cid):
+                _apply_inbound_requires_reply_answered(
+                    conversation_id,
+                    messages,
+                    _turn_rr_state,
+                    [_peer_cid],
+                    thread_id=str(_pending_rr.get("_thread_id") or ""),
+                )
         break
     else:
-        max_rounds_rollback_messages = copy.deepcopy(rollback_messages)
-        active_round_id = _append_session_message_v2(
-            conversation_id,
-            messages,
-            {"role": "user", "content": AGENT_MAX_TOOL_ROUNDS_USER_HINT},
-            new_round=True,
-        )
+        # LLM 轮次用尽：无 tools 收尾一轮；ephemeral user 提示拟人收尾（不落盘）；次数见各 tool 返回 budget
+        api_messages = _build_api_messages_for_model(messages, conversation_id)
+        wrap_messages = list(api_messages)
+        rr_tail = _turn_rr_state.get("tail")
+        if rr_tail:
+            wrap_messages.append(dict(rr_tail))
+        wrap_messages.append(_ephemeral_max_tool_rounds_wrap_user())
         if server_shutting_down() or _consume_conversation_stop_requested(conversation_id, run_id):
             yield _finish_conversation_stopped(
                 conversation_id, messages, round_id=active_round_id, run_id=run_id
             )
             return
         yield {"type": "llm_round", "round": MAX_TOOL_ROUNDS + 1}
-        api_messages = _build_api_messages_for_model(messages, conversation_id)
         reff = _get_reasoning_effort(conversation_id)
         wrap_body: Dict[str, Any] = {
             "model": em,
-            "messages": api_messages,
+            "messages": wrap_messages,
             "reasoning_effort": reff,
             "thinking": {"type": "enabled"},
             "temperature": 0.2,
         }
-        yield {"type": "llm_request", "round": MAX_TOOL_ROUNDS + 1, "params": {"model": em, "thinking": True, "reasoning_effort": reff, "temperature": 0.2, "messagesCount": len(api_messages), "toolsCount": 0, "hasTools": False}}
+        yield {"type": "llm_request", "round": MAX_TOOL_ROUNDS + 1, "params": {"model": em, "thinking": True, "reasoning_effort": reff, "temperature": 0.2, "messagesCount": len(wrap_messages), "toolsCount": 0, "hasTools": False}}
         last_choice_message_wrap: Optional[Dict[str, Any]] = None
         try:
             usage: Dict[str, Any] = {}
@@ -3582,22 +4084,19 @@ def run_agent_turn(
         if usage:
             yield {"type": "usage", "usage": usage}
 
-        tcalls = _merge_stream_tool_calls(stream_tool_calls)
         content = "".join(content_parts)
         reasoning_before_finalize = "".join(reasoning_parts)
         rc = reasoning_before_finalize
         if last_choice_message_wrap is not None:
             rc = _finalize_stream_reasoning(rc, last_choice_message_wrap)
             content = _finalize_stream_content_text(content, last_choice_message_wrap)
+        tcalls = _merge_stream_tool_calls_with_snapshot(
+            stream_tool_calls, last_choice_message_wrap
+        )
         for _rfe in _reasoning_stream_finalize_events(reasoning_before_finalize, rc, MAX_TOOL_ROUNDS + 1):
             yield _rfe
-        content = content.strip()
         reasoning_content = rc.strip()
         yield {"type": "llm_response", "round": MAX_TOOL_ROUNDS + 1, "params": {"toolCallsCount": len(tcalls), "contentChars": len(content), "reasoningChars": len(reasoning_content), "usage": usage}}
-        if tcalls:
-            content = content or (
-                "已达到工具调用次数上限；模型在收尾时仍尝试调用工具。请把任务拆成更小步骤或在本对话中追问。"
-            )
         assistant_msg = _assistant_message_for_persist(content, reasoning_content)
         _append_session_message_v2(
             conversation_id, messages, assistant_msg, round_id=active_round_id
@@ -3608,6 +4107,7 @@ def run_agent_turn(
 
     if not resume_after_user_confirm:
         _maybe_schedule_summarization(conversation_id, messages)
+    _reconcile_peer_messages_from_store(conversation_id, messages)
     CONVERSATIONS[conversation_id] = messages
     _save_conversation(conversation_id, messages)
     yield _context_layout_event(conversation_id, messages)
@@ -3618,20 +4118,46 @@ def publish_conversation_event(conversation_id: str, ev: Dict[str, Any]) -> Dict
     ev2 = _conversation_sse_event(conversation_id, ev)
     _log_agent_console_sse(conversation_id, ev2)
     publish_global_sse_event(ev2)
-    # ── TTS：assistant_delta 事件喂入句子积累器 ──
+    # ── TTS ──
     et = ev.get("type", "")
+    
+    # 根据发送者选择音色
+    sender = ev.get("_sender", {}) or {}
+    sender_cid = str(sender.get("_sender") or ev.get("sender") or "").strip()
+    sender_name = str(sender.get("_sender_name") or ev.get("sender_name") or "").strip()
+    from util.tts.manager import voice_for, feed_delta, flush_remaining
+    voice = voice_for(sender_cid, sender_name)
+    _dbg = f"{sender_cid[:20]}|{sender_name}" if sender_cid or sender_name else ""
+    
     if et == "assistant_delta":
         content = str(ev.get("content") or ev.get("delta") or "")
         if content:
             try:
-                from util.tts.manager import feed_delta
-                feed_delta(conversation_id, content)
+                feed_delta(conversation_id, content, voice=voice, _dbg_sender=_dbg)
             except Exception as exc:
                 import sys
                 print(f"[TTS] feed_delta 失败: {exc}", file=sys.stderr, flush=True)
+    elif et == "peer_message":
+        content = str(ev.get("content") or "")
+        if content:
+            if content.startswith("[") and "]" in content:
+                ci = content.index("]")
+                content = content[ci + 1:].strip()
+            if content:
+                # peer 消息可能缺 sender，用 conversation_id 兜底确定音色
+                if not sender_cid:
+                    sender_cid = conversation_id
+                    voice = voice_for(sender_cid, sender_name)
+                    _dbg = f"{sender_cid[:20]}|{sender_name}" if sender_cid or sender_name else ""
+                if not re.search(r"[。！？，、：；!?,:;\n]$", content):
+                    content += "。"
+                try:
+                    feed_delta(conversation_id, content, voice=voice, _dbg_sender=_dbg)
+                except Exception as exc:
+                    import sys
+                    print(f"[TTS] peer 消息 TTS 失败: {exc}", file=sys.stderr, flush=True)
     elif et in ("done", "error", "stopped") or et.startswith("agent_wait"):
         try:
-            from util.tts.manager import flush_remaining
             flush_remaining(conversation_id)
         except Exception as exc:
             import sys
@@ -3639,7 +4165,8 @@ def publish_conversation_event(conversation_id: str, ev: Dict[str, Any]) -> Dict
     return ev2
 
 
-def _append_incoming_session_message(target_id: str, user_msg: Dict[str, Any]) -> None:
+def _append_incoming_session_message_impl(target_id: str, user_msg: Dict[str, Any]) -> bool:
+    """追加 peer 入站（无锁；调用方须已持有 conversation_run_locks(cid) 或保证单线程）。"""
     cid = str(target_id or "").strip()
     _ensure_conversation_loaded(cid)
     target_messages = CONVERSATIONS.get(cid)
@@ -3648,6 +4175,7 @@ def _append_incoming_session_message(target_id: str, user_msg: Dict[str, Any]) -
     _append_session_message_v2(cid, target_messages, dict(user_msg), new_round=True)
     CONVERSATIONS[cid] = target_messages
     _save_conversation(cid, target_messages)
+    turn_started = False
     if user_msg.get("_agent_peer_message"):
         sender = str(user_msg.get("_sender") or "")
         thread = str(user_msg.get("_thread_id") or "")
@@ -3671,30 +4199,48 @@ def _append_incoming_session_message(target_id: str, user_msg: Dict[str, Any]) -
                     "thread_id": thread,
                 },
             )
-            start_background_agent_turn(cid, "", resume_after_user_confirm=True)
+            start_background_agent_turn(cid, "", resume_after_user_confirm=True, peer_triggered=True)
+            turn_started = True
             break
+    return turn_started
+
+
+def _append_incoming_session_message(target_id: str, user_msg: Dict[str, Any]) -> bool:
+    """追加 peer 入站消息。若因 wait 恢复已启动 turn 则返回 True。"""
+    cid = str(target_id or "").strip()
+    with conversation_run_locks(cid):
+        return _append_incoming_session_message_impl(cid, user_msg)
 
 
 def _drain_session_inbox_after_run(conversation_id: str) -> None:
     cid = str(conversation_id or "").strip()
     if not cid:
         return
-    msg = pop_session_inbox(cid)
-    if not msg:
-        return
-    try:
-        _append_incoming_session_message(cid, msg)
-    except Exception as exc:
-        publish_conversation_event(cid, {"type": "error", "where": "session_inbox", "detail": str(exc)})
+    turn_started = False
+    appended = 0
+    while True:
+        msg = pop_session_inbox(cid)
+        if not msg:
+            break
+        try:
+            if _append_incoming_session_message(cid, msg):
+                turn_started = True
+            appended += 1
+        except Exception as exc:
+            publish_conversation_event(cid, {"type": "error", "where": "session_inbox", "detail": str(exc)})
+            return
+    if not appended:
         return
     publish_conversation_event(
         cid,
         {
             "type": "inbox_dequeued",
             "queued_remaining": len(SESSION_INBOX.get(cid, []) or []),
+            "batch_count": appended,
         },
     )
-    start_background_agent_turn(cid, "", resume_after_user_confirm=True)
+    if not turn_started:
+        start_background_agent_turn(cid, "", resume_after_user_confirm=True, peer_triggered=True)
 
 
 def start_background_agent_turn(
@@ -3704,11 +4250,30 @@ def start_background_agent_turn(
     client_ip: str = "",
     mode_hint: str = "",
     resume_after_user_confirm: bool = False,
+    peer_triggered: bool = False,
 ) -> str:
     """后台运行一个会话 turn，所有事件发布到页面级全局 SSE。"""
     cid = str(conversation_id or "").strip()
     if not cid:
         return ""
+    if str(user_text or "").strip():
+        reset_peer_turn_chain(cid)
+    elif peer_triggered:
+        allowed, reason = try_acquire_peer_turn_slot(
+            cid,
+            max_consecutive=MAX_CONSECUTIVE_PEER_TURNS,
+            min_interval_sec=MIN_PEER_TURN_INTERVAL_SEC,
+        )
+        if not allowed:
+            publish_conversation_event(
+                cid,
+                {
+                    "type": "error",
+                    "where": "peer_turn_limit",
+                    "detail": reason or "peer turn 被限流",
+                },
+            )
+            return ""
     run_id = _begin_conversation_run(cid) or ""
     if not run_id:
         publish_conversation_event(
@@ -3769,6 +4334,12 @@ def start_background_agent_turn(
                 _drain_session_inbox_after_run(cid)
             except Exception as exc:
                 print(f"WARN: drain inbox failed cid={cid}: {exc}", file=sys.stderr, flush=True)
+            try:
+                _resume_turn_for_pending_peer_messages(cid)
+            except Exception as exc:
+                print(f"WARN: resume peer turn failed cid={cid}: {exc}", file=sys.stderr, flush=True)
+            finally:
+                _clear_turn_start_message_ids(cid)
 
     threading.Thread(target=_run, daemon=True, name=f"agent-turn-{cid[:8]}").start()
     return run_id
@@ -3814,7 +4385,12 @@ _INLINE_JS = (
 TTS_JS_FILE = AGENT_ROOT / "res" / "js" / "agent-tts.js"
 _INLINE_JS2 = TTS_JS_FILE.read_text(encoding="utf-8") if TTS_JS_FILE.is_file() else ""
 _INLINE_HTML_TMPL = UI_HTML_FILE.read_text(encoding="utf-8")
-INLINE_UI_HTML = _INLINE_HTML_TMPL.replace("{{CSS}}", _INLINE_CSS).replace("{{agent-ui.js}}", _INLINE_JS).replace("{{agent-tts.js}}", _INLINE_JS2)
+INLINE_UI_HTML = (
+    _INLINE_HTML_TMPL.replace("{{CSS}}", _INLINE_CSS)
+    .replace("{{agent-ui.js}}", _INLINE_JS)
+    .replace("{{agent-tts.js}}", _INLINE_JS2)
+    .replace("{{APP_VERSION}}", AGENT_APP_VERSION)
+)
 
 
 

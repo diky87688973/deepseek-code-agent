@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 class SkillMeta:
@@ -81,7 +81,7 @@ class SkillManager:
         """
         if not self.skills_dir or not self.skills_dir.is_dir():
             return
-        seen: set[str] = set()
+        seen: Set[str] = set()
         auto_dir = self.skills_dir / "auto_load"
 
         def _rel_key(md: Path) -> str:
@@ -202,7 +202,7 @@ class SkillManager:
     # ── 元数据解析 ──
 
     @staticmethod
-    def _strip_frontmatter(text: str) -> tuple[dict, str]:
+    def _strip_frontmatter(text: str) -> Tuple[dict, str]:
         """解析文件正文，提取 --- 分隔的 YAML frontmatter。"""
         meta: dict = {}
         lines = text.strip().splitlines()
@@ -225,7 +225,7 @@ class SkillManager:
         body = "\n".join(lines[end+1:]).strip()
         return meta, body
 
-    def _parse_meta(self, file_path: Path) -> tuple[str, str]:
+    def _parse_meta(self, file_path: Path) -> Tuple[str, str]:
         """从 YAML frontmatter 提取 name 和 description。"""
         try:
             text = file_path.read_text(encoding="utf-8")
