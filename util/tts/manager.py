@@ -13,6 +13,9 @@ from typing import Dict, List, Optional, Tuple
 from util.tts import create_tts_provider
 from util.tts.base import TTSProvider
 
+# TTS 合成超时（秒），超时后跳过当前任务继续消费下一项
+_TTS_SYNTHESIZE_TIMEOUT: int = 15
+
 
 # 句末：不用逗号切分，减少 Edge-TTS 碎片化请求
 _SENTENCE_END = re.compile(r"[。！？!?;\n]+")
@@ -198,11 +201,28 @@ def _synthesize_and_publish(cid: str, text: str, voice: Optional[str] = None, _d
         if not clean.strip():
             return
         tts = _get_tts()
-        try:
-            audio = tts.synthesize(clean, voice=voice)
-        except Exception as exc:
-            print(f"[TTS] 合成失败: {exc}", file=sys.stderr, flush=True)
+        # ── 带超时的合成，防止 edge-tts 网络卡死消费线程 ──
+        # 用 daemon 线程 + join(timeout)：超时后抛弃，不泄漏线程池
+        _result: List[bytes] = []
+        _exc: List[Exception] = []
+
+        def _synth() -> None:
+            try:
+                _result.append(tts.synthesize(clean, voice=voice))
+            except Exception as e:
+                _exc.append(e)
+
+        t = threading.Thread(target=_synth, daemon=True)
+        t.start()
+        t.join(timeout=_TTS_SYNTHESIZE_TIMEOUT)
+        if t.is_alive():
+            print(f"[TTS] 合成超时({_TTS_SYNTHESIZE_TIMEOUT}s)，跳过: {str(clean)[:40]}...", file=sys.stderr, flush=True)
+            # daemon 线程放任不管，进程退出时自动清理
             return
+        if _exc:
+            print(f"[TTS] 合成失败: {_exc[0]}", file=sys.stderr, flush=True)
+            return
+        audio = _result[0] if _result else None
         if not audio:
             return
         publish = _ensure_sse_event_publisher()
