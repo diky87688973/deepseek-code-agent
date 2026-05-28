@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
-"""进程内会话表、并发 run、停止标志（从 deepseek_code_agent2 拆出）。"""
+﻿# -*- coding: utf-8 -*-
+"""进程内会话表、并发 run、停止标志（agent_v3 运行时状态）。"""
 from __future__ import annotations
 
 import contextlib
@@ -25,19 +25,19 @@ _SESSION_INBOX_LOCK = threading.Lock()
 
 
 def _agent_sessions_file() -> Path:
-    from agent_v2.bootstrap import DATA_ROOT
+    from agent_v3.bootstrap import DATA_ROOT
 
     return DATA_ROOT / "agent_sessions.json"
 
 
 def _agent_inbox_dir() -> Path:
-    from agent_v2.bootstrap import DATA_ROOT
+    from agent_v3.bootstrap import DATA_ROOT
 
     return DATA_ROOT / "agent_inbox"
 
 
 def _agent_waits_file() -> Path:
-    from agent_v2.bootstrap import DATA_ROOT
+    from agent_v3.bootstrap import DATA_ROOT
 
     return DATA_ROOT / "agent_waits.json"
 
@@ -145,6 +145,16 @@ def _persist_waits() -> None:
         print(f"WARN: persist agent waits failed: {exc}", file=sys.stderr, flush=True)
 
 
+def should_suspend_after_session_wait(tool_result: Any) -> bool:
+    """session_wait 返回 pending 时，仅 data.suspend=true 才触发宿主挂起（勿用 should_stop_turn）。"""
+    if not isinstance(tool_result, dict) or not tool_result.get("ok"):
+        return False
+    data = tool_result.get("data")
+    if not isinstance(data, dict) or not data.get("pending"):
+        return False
+    return bool(data.get("suspend"))
+
+
 def suspend_agent_wait(cid: str, target_ids: List[str], thread_id: str = "") -> Dict[str, Any]:
     key = str(cid or "").strip()
     if not key:
@@ -200,15 +210,31 @@ _KLING_CONFIRM_IDS: Dict[str, Dict[str, Any]] = {}
 _KLING_CONFIRM_LOCK = threading.Lock()
 
 
+def _prune_stale_kling_confirms() -> None:
+    """移除超时未消耗的 Kling 确认项，避免内存泄漏。"""
+    now = time.time()
+    with _KLING_CONFIRM_LOCK:
+        stale = [
+            k
+            for k, v in _KLING_CONFIRM_IDS.items()
+            if now - float(v.get("created_at") or 0) > _KLING_CONFIRM_MAX_AGE_SEC
+        ]
+        for k in stale:
+            _KLING_CONFIRM_IDS.pop(k, None)
+
+
 def kling_create_confirm_id(action: str, params: dict) -> str:
     """创建待确认的确认ID，返回 UUID。"""
     import uuid
+
+    _prune_stale_kling_confirms()
     cid = str(uuid.uuid4())
     with _KLING_CONFIRM_LOCK:
         _KLING_CONFIRM_IDS[cid] = {
             "confirmed": False,
             "action": action,
             "params": dict(params),
+            "created_at": time.time(),
         }
     return cid
 
@@ -240,7 +266,12 @@ PENDING_EXCERPT_PATHS: Dict[str, List[str]] = {}
 _SUMMARY_STATE_LOCK = threading.Lock()
 _CONVERSATION_RUN_LOCKS: Dict[str, threading.RLock] = {}
 _CONVERSATION_RUN_LOCKS_LOCK = threading.Lock()
-_TOOL_EXEC_LOCK = threading.RLock()
+_TOOL_EXEC_LOCK = threading.RLock()  # 兼容旧引用；新代码请用 get_tool_exec_lock(cid)
+_TOOL_EXEC_LOCKS: Dict[str, threading.RLock] = {}
+_TOOL_EXEC_LOCKS_META = threading.Lock()
+_FILE_SEARCH_GATE: Dict[str, bool] = {}
+_FILE_SEARCH_GATE_LOCK = threading.Lock()
+_KLING_CONFIRM_MAX_AGE_SEC = 3600
 _CONVERSATION_STOP_FLAGS: Dict[str, Set[str]] = {}
 _ACTIVE_CONVERSATION_RUNS: Dict[str, str] = {}
 _CONVERSATION_STOP_LOCK = threading.Lock()
@@ -359,6 +390,36 @@ def next_global_sse_event(token: str, timeout: float = 15.0) -> Optional[Dict[st
     return ev
 
 
+def get_tool_exec_lock(conversation_id: str = "") -> threading.RLock:
+    """按会话隔离工具执行锁，避免多 Agent 全局串行。"""
+    key = str(conversation_id or "").strip() or "__shared__"
+    with _TOOL_EXEC_LOCKS_META:
+        lock = _TOOL_EXEC_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _TOOL_EXEC_LOCKS[key] = lock
+        return lock
+
+
+def set_file_search_allowed(conversation_id: str, allowed: bool) -> None:
+    key = str(conversation_id or "").strip()
+    if not key:
+        return
+    with _FILE_SEARCH_GATE_LOCK:
+        if allowed:
+            _FILE_SEARCH_GATE[key] = True
+        else:
+            _FILE_SEARCH_GATE.pop(key, None)
+
+
+def is_file_search_allowed(conversation_id: str = "") -> bool:
+    key = str(conversation_id or "").strip()
+    if not key:
+        return False
+    with _FILE_SEARCH_GATE_LOCK:
+        return bool(_FILE_SEARCH_GATE.get(key))
+
+
 def enqueue_session_inbox(cid: str, message: Dict[str, Any]) -> int:
     key = str(cid or "").strip()
     if not key:
@@ -366,8 +427,9 @@ def enqueue_session_inbox(cid: str, message: Dict[str, Any]) -> int:
     with _SESSION_INBOX_LOCK:
         q = SESSION_INBOX.setdefault(key, [])
         q.append(dict(message))
-        _persist_inbox_locked(key)
-        return len(q)
+        n = len(q)
+    _persist_inbox_locked(key)
+    return n
 
 
 def pop_session_inbox(cid: str) -> Optional[Dict[str, Any]]:

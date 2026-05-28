@@ -239,7 +239,7 @@ def _synthesize_and_publish(cid: str, text: str, voice: Optional[str] = None, _d
 
 def _ensure_sse_event_publisher():
     """惰性导入 publish_conversation_event 避免循环依赖。"""
-    from agent_v2.agent_core import publish_conversation_event
+    from agent_v3.agent_core import publish_conversation_event
     return publish_conversation_event
 
 

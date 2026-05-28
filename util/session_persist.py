@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""会话落盘：消息 ID（v2 轮次 / v1 单条）、.raw 全量追加日志、按 ID 删除（摘要合并）。"""
+"""会话落盘：消息 ID（按轮次）、.raw 全量追加日志、按 ID 删除（摘要合并）。"""
 from __future__ import annotations
 
 import json
@@ -18,6 +18,7 @@ _id_seq = 0
 
 # 避免每条消息 append .raw 时 glob 扫 session 目录（工具多轮时会卡死 SSE，客户端断连 WinError 10054）
 _session_json_path_cache: Dict[str, Path] = {}
+_session_json_path_cache_lock = __import__("threading").Lock()
 
 
 def _next_time_ordered_id() -> str:
@@ -38,7 +39,7 @@ def new_round_id() -> str:
 
 
 def new_message_id() -> str:
-    """单条消息 ID（v1）：时间戳序 ID。"""
+    """单条消息 ID：时间戳序 ID。"""
     return _next_time_ordered_id()
 
 
@@ -59,13 +60,6 @@ def stamp_message_v2(
     return rid
 
 
-def stamp_message_v1(msg: Dict[str, Any]) -> str:
-    """v1：每条消息独立 message_id（时间戳）。"""
-    mid = new_message_id()
-    msg[_AGENT_MESSAGE_ID] = mid
-    return mid
-
-
 def ensure_conversation_message_ids_v2(messages: List[Dict[str, Any]]) -> None:
     """为历史会话补全轮次/消息 ID（按 user 起轮切分）。"""
     current_round: Optional[str] = None
@@ -82,12 +76,6 @@ def ensure_conversation_message_ids_v2(messages: List[Dict[str, Any]]) -> None:
             m.setdefault(_AGENT_ROUND_ID, current_round)
             if not m.get(_AGENT_MESSAGE_ID):
                 m[_AGENT_MESSAGE_ID] = new_message_id()
-
-
-def ensure_conversation_message_ids_v1(messages: List[Dict[str, Any]]) -> None:
-    for m in messages:
-        if isinstance(m, dict) and not m.get(_AGENT_MESSAGE_ID):
-            m[_AGENT_MESSAGE_ID] = new_message_id()
 
 
 def round_ids_from_messages(msgs: List[Dict[str, Any]]) -> List[str]:
@@ -151,7 +139,8 @@ def remove_messages_by_message_ids(messages: List[Dict[str, Any]], message_ids: 
 def cache_session_json_path(cid: str, path: Path) -> None:
     key = str(cid or "").strip()
     if key:
-        _session_json_path_cache[key] = path
+        with _session_json_path_cache_lock:
+            _session_json_path_cache[key] = path
 
 
 def resolve_session_json_path(
@@ -163,15 +152,18 @@ def resolve_session_json_path(
     key = str(cid or "").strip()
     if not key:
         return default_for_new(key)
-    hit = _session_json_path_cache.get(key)
+    with _session_json_path_cache_lock:
+        hit = _session_json_path_cache.get(key)
     if hit is not None:
         return hit
     existing = locate(key)
     if existing is not None:
-        _session_json_path_cache[key] = existing
+        with _session_json_path_cache_lock:
+            _session_json_path_cache[key] = existing
         return existing
     p = default_for_new(key)
-    _session_json_path_cache[key] = p
+    with _session_json_path_cache_lock:
+        _session_json_path_cache[key] = p
     return p
 
 

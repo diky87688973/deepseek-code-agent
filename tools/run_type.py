@@ -17,7 +17,10 @@ import agent_common as ac
 def agent_main(
     *,
     run_type: Optional[str] = None,
+    json_out: bool = False,
+    **_kwargs: object,
 ) -> dict:
+    _ = (json_out, _kwargs)
     """不传 `run_type` 表示查询意图；传 `auto|plan|execute` 表示切换请求（由宿主落盘）。"""
     if run_type is None or str(run_type).strip() == "":
         return ac.ok({"action": "query", "hint": "由宿主返回当前 CONVERSATION_MODES"})

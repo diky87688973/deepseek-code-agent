@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """FastAPI 请求/响应体模型（HTTP 层专用，与 agent_core 解耦）。"""
 from __future__ import annotations
 

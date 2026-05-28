@@ -251,7 +251,7 @@ class SkillManager:
             return
 
         lines = text.strip().splitlines()
-        name = self._auto_name(file_path)
+        name = self._auto_name(file_path, lines)
         desc = self._auto_description(lines)
 
         today = "2026-05-19"

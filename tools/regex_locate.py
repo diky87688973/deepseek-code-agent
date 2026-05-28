@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """在单文件或目录下用正则检索，每条命中返回 region_start/region_end（与 replace_in_file 一致）及行列。"""
-
 from __future__ import annotations
 
 import re
@@ -16,8 +15,8 @@ def agent_main(
     path: str,
     pattern: str,
     ignore_case: bool = False,
-    multiline: bool = False,
-    recursive: bool = False,
+    dotall: bool = False,
+    recursive: bool = True,
     glob_pattern: str = "",
     encoding: str = "utf-8",
     limit: int = 200,
@@ -31,6 +30,8 @@ def agent_main(
     - line / column：起点 1-based；
     - end_line / end_column：终点开区间（与 replace 行列模式一致）；
     - match：匹配的子串。
+
+    正则标志：始终含 re.MULTILINE（^/$ 按行）；dotall=true 时另加 re.DOTALL（. 匹配换行）。
     """
     _ = run_type
     try:
@@ -44,7 +45,7 @@ def agent_main(
         flags = re.MULTILINE
         if ignore_case:
             flags |= re.IGNORECASE
-        if multiline:
+        if dotall:
             flags |= re.DOTALL
         try:
             rx = re.compile(pattern, flags)
@@ -117,8 +118,13 @@ def main() -> None:
     p.add_argument("--path", required=True, help="文件或目录（相对工作区或绝对路径）")
     p.add_argument("--pattern", required=True, help="正则表达式")
     p.add_argument("--ignore_case", action="store_true")
-    p.add_argument("--multiline", action="store_true")
-    p.add_argument("--recursive", action="store_true")
+    p.add_argument(
+        "--dotall",
+        action="store_true",
+        help="等价 re.DOTALL：. 可匹配换行（跨行模式）。",
+    )
+    p.add_argument("--recursive", action="store_true", default=True)
+    p.add_argument("--no_recursive", action="store_false", dest="recursive")
     p.add_argument("--glob_pattern", default="", help="省略=仅常见文本/源码后缀；* 表示全部文件（含各类非文本/二进制）")
     p.add_argument("--encoding", default="utf-8")
     p.add_argument("--limit", type=int, default=200)
@@ -127,18 +133,20 @@ def main() -> None:
         action="store_true",
         help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
     )
+    p.add_argument("--run_type", default="")
     p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
     r = agent_main(
         path=args.path,
         pattern=args.pattern,
         ignore_case=bool(args.ignore_case),
-        multiline=bool(args.multiline),
+        dotall=bool(args.dotall),
         recursive=bool(args.recursive),
         glob_pattern=str(args.glob_pattern if args.glob_pattern is not None else ""),
         encoding=args.encoding,
         limit=args.limit,
         restrict_to_workspace=bool(args.restrict_to_workspace),
+        run_type=str(args.run_type or ""),
     )
     if args.json_out:
         print(json.dumps(r, ensure_ascii=False))

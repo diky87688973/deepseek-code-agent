@@ -60,19 +60,18 @@ ALLOW_SUBSTR = (
     "find-replace",
     "delete_file",
     "action=read",
-    "action=send",
     "action=delete",
     "action=list",
     "action=create",
     "action=check",
-    "action=wait",
+    "action=query",
+    "action=uncheck",
     "action=extract",
     "action=filter",
     "action=sort",
     "action=preview",
     "action=stats",
-    "action=broadcast",
-    "action=multisend",
+    "action=add_item",
     "session_send",
     "session_multisend",
     "session_broadcast",
@@ -143,7 +142,7 @@ def _shorthand_allowed_in_context(token: str, ctx: str) -> bool:
         return True
     if token == "delete" and ("delete_file" in ctx or "action=delete" in ctx):
         return True
-    if token == "send" and ("session_send" in ctx or "action=send" in ctx or "session_multisend" in ctx):
+    if token == "send" and ("session_send" in ctx or "session_multisend" in ctx):
         return True
     if token == "todo" and "todo_list" in ctx:
         return True
@@ -235,7 +234,7 @@ def _prompt_text_blobs() -> str:
     return "\n".join(
         [
             apc.AGENT_REGISTERED_FUNCTION_NAMES,
-            apc.TOOL_AGENT_V2_SYSTEM_PROMPT,
+            apc.TOOL_AGENT_SYSTEM_PROMPT,
             apc.AGENT_CODE_HINT_SYSTEM_PROMPT,
             apc.TOOL_AGENT_PLAN_MODE_PROMPT,
             apc.TOOL_AGENT_AUTO_MODE_PROMPT,
@@ -338,6 +337,15 @@ class TestPromptToolNames(unittest.TestCase):
             if name.startswith("session_") and name not in self.registered:
                 self.fail(f"session function {name} 不在 catalog")
 
+    def test_session_collab_agent_hints(self) -> None:
+        """session_collab 须声明无 action、suspend=false 仅查询与 sender_cid 跨会话。"""
+        data = _load_catalog()
+        hints = str((data.get("agent_hints") or {}).get("session_collab") or "")
+        self.assertIn("action", hints.lower())
+        self.assertTrue("勿传 action" in hints or "无 action" in hints, hints)
+        self.assertIn("suspend=false", hints)
+        self.assertIn("sender_cid", hints)
+
     def test_agent_hints_no_slash_shorthand(self) -> None:
         """agent_hints 禁止 glob/grep/read 等未带 _files/_file 的斜杠简称。"""
         blob = _agent_hints_blob()
@@ -349,6 +357,16 @@ class TestPromptToolNames(unittest.TestCase):
         self.assertIn("grep_files", names)
         self.assertIn("read_file", names)
         self.assertNotIn("grep", names)
+
+    def test_main_system_prompt_not_v1_legacy(self) -> None:
+        """主 system 须为完整版，不得残留 v1 三行精简提示。"""
+        from util import agent_prompt_constants as apc
+
+        body = apc.TOOL_AGENT_SYSTEM_PROMPT
+        self.assertIn("身份与边界", body)
+        self.assertGreater(len(body), 400, "TOOL_AGENT_SYSTEM_PROMPT 过短，可能误用 v1 遗留")
+        v2_alias = "TOOL_AGENT_V2_SYSTEM_PROMPT"
+        self.assertFalse(hasattr(apc, v2_alias), "勿再保留 V2 提示词 system 别名常量")
 
 
 if __name__ == "__main__":

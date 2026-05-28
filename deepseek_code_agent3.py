@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""DeepSeek Code Agent v2 入口：装配 agent_v2.agent_core 与 HTTP 路由。
-
-原版 deepseek_code_agent.py 保留不动。实现细节见 agent_v2/agent_core.py。
-"""
+"""DeepSeek Code Agent 入口：装配 agent_v3 包（内部重构目录）与 HTTP 路由。"""
 from __future__ import annotations
 
-from agent_v2.http_app import create_app
-from agent_v2 import agent_core as _core
+from agent_v3.http_app import create_app
+from agent_v3 import agent_core as _core
 
 app = create_app()
 
 
 def main() -> None:
-    from util.config_loader import load_config
     import sys
+
     import uvicorn
+
+    from util.config_loader import load_config
 
     load_config(verbose=True)
     port_str = str(_core.AGENT_CONFIG["AGENT_SERVER_PORT"]).strip()
@@ -28,7 +27,6 @@ def main() -> None:
             file=sys.stderr,
             flush=True,
         )
-        print("⚠️  或通过环境变量 CHAT_API_KEY 设置", file=sys.stderr, flush=True)
     uvicorn.run(
         app,
         host=_core.AGENT_CONFIG["AGENT_SERVER_HOST"],

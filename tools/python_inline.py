@@ -8,6 +8,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -125,9 +126,12 @@ class _InlineProgressWriter(io.TextIOBase):
 
 
 def _forbid_inline_search(code: str) -> bool:
-    """禁止在胶水代码里使用 file_search/grep_files/base64/kling API（搜索走服务端，base64 浪费 token，kling 须走确认）。"""
+    """禁止在胶水代码里直接调用搜索工具、base64 编解码或绕过 kling API（搜索走服务端，base64 浪费 token，kling 须走确认）。"""
     s = code or ""
-    if "file_search" in s or "grep_files" in s or "base64" in s:
+    # 仅拦截实际函数调用，不拦截字符串字面量中的工具名
+    if re.search(r"\bfile_search\s*\(", s) or re.search(r"\bgrep_files\s*\(", s):
+        return True
+    if re.search(r"\bbase64\s*\.\s*(b64decode|b64encode|decode|encode)\s*\(", s):
         return True
     # 禁止绕过 kling_generate 直接调可灵 API
     _kling_pats = ["api-beijing.klingai.com", "klingai.com", "AGENT_KLING_API_KEY", "AGENT_KLING_SECRET_KEY", "KLING_API_KEY", "KLING_SECRET_KEY"]

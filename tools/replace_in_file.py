@@ -142,6 +142,7 @@ def agent_main(
     expected_replacements: Optional[int] = None,
     encoding: str = "utf-8",
     backup: bool = False,
+    raw: bool = False,
     restrict_to_workspace: bool = False,
     run_type: str = "",
 ) -> dict:
@@ -159,6 +160,17 @@ def agent_main(
         want_write = not dry_run
         if want_write and rt == "plan":
             return {"ok": False, "data": None, "error": {"type": "ModeConflict", "message": "当前为 Plan 模式，不允许写文件"}}
+
+        # raw 模式：将 new_text/old_text 中的实际换行/制表符还原为字面转义序列
+        if raw:
+            _r = lambda s: str(s or "").replace("\r\n", "\\n").replace("\r", "\\n").replace("\n", "\\n").replace("\t", "\\t")
+            new_text = _r(new_text)
+            old_text = _r(old_text)
+            if rules:
+                for item in rules:
+                    if isinstance(item, dict):
+                        item["old_text"] = _r(item.get("old_text"))
+                        item["new_text"] = _r(item.get("new_text"))
 
         mode = _detect_replace_modes(
             old_text=old_text,
@@ -387,6 +399,11 @@ def main() -> None:
     p.add_argument("--encoding", default="utf-8")
     p.add_argument("--backup", action="store_true")
     p.add_argument(
+        "--raw",
+        action="store_true",
+        help="true 时将 old_text/new_text 中的实际换行、制表符转为字面 \\n、\\t（两字符），用于改 Python 等源码中的转义字符串。",
+    )
+    p.add_argument(
         "--restrict_to_workspace",
         action="store_true",
         help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
@@ -437,6 +454,7 @@ def main() -> None:
         expected_replacements=args.expected_replacements,
         encoding=args.encoding,
         backup=bool(args.backup),
+        raw=bool(args.raw),
         restrict_to_workspace=bool(args.restrict_to_workspace),
         run_type=str(args.run_type or ""),
     )

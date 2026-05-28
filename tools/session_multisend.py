@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from tools.agent_common import parse_tool_bool
+import agent_common as ac
 
 
 def _normalize_target_ids(raw: Any) -> List[str]:
@@ -18,7 +18,6 @@ def _normalize_target_ids(raw: Any) -> List[str]:
 
 def agent_main(
     *,
-    action: str = "send",
     target_ids: Any = None,
     message: str = "",
     channel: str = "group",
@@ -27,9 +26,8 @@ def agent_main(
     requires_reply: Optional[bool] = None,
     **_kwargs: Any,
 ) -> Dict[str, Any]:
-    action = str(action or "send").strip().lower()
-    if action not in ("send", "multisend"):
-        return {"ok": False, "error": {"type": "unknown_action", "message": "可选 action: send/multisend"}}
+    """向多个 target_ids 发送同一条 message（无 action 参数）。"""
+    _kwargs.pop("action", None)
     ids = _normalize_target_ids(target_ids)
     msg = str(message or "").strip()
     if not ids:
@@ -41,18 +39,17 @@ def agent_main(
     _rr = _kwargs.get("requires_reply", requires_reply)
     if _rr is None:
         return {"ok": False, "error": {"type": "missing_requires_reply", "message": "requires_reply 是必填参数，必须显式设置 true 或 false。"}}
-    from tools.session_send import agent_main as _send
+    from session_send import agent_main as _send
 
     sent, skipped = [], []
     for tid in ids:
         r = _send(
-            action="send",
             target_id=tid,
             message=msg,
             channel=channel,
             thread_id=str(thread_id or _kwargs.get("thread_id") or ""),
             priority=str(priority or _kwargs.get("priority") or "normal"),
-            requires_reply=parse_tool_bool(_rr, True),
+            requires_reply=ac.parse_tool_bool(_rr, True),
             conversation_id=str(_kwargs.get("conversation_id") or ""),
         )
         if r.get("ok"):
@@ -79,3 +76,47 @@ def agent_main(
             "all_sent": not skipped,
         },
     }
+
+
+def build_parser() -> "argparse.ArgumentParser":
+    import argparse
+
+    p = argparse.ArgumentParser(description="session_multisend：人工调试 CLI → agent_main（无 --action）")
+    p.add_argument("--conversation_id", required=True)
+    p.add_argument("--target_ids", required=True, help="逗号分隔的会话 ID")
+    p.add_argument("--message", required=True)
+    p.add_argument("--requires_reply", required=True, help="true 或 false")
+    p.add_argument("--thread_id", default="")
+    p.add_argument("--channel", default="group")
+    p.add_argument("--priority", default="normal")
+    p.add_argument("--json_out", action="store_true")
+    return p
+
+
+def main() -> None:
+    import json
+    import sys
+
+    args = build_parser().parse_args()
+    r = agent_main(
+        target_ids=args.target_ids,
+        message=args.message,
+        requires_reply=args.requires_reply,
+        thread_id=args.thread_id,
+        channel=args.channel,
+        priority=args.priority,
+        conversation_id=args.conversation_id,
+    )
+    if args.json_out:
+        print(json.dumps(r, ensure_ascii=False))
+    else:
+        if r.get("ok"):
+            print(json.dumps(r.get("data"), ensure_ascii=False, indent=2))
+        else:
+            err = r.get("error") or {}
+            print(err.get("message", r), file=sys.stderr)
+            sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

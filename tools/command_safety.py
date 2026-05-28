@@ -17,7 +17,8 @@ STREAM_OUTPUT_STDERR_TAIL_MAX_CHARS = 4000
 
 # run_command 当前 shell 子进程（供超时后 taskkill /T 强杀，避免 Windows 下只杀 cmd 不杀 winget）
 _ACTIVE_SHELL_PID_LOCK = threading.Lock()
-_ACTIVE_SHELL_PID: Optional[int] = None
+_ACTIVE_SHELL_PIDS: Dict[str, int] = {}
+_DEFAULT_SHELL_SCOPE = "__default__"
 
 _SAFE_BLOCK_RE = re.compile(r"[;&|`$><]")
 _ANSI_ESC_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?\x07|\x08|\r")
@@ -173,22 +174,26 @@ def _validate_safe_command(command: str) -> None:
     raise ValueError(f"safe_mode：命令包含禁止字符: {m.group(0)}")
 
 
-def register_shell_process(pid: int) -> None:
-    global _ACTIVE_SHELL_PID
+def register_shell_process(pid: int, scope: str = _DEFAULT_SHELL_SCOPE) -> None:
+    key = str(scope or _DEFAULT_SHELL_SCOPE).strip() or _DEFAULT_SHELL_SCOPE
     with _ACTIVE_SHELL_PID_LOCK:
-        _ACTIVE_SHELL_PID = int(pid)
+        _ACTIVE_SHELL_PIDS[key] = int(pid)
 
 
-def unregister_shell_process() -> None:
-    global _ACTIVE_SHELL_PID
+def unregister_shell_process(scope: str = _DEFAULT_SHELL_SCOPE) -> None:
+    key = str(scope or _DEFAULT_SHELL_SCOPE).strip() or _DEFAULT_SHELL_SCOPE
     with _ACTIVE_SHELL_PID_LOCK:
-        _ACTIVE_SHELL_PID = None
+        _ACTIVE_SHELL_PIDS.pop(key, None)
 
 
-def kill_shell_process_tree(pid: Optional[int] = None) -> None:
+def kill_shell_process_tree(pid: Optional[int] = None, scope: str = _DEFAULT_SHELL_SCOPE) -> None:
     """结束进程及其子进程（Windows: taskkill /T）。"""
     with _ACTIVE_SHELL_PID_LOCK:
-        target = int(pid if pid is not None else (_ACTIVE_SHELL_PID or 0))
+        if pid is not None:
+            target = int(pid)
+        else:
+            key = str(scope or _DEFAULT_SHELL_SCOPE).strip() or _DEFAULT_SHELL_SCOPE
+            target = int(_ACTIVE_SHELL_PIDS.get(key) or 0)
     if target <= 0:
         return
     if os.name == "nt":
@@ -211,13 +216,18 @@ def kill_shell_process_tree(pid: Optional[int] = None) -> None:
                 pass
 
 
-def force_kill_active_shell_process() -> bool:
-    """宿主硬超时：强杀当前 run_command 进程树。"""
+def force_kill_active_shell_process(scope: str = "") -> bool:
+    """宿主硬超时：强杀 run_command 进程树（可按 scope 限定会话）。"""
+    key = str(scope or "").strip()
     with _ACTIVE_SHELL_PID_LOCK:
-        pid = _ACTIVE_SHELL_PID
-    if not pid:
+        if key:
+            pids = [int(_ACTIVE_SHELL_PIDS[key])] if key in _ACTIVE_SHELL_PIDS else []
+        else:
+            pids = list(_ACTIVE_SHELL_PIDS.values())
+    if not pids:
         return False
-    kill_shell_process_tree(pid)
+    for pid in pids:
+        kill_shell_process_tree(pid)
     return True
 
 

@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """v2：配置、数据根路径、KB 勾选、工具路径与调试辅助。"""
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ except ImportError:
 if getattr(sys, "frozen", False):
     _base = Path(sys._MEIPASS)
 else:
-    _base = Path(__file__).resolve().parent.parent  # agent_v2 -> project root
+    _base = Path(__file__).resolve().parent.parent  # agent_v3 -> project root
 AGENT_ROOT = _base
 
 
@@ -142,7 +142,7 @@ _delete_file_mod.configure_trash_root(DATA_ROOT / "safe_delete")
 
 # ── Agent 会话加载 ──
 try:
-    from agent_v2.live_state import load_agent_sessions
+    from agent_v3.live_state import load_agent_sessions
     load_agent_sessions()
 except Exception:
     pass

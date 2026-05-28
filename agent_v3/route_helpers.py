@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """HTTP 与 agent_core 之间的薄适配：SSE 包装、会话选项。"""
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from agent_v2 import agent_core as core
-from agent_v2.sse_events import context_layout_event, conversation_sse_event
+from agent_v3 import agent_core as core
+from agent_v3.sse_events import context_layout_event, conversation_sse_event
 
 __all__ = (
     "apply_conversation_request_options",

@@ -18,7 +18,7 @@ AGENT_REGISTERED_FUNCTION_NAMES: str = (
     "\n 写盘/改文件：write_file, replace_in_file, apply_patch, read_write, delete_file, file_ops, archive(action=extract|create)。"
     "\n 执行：run_command, python_inline（最后手段；Plan 模式禁用）。"
     "\n 任务/模式：todo_list, run_type, user_confirm。"
-    "\n 协作：session_send, session_multisend, session_broadcast, session_wait, session_create, session_list。"
+    "\n 协作：session_send, session_multisend, session_broadcast, session_wait（suspend=true 挂起，false 仅查；跨会话 wait 传 sender_cid）, session_create, session_list；均无 action 参数。"
     "\n 技能/生成：skill_manage, kling_generate, dreamina_generate, github_api。"
 )
 
@@ -269,16 +269,9 @@ def list_registered_api_names(catalog: Optional[Dict[str, Any]] = None) -> List[
     return sorted(set(names))
 
 
-# ── V1 遗留 ─────────────────────────────────────────────────────────────────
+# ── 主 system（工具 Agent 核心提示）────────────────────────────────────────────
 
 TOOL_AGENT_SYSTEM_PROMPT: str = (
-    "\n\n【核心规则】回答简洁中文；只调用已注册 function；写盘默认 dry_run=true。"
-    "\n【todo_list 与模式】多步任务维护 todo_list；Plan 只读；Execute 写盘。"
-)
-
-# ── agent_v2 主 system ─────────────────────────────────────────────────────────
-
-TOOL_AGENT_V2_SYSTEM_PROMPT: str = (
     "\n\n"
     "【身份与边界】"
     "\n 你是嵌入工作区的编程 Agent，在**真实代码库**中调查与执行。"
@@ -289,7 +282,10 @@ TOOL_AGENT_V2_SYSTEM_PROMPT: str = (
     + "\n\n"
     "【文本与文件操作要点】"
     "\n read_file/glob_files/grep_files/regex_locate/file_search；大文件先 grep_files 再 read_file 局部。"
-    "\n replace_in_file：rules/regions/line_ranges；坐标来自 grep_files/find_in_file，勿猜。"
+    "\n 【只读搜索参数】grep_files/file_search/glob_files/regex_locate 目录默认 recursive=true；仅扫当前层时传 recursive=false。"
+    "\n regex_locate 跨行正则用 dotall=true（re.DOTALL）。glob_pattern 省略=仅文本/源码后缀，任意类型用 \"*\"。"
+    "\n 工具参数名一律 snake_case（与 tool_list_agent.json 的 --flag 一致，如 ignore_case、glob_pattern、no_gitignore）。"
+    "\n replace_in_file：rules/regions/line_ranges；坐标来自 grep_files/find_in_file，勿猜；JSON 含真实换行却要写入源码字面 \\n 时传 raw=true。"
     "\n 单文件多处 replace_in_file；多文件才 apply_patch。"
     "\n run_command/python_inline 最后手段；Plan 禁止；Execute 不得绕过文件工具。"
     "\n delete_file：永远先 dry_run=true 预览，确认后再 dry_run=false。"
@@ -318,10 +314,9 @@ TOOL_AGENT_PLAN_MODE_PROMPT: str = (
 TOOL_AGENT_EXECUTE_MODE_PROMPT: str = (
     "【当前为 EXECUTE 模式】写盘前须有 todo_list；先 dry_run=true 预览再 dry_run=false；一步 todo_list(action=\"check\") 并验证。"
 )
-TOOL_AGENT_V2_EXECUTE_MODE_PROMPT: str = TOOL_AGENT_EXECUTE_MODE_PROMPT
 
 def format_agent_max_tool_rounds_user_hint(max_tool_rounds: int) -> str:
-    """达单轮工具循环上限时注入模型（v1 同款：落盘为 user 消息；对用户话术须拟人、委婉）。"""
+    """达单轮工具循环上限时注入模型（落盘为 user 消息；对用户话术须拟人、委婉）。"""
     _ = int(max_tool_rounds)  # 仅供宿主/测试感知配置，勿写进对用户可见话术
     return (
         "系统已达到本轮工具调用次数上限。"
@@ -331,11 +326,6 @@ def format_agent_max_tool_rounds_user_hint(max_tool_rounds: int) -> str:
         "禁止在 assistant 正文写任何模拟工具调用（invoke/parameter/XML/特殊标签）；只能写自然语言。"
     )
 
-
-# 兼容旧引用名；运行时须用 format_agent_max_tool_rounds_user_hint(MAX_TOOL_ROUNDS)
-AGENT_MAX_TOOL_ROUNDS_USER_HINT: str = (
-    "（占位：请使用 format_agent_max_tool_rounds_user_hint(max_tool_rounds)）"
-)
 
 # ── 工程原则 ─────────────────────────────────────────────────────────────────
 
@@ -373,7 +363,7 @@ def ephemeral_requires_reply_priority_prompt(peer_cid: str, thread_id: str = "")
         "⚠️【本回合 P0 — 协作回复】入站 requires_reply=true 尚未用工具回复。"
         "在本回合第一个 tool_call 之前，禁止调用 read_file/grep_files/run_command 等非协作 function。"
         "第一个 tool_call 必须是 session_send / session_multisend / session_broadcast（requires_reply 必填 boolean）："
-        f' 例如 session_send(action="send", target_id="{peer}", message="…", requires_reply=false{thread_send})。'
+        f' 例如 session_send(target_id="{peer}", message="…", requires_reply=false{thread_send})。'
         "回复入站时出站 requires_reply 通常为 false；工具成功发到 sender_cid 即算已应答。"
         '纯 assistant 文字不算回复。完成后可 todo_list(action="query")。'
     )

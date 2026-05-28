@@ -17,20 +17,24 @@
     "step_title": "每个 tool 调用建议传 step_title：一句≤40字中文说明本次用途，宿主用于侧栏步骤标题；省略则用默认动作名。",
     "scope_and_git": "最小改动：不顺手重构、不扩大 scope。用户未明确要求时不 git commit/push。destructive git 操作需用户明示。",
     "stdio_utf8": "工具进程与宿主约定 UTF-8；工作区根来自环境变量 WORKSPACE_DIR。",
-    "workspace_safety": "默认可访问 WORKSPACE_DIR 内外的绝对路径；仅当需要沙箱时再传 restrict_to_workspace:true（将路径限定在工作区根下）。",
+    "workspace_safety": "默认可访问 WORKSPACE_DIR 内外的绝对路径。restrict_to_workspace 仅用于写盘/命令类：write_file、read_write、replace_in_file、apply_patch、delete_file、file_ops、archive、run_command、python_inline；只读工具（read_file、grep_files、glob_files 等）不传。",
     "dry_run": "write_file、read_write、replace_in_file、apply_patch、delete_file、file_ops 默认 dry_run=true（仅预览）；真实写盘/移入回收站须显式 dry_run=false。",
     "openapi_tool_name_rule": "catalog 中 name 去掉 .py 即为 function 名。",
-    "param_naming": "相同语义的参数统一命名：目录或仓库根路径用 path（--path）；文件名过滤用 glob_pattern（--glob_pattern）；匹配行上下文宽度用 context_lines（--context_lines）；跳过 .gitignore 用 no_gitignore（--no_gitignore，true=不应用忽略）；超时用 timeout_sec（--timeout_sec）；会话模式用 run_type（--run_type）。",
+    "param_naming": "同义语义只保留一个参数名，禁止别名：目录/单文件路径用 path（--path）；文件名通配用 glob_pattern（glob_files 勿用 pattern 别名）；内容匹配用 pattern（grep_files 等）。data_table、image_ocr 的表格/图片文件用 path，勿用 source。file_ops/archive 的 source 与 dest 表示来源/目标路径对，不是 path 的别名。会话模式 run_type 仅写盘/命令类工具 schema 出现；只读工具无 run_type。context_lines、no_gitignore、timeout_sec、encoding 等见各 tool 说明。",
     "text_search_glob": "grep_files、regex_locate、file_search：path 为目录时，省略 glob_pattern（或空字符串）→ 仅扫描内置「以文本/源码形式编辑」的扩展名（见 agent_common.TEXT_SEARCH_SOURCE_GLOBS）；默认不扫任何非文本类文件（压缩包、图片、音视频、可执行体、通用二进制等）。确需对任意类型做内容检索时须显式传 glob_pattern=\"*\"（慎用，耗时长）。",
     "read_write_encoding": "read_write：encoding 为读源编码（默认 utf-8，可 auto）；encoding_write 为写入 dest 的编码（OpenAPI 参数名 encoding_write，省略则与读侧相同）。",
     "archive_plan": "archive：action=list 可读；extract/create 在 Plan 模式会被工具拒绝；传 run_type 与当前执行模式一致。",
     "run_command_safe_mode": "run_command 默认 safe_mode=true：command 为单条命令，禁止 shell 链式/重定向/子命令符号 — 字符 ; & | ` $ > < 任一出现即拒（勿用 cd X && python …、勿用 cmd 的 &）。多条命令须多次 run_command，或用 cwd 指定目录后只跑 python/npm/git 等一条。禁止黑名单动词：del/rm/rmdir/remove-item/format/dd 等（用 delete_file）。管道/重定向须 safe_mode=false 且用户授权。Layer0 示例：cwd=项目根 + command=python -m unittest discover -s tests -v，不要拼 Set-Location/&&。",
     "delete_safe": "delete_file 不落盘 unlink，而是将文件移到 DATA_ROOT/safe_delete 下按日期分桶；默认 dry_run。",
-    "catalog_examples": "各工具的 examples 会并入宿主下发给模型的 function.description（及失败时的 tool_help）；示例键名与 function schema 完全一致，布尔为 JSON true/false。",
-    "tool_help_on_failure": "凡工具返回 ok=false，宿主在 error.tool_help 中附带 argparse 等效 --help 全文 + 本清单摘要；模型须据此纠错。",
+    "catalog_examples": "各工具的 examples 会并入宿主下发给模型的 function.description（及失败时的 tool_help）；示例键名与 function schema 完全一致，布尔为 JSON true/false。宿主默认最多并入 2 条示例以节省 context。",
+    "search_tool_choice": "【内容搜索三选一，勿混用】① grep_files：默认首选。目录/单文件、字面或简单正则（pattern 中 | 为 OR）、要快、要 region 给 replace_in_file。② regex_locate：需 Python 正则特性（lookahead、dotall 跨行、复杂分组）时用。③ file_search：仅当 path 很大（数千文件）、或需要侧栏 tool_progress 时用；勿用 run_command 旁路调用。三者 path/glob_pattern/recursive 语义一致。",
+    "session_collab": "session_send/session_multisend/session_broadcast/session_list/session_create 均无 action 参数（勿传 action）。requires_reply 在 session_send/session_multisend/session_broadcast 必填。session_wait：pending 时 suspend=true（或省略）挂起当前 Agent；suspend=false 仅查询、宿主不挂起。同一会话内 session_send 与 session_wait 须同一发送方 conversation_id 且 thread_id 一致；若 wait 在另一会话 Tab 执行，须传 sender_cid=发出 session_send 的 conversation_id（哨兵与回复记录在该会话）。",
+    "replace_in_file_raw": "字面 old_text/new_text 时：JSON 参数里若含真实换行/制表符、而要写入源码中的字面 \\n、\\t（两字符），传 raw=true；行号/region 替换勿用 raw。与 agent_hints.string_escape 配合：不确定转义时优先 line_start+line_end 或 region。",
+    "run_command_vs_python_inline": "run_command：单条 shell 命令，safe_mode 默认 true（禁止 ; & | 等）。python -c 含分号会被拒→改用 python_inline 多行脚本，或拆成多次 run_command。python_inline：最后手段，禁止内嵌 file_search/grep_files。",
+    "tool_help_on_failure": "ok=false 时读 error.tool_help。路径/参数/门控类错误为简短说明；复杂未知错误才附 argparse --help 与 catalog 摘要。",
     "region_replace_safety": "replace_in_file 提供四种替换方式：① line_start+line_end（行替换，推荐）：按行号替换，坐标永不漂移。② regions 数组：一次传入 [{region_start,region_end,new_text},...]，工具自动降序防漂移。③ 单次 region_start+region_end：精确替换。④ rules 数组：字面 old_text→new_text 批量替换。",
     "literal_replace_ambiguity": "⚠️ old_text+new_text 字面替换默认 replace_all=true。若某文件中有多处相同匹配会全部误伤。安全建议：① 建议设 expected_replacements=n 校验替换次数；② old_text 包含足够长的唯一上下文；③ 可改用 line_start+line_end 或 region_start/region_end；④ 不确定匹配数时先用 find_in_file 看匹配位置。",
-    "string_escape": "⚠️ 字符串参数（old_text、new_text、pattern、patch_text、code 等）中的反斜杠 \\ 按 JSON 标准转义。例如：arguments 中 \\n 表示字面反斜杠+n（而非换行符），\\\\ 表示单个反斜杠。不确定时优先用 line_start+line_end 或 region 替换，避免转义问题。",
+    "string_escape": "⚠️ 字符串参数（old_text、new_text、pattern、patch_text、code 等）中的反斜杠 \\ 按 JSON 标准转义。例如：arguments 中 \\n 表示字面反斜杠+n（而非换行符），\\\\ 表示单个反斜杠。若 replace_in_file 的 old_text/new_text 在 JSON 里已是真实换行/制表符、却要改写成源码字面量 \\n、\\t，传 raw=true（见 agent_hints.replace_in_file_raw）。不确定时优先 line_start+line_end 或 region 替换。",
     "kling_video_markdown": "【🔴 强制规则】视频播放必须用 `![播放视频](url)` 格式，禁止任何其他写法。\n规则：\n1. kling_generate(action=query_result) 返回的 data.message 已包含正确格式，必须原样逐字输出，不得改写、不得省略、不得追加评论。\n2. 如果 data.message 中有多个 ![播放视频](url)，必须全部保留。\n3. 禁止用 [下载视频](url)、视频链接：xxx、![video](url)、Markdown video 标签、HTML video 标签 — 前端只认 ![播放视频](url) 这一种格式。\n4. 若工具未返回 message（如任务还在处理中），但你手上有视频 URL，也必须自行组装 ![播放视频](url) 格式。\n5. 验证方法：你输出后如果没看到视频播放控件，说明你写错格式了，必须立刻修正。",
     "kling_image_markdown": "【🔴 强制规则】图片预览必须用 `![图片](url)` 格式。\n规则：\n1. kling_generate(action=query_result) 的 data.message 中已包含正确格式的 `![图片](url)`，必须原样逐字输出，不得改写、不得省略。\n2. 禁止用 data URI/base64 嵌入图片（浪费 token）、禁止用 [下载链接](url)、禁止用 HTML <img> 标签。\n3. 前端只认 `![图片](url)` 这一种格式。\n4. 如果 url 是 CDN 链接返回 403，请使用 data.message 中的 /workspace/kling_tasks/ 本地 HTTP 路径。\n5. 验证方法：你输出后如果没看到图片，说明你写错格式了，必须立刻修正。"
   },
@@ -140,23 +144,6 @@
           "type": "integer",
           "required": false,
           "description": "返回正文最大字符数，默认 500000；与行/字区间组合时用于二次截断。"
-        },
-        {
-          "flag": "--restrict_to_workspace",
-          "type": "boolean",
-          "required": false,
-          "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
-        },
-        {
-          "flag": "--run_type",
-          "type": "enum",
-          "required": false,
-          "values": [
-            "auto",
-            "plan",
-            "execute"
-          ],
-          "description": "与清单字段一致；只读工具不拦截，占位供宿主统一剥离/校验。"
         }
       ],
       "examples": [
@@ -201,7 +188,7 @@
         },
         {
           "title": "编码与越界只读",
-          "note": "auto 编码探测；默认可访问 WORKSPACE_DIR 外路径，需限制时传 restrict_to_workspace:true。",
+          "note": "auto 编码探测；默认可访问工作区外绝对路径。",
           "args": {
             "path": "D:/refs/notes.txt",
             "encoding": "auto",
@@ -214,7 +201,7 @@
     {
       "name": "grep_files.py",
       "path": "tools/grep_files.py",
-      "purpose": "grep_files：在 path（文件或目录根）下搜索 pattern，返回 matches（含 file、line、column、match、region_start、region_end、上下文）。调查阶段首选 grep_files，再 read_file 读局部；可与 read_file 同轮并行。region 可直接作 replace_in_file 区间。目录 path：省略 glob_pattern 仅扫内置文本/源码扩展名；任意类型传 glob_pattern=\"*\"。recursive、no_gitignore 控制范围。",
+      "purpose": "grep_files【内容搜索·默认首选】：在 path 下搜 pattern（字面或简单正则，| 为 OR）。返回 matches 含 region_start/end 可直传 replace_in_file。大目录勿用 file_search 除非要进度条。目录省略 glob_pattern=仅文本/源码扩展名。",
       "stdout_output": "{ok,data:{matches:[{file,line,column,match,region_start,region_end,text,context?}],...}}",
       "args": [
         {
@@ -276,23 +263,6 @@
           "type": "boolean",
           "required": false,
           "description": "true 表示不按 .gitignore 过滤；默认在 Git 仓库内会排除被忽略文件。"
-        },
-        {
-          "flag": "--restrict_to_workspace",
-          "type": "boolean",
-          "required": false,
-          "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
-        },
-        {
-          "flag": "--run_type",
-          "type": "enum",
-          "required": false,
-          "values": [
-            "auto",
-            "plan",
-            "execute"
-          ],
-          "description": "占位与清单一致；grep_files 只读不拦截。"
         }
       ],
       "examples": [
@@ -422,23 +392,6 @@
           "type": "string",
           "required": false,
           "description": "读文件编码，默认 utf-8。"
-        },
-        {
-          "flag": "--restrict_to_workspace",
-          "type": "boolean",
-          "required": false,
-          "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
-        },
-        {
-          "flag": "--run_type",
-          "type": "enum",
-          "required": false,
-          "values": [
-            "auto",
-            "plan",
-            "execute"
-          ],
-          "description": "占位与清单一致；只读不拦截。"
         }
       ],
       "examples": [
@@ -484,7 +437,7 @@
     {
       "name": "regex_locate.py",
       "path": "tools/regex_locate.py",
-      "purpose": "regex_locate：在单文件或目录 path 下用 Python 正则检索；每条命中含 region_start/region_end（0-based 半开）、line/column、match 文本等。path 为目录时：省略 glob_pattern 则仅扫内置文本/源码类扩展名，默认排除非文本类文件；需任意类型传 glob_pattern=\"*\"。recursive 与 glob_pattern 控制范围；multiline=true 等价 re.DOTALL。大目录时宿主会推送 tool_progress。",
+      "purpose": "regex_locate【内容搜索·高级正则】：需 Python 正则特性（dotall 跨行、lookahead 等）时用；返回字段同 grep_files。一般调查仍优先 grep_files。",
       "stdout_output": "{ok,data:{count,items:[{region_start,region_end,match,...}],...}}",
       "args": [
         {
@@ -506,16 +459,16 @@
           "description": "re.IGNORECASE。"
         },
         {
-          "flag": "--multiline",
+          "flag": "--dotall",
           "type": "boolean",
           "required": false,
-          "description": "true 时加 re.DOTALL，使 . 匹配换行。"
+          "description": "true 时加 re.DOTALL，使 . 匹配换行（跨行/多行正则）；始终含 re.MULTILINE（^/$ 按行）。"
         },
         {
           "flag": "--recursive",
           "type": "boolean",
           "required": false,
-          "description": "path 为目录时是否递归；默认 false（仅当前层 glob_pattern 过滤）。"
+          "description": "path 为目录时是否递归子目录；默认 true；false 时仅当前层。"
         },
         {
           "flag": "--glob_pattern",
@@ -534,12 +487,6 @@
           "type": "integer",
           "required": false,
           "description": "最多返回命中条数，默认 200。"
-        },
-        {
-          "flag": "--restrict_to_workspace",
-          "type": "boolean",
-          "required": false,
-          "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         }
       ],
       "examples": [
@@ -573,12 +520,12 @@
           }
         },
         {
-          "title": "多行正则",
-          "note": "跨行匹配 docstring。",
+          "title": "多行正则（dotall）",
+          "note": "跨行匹配 docstring；使用 dotall。",
           "args": {
             "path": "api.py",
             "pattern": "\"\"\".*?\"\"\"",
-            "multiline": true,
+            "dotall": true,
             "limit": 20
           }
         }
@@ -587,7 +534,7 @@
     {
       "name": "file_search.py",
       "path": "tools/file_search.py",
-      "purpose": "file_search：大目录或长耗时场景下在 path 内搜索文件内容（字面/正则），返回与 grep_files 对齐的命中字段：file、line、column、text、match、region_start、region_end、上下文；region_start/region_end 可直接交给 replace_in_file。宿主可推送进度。轻量搜索优先 grep_files；超大目录或需要 UI 进度时用本 function。path 为目录时：省略 glob_pattern 则仅扫内置文本/源码类扩展名；需任意类型全文检索须显式 glob_pattern=\"*\"（慎用）。单目录默认最多扫 10000 个文件。",
+      "purpose": "file_search【内容搜索·大范围+进度】：仅当目录极大或需要侧栏 tool_progress 时用；返回同 grep_files。日常定位一律 grep_files。须经对话 function 调用（勿 run_command 旁路）。",
       "stdout_output": "{ok,data:{matches:[{file,line,column,text,match,region_start,region_end,...}],...}}",
       "args": [
         {
@@ -643,23 +590,6 @@
           "type": "integer",
           "required": false,
           "description": "全局最大匹配条数，防止超大输出。"
-        },
-        {
-          "flag": "--restrict_to_workspace",
-          "type": "boolean",
-          "required": false,
-          "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
-        },
-        {
-          "flag": "--run_type",
-          "type": "enum",
-          "required": false,
-          "values": [
-            "auto",
-            "plan",
-            "execute"
-          ],
-          "description": "占位与清单一致；搜索只读不拦截。"
         }
       ],
       "examples": [
@@ -731,7 +661,7 @@
     {
       "name": "glob_files.py",
       "path": "tools/glob_files.py",
-      "purpose": "glob_files：在 path 目录下列出路径（不读内容）。function 名固定 glob_files。匹配用 glob_pattern（pattern 为别名）。entry_type 控制 file/dir/all；可选 no_gitignore 过滤。",
+      "purpose": "glob_files：在 path 目录下列出路径（不读内容）。匹配用 glob_pattern；entry_type 控制 file/dir/all；可选 no_gitignore。",
       "stdout_output": "{ok,data:{path,paths,items:[{path,relative_path,kind}],count,truncated,git_repo_root,...}}",
       "args": [
         {
@@ -745,12 +675,6 @@
           "type": "string",
           "required": false,
           "description": "glob_pattern 参数，相对 path，默认 **/*；如 **/*.test.ts。"
-        },
-        {
-          "flag": "--pattern",
-          "type": "string",
-          "required": false,
-          "description": "glob_pattern 的短别名；可与 glob_pattern 二选一。"
         },
         {
           "flag": "--recursive",
@@ -780,12 +704,6 @@
           "type": "integer",
           "required": false,
           "description": "最多返回条数，防超大目录。"
-        },
-        {
-          "flag": "--restrict_to_workspace",
-          "type": "boolean",
-          "required": false,
-          "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         }
       ],
       "examples": [
@@ -1120,12 +1038,6 @@
           "type": "integer",
           "required": false,
           "description": "unified diff 上下文行数，默认 3。"
-        },
-        {
-          "flag": "--restrict_to_workspace",
-          "type": "boolean",
-          "required": false,
-          "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         }
       ],
       "examples": [
@@ -1594,7 +1506,7 @@
     {
       "name": "replace_in_file.py",
       "path": "tools/replace_in_file.py",
-      "purpose": "【单文件 find-replace】OpenAI function 名固定为 replace_in_file——即本工具完成 URL/文本片段替换；禁止 cli_find_replace、search_replace 等臆造名。find_in_file 仅只读定位，不负责写回。模式 A：old_text+new_text 字面替换（可 replace_all、expected_replacements）。模式 B：region / 行列矩形替换。模式 C：rules 数组多条顺序替换。EXECUTE 真写须 dry_run=false（或 run_type execute）。备份用 backup:true。",
+      "purpose": "【单文件 find-replace】OpenAI function 名固定为 replace_in_file——即本工具完成 URL/文本片段替换；禁止 cli_find_replace、search_replace 等臆造名。find_in_file 仅只读定位，不负责写回。模式 A：old_text+new_text 字面替换（可 replace_all、expected_replacements；JSON 含真实换行却要写入源码字面 \\n 时 raw=true）。模式 B：region / 行列矩形替换。模式 C：rules 数组多条顺序替换。EXECUTE 真写须 dry_run=false（或 run_type execute）。备份用 backup:true。",
       "stdout_output": "{ok,data:{diff_text,replacements,counts_per_rule,...}}",
       "args": [
         {
@@ -1751,6 +1663,12 @@
           "description": "写盘前备份原文件为 .bak。"
         },
         {
+          "flag": "--raw",
+          "type": "boolean",
+          "required": false,
+          "description": "true 时将 new_text/old_text 中的实际换行/制表符还原为字面转义序列（\\n、\\t），适用于替换 Python 字符串字面量等场景。"
+        },
+        {
           "flag": "--restrict_to_workspace",
           "type": "boolean",
           "required": false,
@@ -1776,6 +1694,17 @@
             "path": "app.py",
             "old_text": "DEBUG = True",
             "new_text": "DEBUG = False",
+            "dry_run": true
+          }
+        },
+        {
+          "title": "字面转义 raw",
+          "note": "JSON 里 new_text 含真实换行，要写进 .py 为字面 \\n 时 raw=true；宿主并入 description 的前 2 条示例之一。",
+          "args": {
+            "path": "config.py",
+            "old_text": "MSG = \"ok\"",
+            "new_text": "MSG = \"line1\nline2\"",
+            "raw": true,
             "dry_run": true
           }
         },
@@ -2283,17 +2212,6 @@
           "type": "boolean",
           "required": false,
           "description": "CLI 下 true 输出 JSON 信封。"
-        },
-        {
-          "flag": "--run_type",
-          "type": "enum",
-          "required": false,
-          "values": [
-            "auto",
-            "plan",
-            "execute"
-          ],
-          "description": "占位；本工具只读。"
         }
       ],
       "examples": [
@@ -2523,14 +2441,14 @@
     {
       "name": "image_ocr.py",
       "path": "tools/image_ocr.py",
-      "purpose": "image_ocr：对 source 图片做 OCR 文字识别，engine 可选 pytesseract（本地）或 easyocr（AI）。easyocr 按需 pip install；pytesseract 需系统 Tesseract。",
+      "purpose": "image_ocr：对 path 指定图片做 OCR，engine 可选 pytesseract 或 easyocr。",
       "stdout_output": "{ok,data:{full_text,...}}",
       "args": [
         {
-          "flag": "--source",
+          "flag": "--path",
           "type": "string",
           "required": true,
-          "description": "图片路径。"
+          "description": "图片文件路径。"
         },
         {
           "flag": "--lang",
@@ -2554,12 +2472,6 @@
             "easyocr"
           ],
           "description": "OCR 引擎。"
-        },
-        {
-          "flag": "--restrict_to_workspace",
-          "type": "boolean",
-          "required": false,
-          "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         }
       ],
       "examples": [
@@ -2567,32 +2479,32 @@
           "title": "整图默认识别",
           "note": "中英混合。",
           "args": {
-            "source": "shots/ui.png"
+            "path": "shots/ui.png"
           }
         },
         {
           "title": "指定语言",
           "note": "仅英文。",
           "args": {
-            "source": "scan.jpg",
             "lang": "eng",
-            "engine": "pytesseract"
+            "engine": "pytesseract",
+            "path": "scan.jpg"
           }
         },
         {
           "title": "裁剪区域",
           "note": "只识别标题栏。",
           "args": {
-            "source": "full.png",
-            "region": "10,80,400,60"
+            "region": "10,80,400,60",
+            "path": "full.png"
           }
         },
         {
           "title": "强制 easyocr",
           "note": "无 Tesseract 时。",
           "args": {
-            "source": "id.jpg",
-            "engine": "easyocr"
+            "engine": "easyocr",
+            "path": "id.jpg"
           }
         }
       ]
@@ -2620,10 +2532,10 @@
           "description": "操作类型：action=preview / action=filter / action=sort / action=stats / action=to_json / action=to_csv / action=to_md / action=sheets。"
         },
         {
-          "flag": "--source",
+          "flag": "--path",
           "type": "string",
           "required": true,
-          "description": "表格文件路径。"
+          "description": "表格文件路径（CSV/Excel/TSV）。"
         },
         {
           "flag": "--sheet",
@@ -2672,12 +2584,6 @@
           "type": "string",
           "required": false,
           "description": "action=stats 数值列名。"
-        },
-        {
-          "flag": "--restrict_to_workspace",
-          "type": "boolean",
-          "required": false,
-          "description": "true 时将该工具涉及的路径限定在 WORKSPACE_DIR（工作区根）内；默认 false，即允许任意绝对路径。"
         }
       ],
       "examples": [
@@ -2686,8 +2592,8 @@
           "note": "前 20 行。",
           "args": {
             "action": "preview",
-            "source": "data/orders.csv",
-            "limit": 20
+            "limit": 20,
+            "path": "data/orders.csv"
           }
         },
         {
@@ -2695,9 +2601,9 @@
           "note": "xlsx。",
           "args": {
             "action": "preview",
-            "source": "report.xlsx",
             "sheet": "Summary",
-            "limit": 50
+            "limit": 50,
+            "path": "report.xlsx"
           }
         },
         {
@@ -2705,7 +2611,7 @@
           "note": "Excel。",
           "args": {
             "action": "sheets",
-            "source": "report.xlsx"
+            "path": "report.xlsx"
           }
         },
         {
@@ -2713,10 +2619,10 @@
           "note": "status=done。",
           "args": {
             "action": "filter",
-            "source": "tasks.csv",
             "filter_col": "status",
             "filter_val": "done",
-            "limit": 100
+            "limit": 100,
+            "path": "tasks.csv"
           }
         },
         {
@@ -2724,10 +2630,10 @@
           "note": "邮箱列。",
           "args": {
             "action": "filter",
-            "source": "users.csv",
             "filter_col": "email",
             "filter_val": "@example\\.com$",
-            "regex": true
+            "regex": true,
+            "path": "users.csv"
           }
         },
         {
@@ -2735,10 +2641,10 @@
           "note": "按日期降序。",
           "args": {
             "action": "sort",
-            "source": "events.csv",
             "sort_col": "date",
             "sort_desc": true,
-            "limit": 30
+            "limit": 30,
+            "path": "events.csv"
           }
         },
         {
@@ -2746,9 +2652,9 @@
           "note": "金额列 sum/count。",
           "args": {
             "action": "stats",
-            "source": "sales.xlsx",
             "sheet": "Q1",
-            "col": "amount"
+            "col": "amount",
+            "path": "sales.xlsx"
           }
         },
         {
@@ -2756,8 +2662,8 @@
           "note": "简报。",
           "args": {
             "action": "to_md",
-            "source": "summary.csv",
-            "limit": 15
+            "limit": 15,
+            "path": "summary.csv"
           }
         }
       ]
@@ -3480,18 +3386,9 @@
     {
       "name": "session_send.py",
       "path": "tools/session_send.py",
-      "purpose": "session_send：向 target_id 指定 Agent 发 message 并触发执行（action=send）。点对点沟通、追问、汇报；目标忙时入 inbox 队列。requires_reply、thread_id 见参数说明。",
+      "purpose": "session_send：向 target_id 指定 Agent 发 message 并触发执行。点对点沟通、追问、汇报；目标忙时入 inbox 队列。requires_reply、thread_id 见参数说明。",
       "stdout_output": "{ok,data:{target_id,queued,run_id,message_sent}}",
       "args": [
-        {
-          "flag": "--action",
-          "type": "enum",
-          "required": true,
-          "values": [
-            "send"
-          ],
-          "description": "操作类型；session_send 仅支持 action=send。"
-        },
         {
           "flag": "--target_id",
           "type": "string",
@@ -3508,7 +3405,7 @@
           "flag": "--thread_id",
           "type": "string",
           "required": false,
-          "description": "协作线程 ID。需要 session_wait 等回复时必须传同一个 thread_id。"
+          "description": "协作线程 ID。传空时自动生成（auto-{发送方CID前8位}-{时间戳}）。同一话题的消息应使用相同 thread_id 以便追踪。"
         },
         {
           "flag": "--channel",
@@ -3534,7 +3431,6 @@
           "title": "点对点询问",
           "note": "发给指定 Agent，并带 thread_id 便于等待回复。requires_reply 必填。",
           "args": {
-            "action": "send",
             "target_id": "uuid-a1",
             "thread_id": "task-login-api",
             "message": "请评审登录 API 方案并回复结论。",
@@ -3545,7 +3441,6 @@
           "title": "回复入站 requires_reply=true",
           "note": "本回合 P0：收到 peer 要求回复时，第一个 tool 应是 session_send；target_id 用 sender_cid。",
           "args": {
-            "action": "send",
             "target_id": "uuid-peer-sender",
             "thread_id": "task-login-api",
             "message": "已收到，结论如下：……",
@@ -3556,7 +3451,6 @@
           "title": "纯通知",
           "note": "不要求对方回复时 requires_reply=false。",
           "args": {
-            "action": "send",
             "target_id": "uuid-a1",
             "message": "后端部署已完成，无需回复。",
             "requires_reply": false
@@ -3567,19 +3461,9 @@
     {
       "name": "session_multisend.py",
       "path": "tools/session_multisend.py",
-      "purpose": "session_multisend：向 target_ids 多个 Agent 发送同一条 message（action=send 或 action=multisend）。小组私聊、并行派工等。requires_reply 必填。",
+      "purpose": "session_multisend：向 target_ids 多个 Agent 发送同一条 message。小组私聊、并行派工等。requires_reply 必填。",
       "stdout_output": "{ok,data:{sent,skipped,count,thread_id}}",
       "args": [
-        {
-          "flag": "--action",
-          "type": "enum",
-          "required": false,
-          "values": [
-            "send",
-            "multisend"
-          ],
-          "description": "操作类型，默认 action=send；action=multisend 为同义别名。"
-        },
         {
           "flag": "--target_ids",
           "type": "array",
@@ -3596,7 +3480,7 @@
           "flag": "--thread_id",
           "type": "string",
           "required": false,
-          "description": "协作线程 ID，用于后续 session_wait。"
+          "description": "协作线程 ID。传空时自动生成（auto-{发送方CID前8位}-{时间戳}）。同一话题的消息应使用相同 thread_id 以便追踪。"
         },
         {
           "flag": "--channel",
@@ -3622,7 +3506,6 @@
           "title": "小组私聊",
           "note": "只发给指定几个 Agent。",
           "args": {
-            "action": "send",
             "target_ids": [
               "uuid-a1",
               "uuid-a2"
@@ -3638,18 +3521,9 @@
     {
       "name": "session_broadcast.py",
       "path": "tools/session_broadcast.py",
-      "purpose": "session_broadcast：向 Agent 网络广播 message（action=broadcast）。必须传 tag 筛选目标群组，禁止全员广播。目标忙时自动入队。",
+      "purpose": "session_broadcast：向 Agent 网络广播 message。必须传 tag 筛选目标群组，禁止全员广播。目标忙时自动入队。",
       "stdout_output": "{ok,data:{sent,skipped,count}}",
       "args": [
-        {
-          "flag": "--action",
-          "type": "enum",
-          "required": true,
-          "values": [
-            "broadcast"
-          ],
-          "description": "操作类型；session_broadcast 仅支持 action=broadcast。"
-        },
         {
           "flag": "--role",
           "type": "string",
@@ -3678,7 +3552,7 @@
           "flag": "--thread_id",
           "type": "string",
           "required": false,
-          "description": "协作线程 ID，会传递给各目标的 session_send。"
+          "description": "协作线程 ID，会传递给各目标的 session_send。传空时自动生成。"
         },
         {
           "flag": "--priority",
@@ -3698,7 +3572,6 @@
           "title": "按 tag 群发公告",
           "note": "向指定 tag 的 Agent 广播。",
           "args": {
-            "action": "broadcast",
             "tag": "spy-game",
             "message": "天亮了，请所有存活玩家准备发言。",
             "requires_reply": true
@@ -3708,7 +3581,6 @@
           "title": "纯通知广播",
           "note": "按 tag 广播，不要求回复。",
           "args": {
-            "action": "broadcast",
             "tag": "spy-game",
             "message": "系统维护通知",
             "requires_reply": false
@@ -3719,45 +3591,23 @@
     {
       "name": "session_list.py",
       "path": "tools/session_list.py",
-      "purpose": "session_list：列出 Session Mesh 中自由 Agent（action=list），返回 cid/name/role/status/tags/queueSize。",
+      "purpose": "session_list：列出 Session Mesh 中自由 Agent，返回 cid/name/role/status/tags/queueSize。无参数。",
       "stdout_output": "{ok,data:{agents,count}}",
-      "args": [
-        {
-          "flag": "--action",
-          "type": "enum",
-          "required": false,
-          "values": [
-            "list"
-          ],
-          "description": "操作类型，默认 action=list。"
-        }
-      ],
+      "args": [],
       "examples": [
         {
           "title": "查看 Agent 列表",
           "note": "获取可通讯 Agent。",
-          "args": {
-            "action": "list"
-          }
+          "args": {}
         }
       ]
     },
     {
       "name": "session_wait.py",
       "path": "tools/session_wait.py",
-      "purpose": "session_wait：检查 target_ids 是否已在 thread_id 下回复（action=check/action=wait）。推荐 action=wait 或 suspend=true：pending 时挂起当前 Agent；目标 session_send 回复后自动恢复。",
+      "purpose": "session_wait：检查 target_ids 是否已在 thread_id 下回复。pending 时传 suspend=true 挂起当前 Agent，目标 session_send 回复后自动恢复。同会话内 send/wait 共用发送方 conversation_id；跨会话 Tab 等待时传 sender_cid=发出 session_send 的会话 ID。",
       "stdout_output": "{ok,data:{completed,pending,messages,all_done,thread_id,should_stop_turn?,suspend?,wait_state?,instruction?}}",
       "args": [
-        {
-          "flag": "--action",
-          "type": "enum",
-          "required": false,
-          "values": [
-            "check",
-            "wait"
-          ],
-          "description": "操作类型。action=check 只检查；action=wait 若 pending 则挂起当前 Agent，等待目标回复后自动恢复。"
-        },
         {
           "flag": "--target_ids",
           "type": "array",
@@ -3774,19 +3624,37 @@
           "flag": "--suspend",
           "type": "boolean",
           "required": false,
-          "description": "为 true 时，pending 会挂起当前 Agent，本轮不再继续轮询。action=wait 时等价于 true。"
+          "description": "为 true 时，pending 会挂起当前 Agent，本轮不再继续轮询 session_wait。"
+        },
+        {
+          "flag": "--sender_cid",
+          "type": "string",
+          "required": false,
+          "description": "跨会话等待时指定发送方 conversation_id；省略时默认用当前会话。"
         }
       ],
       "examples": [
         {
           "title": "检查单人回复",
-          "note": "法官等待玩家1发言。",
+          "note": "同一会话内 wait；未齐时 suspend=true 挂起。",
           "args": {
-            "action": "check",
             "target_ids": [
               "uuid-a1"
             ],
-            "thread_id": "day1-speak-1"
+            "thread_id": "day1-speak-1",
+            "suspend": true
+          }
+        },
+        {
+          "title": "跨会话 sender_cid",
+          "note": "session_send 在会话 A 发出 requires_reply；在会话 B 调 wait 时传 sender_cid=A 的 conversation_id，thread_id 与 send 一致。",
+          "args": {
+            "target_ids": [
+              "uuid-a1"
+            ],
+            "thread_id": "day1-speak-1",
+            "sender_cid": "conv-session-a-uuid",
+            "suspend": true
           }
         }
       ]
@@ -3794,18 +3662,9 @@
     {
       "name": "session_create.py",
       "path": "tools/session_create.py",
-      "purpose": "session_create：创建自由 Agent 会话（action=create）。支持 name/persona/count/name_prefix/tags，批量创建玩家、评审员等。",
+      "purpose": "session_create：创建自由 Agent 会话。支持 name/persona/count/name_prefix/tags，批量创建玩家、评审员等。",
       "stdout_output": "{ok,data:{agents,count,session_id,name,role}}",
       "args": [
-        {
-          "flag": "--action",
-          "type": "enum",
-          "required": true,
-          "values": [
-            "create"
-          ],
-          "description": "操作类型；session_create 仅支持 action=create。"
-        },
         {
           "flag": "--role",
           "type": "string",
@@ -3854,7 +3713,6 @@
           "title": "批量创建玩家",
           "note": "创建 10 个自由 Agent。",
           "args": {
-            "action": "create",
             "count": 10,
             "name_prefix": "玩家",
             "role": "狼人杀玩家",

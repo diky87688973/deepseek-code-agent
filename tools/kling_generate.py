@@ -376,7 +376,9 @@ def agent_main(*, action: str = "text2video", prompt: str = "",
                voice_language: str = "",
                voice_speed: float = 1.0,
                query_action: str = "",
-               run_type: str = "") -> dict:
+               run_type: str = "",
+               confirm_id: str = "") -> dict:
+    _ = confirm_id  # 宿主确认流在 tool_runtime 消费；签名与 catalog 对齐
     try:
         if not _get_cfg("AGENT_KLING_API_KEY") or not _get_cfg("AGENT_KLING_SECRET_KEY"):
             return {"ok": False, "data": None, "error": {"type": "ConfigError", "message": "config.ini [kling] api_key/secret_key 未配置"}}

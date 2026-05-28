@@ -63,7 +63,11 @@ def _run_shell_streaming(
         stderr=subprocess.PIPE,
         creationflags=creationflags,
     )
-    register_shell_process(proc.pid)
+    shell_scope = str((progress or {}).get("_shell_scope") or "").strip()
+    from command_safety import _DEFAULT_SHELL_SCOPE
+
+    shell_scope = shell_scope or _DEFAULT_SHELL_SCOPE
+    register_shell_process(proc.pid, shell_scope)
     stdout_parts: List[bytes] = []
     stderr_parts: List[bytes] = []
     buf_lock = threading.Lock()
@@ -211,7 +215,7 @@ def _run_shell_streaming(
             err = {"type": "CommandFailed", "message": msg}
         return {"ok": ok_sub, "data": data, "error": err}
     finally:
-        unregister_shell_process()
+        unregister_shell_process(shell_scope)
 
 
 def agent_main(

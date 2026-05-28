@@ -10,7 +10,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import agent_common as ac
 
@@ -138,7 +138,7 @@ def _do_to_md(rows: List[dict], limit: int) -> str:
 def agent_main(
     *,
     action: str,
-    source: str,
+    path: str = "",
     sheet: Optional[str] = None,
     limit: int = 20,
     filter_col: Optional[str] = None,
@@ -147,11 +147,18 @@ def agent_main(
     sort_col: Optional[str] = None,
     sort_desc: bool = False,
     col: Optional[str] = None,
-    restrict_to_workspace: bool = False,
+    **_kwargs: Any,
 ) -> dict:
+    if _kwargs.get("source"):
+        return ac.err(
+            ValueError("data_table 使用 path 指定表格文件，勿传已废弃的 source 参数")
+        )
     act = str(action or "").strip().lower().replace("-", "_")
+    src_arg = str(path or "").strip()
+    if not src_arg:
+        return ac.err(ValueError("缺少 path（表格文件路径）"))
     try:
-        src = ac.resolve_path(source, allow_outside_workspace=not restrict_to_workspace)
+        src = ac.resolve_path(src_arg, allow_outside_workspace=True)
         if not src.is_file():
             return ac.err(FileNotFoundError(f"文件不存在: {src}"))
 
@@ -201,7 +208,7 @@ def agent_main(
 def main() -> None:
     p = argparse.ArgumentParser(description="data_table")
     p.add_argument("--action", required=True)
-    p.add_argument("--source", required=True)
+    p.add_argument("--path", required=True, help="表格文件路径")
     p.add_argument("--sheet", default=None)
     p.add_argument("--limit", type=int, default=20)
     p.add_argument("--filter_col", default=None)
@@ -210,16 +217,11 @@ def main() -> None:
     p.add_argument("--sort_col", default=None)
     p.add_argument("--sort_desc", action="store_true")
     p.add_argument("--col", default=None)
-    p.add_argument(
-        "--restrict_to_workspace",
-        action="store_true",
-        help="将 source 限定在 WORKSPACE_DIR 内（默认不限制）。",
-    )
     p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
     r = agent_main(
         action=args.action,
-        source=args.source,
+        path=args.path,
         sheet=args.sheet,
         limit=args.limit,
         filter_col=args.filter_col,

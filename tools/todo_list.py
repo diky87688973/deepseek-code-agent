@@ -198,8 +198,46 @@ def execute(conversation_id: str, exec_args: Dict[str, Any]) -> dict:
     return {"ok": False, "data": None, "error": {"type": "ValueError", "message": f"未知 action: {action}"}}
 
 
-def agent_main(**_: Any) -> dict:
-    return ac.err(RuntimeError("todo_list 仅由宿主在会话上下文中调用，不要直接运行脚本"))
+def agent_main(
+    *,
+    action: str = "",
+    items: Any = None,
+    indices: Any = None,
+    item_index: Any = None,
+    text: str = "",
+    conversation_id: str = "",
+    json_out: bool = False,
+    **_kwargs: Any,
+) -> dict:
+    """与 catalog / OpenAPI 一致的扁平参数；宿主经 execute(conversation_id, exec_args) 调用。"""
+    _ = json_out
+    cid = str(conversation_id or _kwargs.get("conversation_id") or "").strip()
+    if not cid:
+        return {
+            "ok": False,
+            "data": None,
+            "error": {
+                "type": "RuntimeError",
+                "message": "todo_list 须由宿主传入 conversation_id",
+            },
+        }
+    exec_args: Dict[str, Any] = {}
+    if action:
+        exec_args["action"] = action
+    if items is not None:
+        exec_args["items"] = items
+    if indices is not None:
+        exec_args["indices"] = indices
+    if item_index is not None:
+        exec_args["item_index"] = item_index
+    if text:
+        exec_args["text"] = text
+    for k, v in _kwargs.items():
+        if k in ("conversation_id", "run_type", "step_title") or v is None:
+            continue
+        if k not in exec_args:
+            exec_args[k] = v
+    return execute(cid, exec_args)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -225,22 +263,41 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--indices", default=None, help="check/uncheck：JSON 整数数组，如 [0,1]")
     p.add_argument("--item_index", type=int, default=None)
     p.add_argument("--text", default=None)
+    p.add_argument("--conversation_id", required=True, help="会话 ID（与宿主 conversation_id 一致）")
     p.add_argument("--json_out", action="store_true")
     return p
 
 
 def main() -> None:
+    import json as _j
     import sys
 
     p = build_parser()
     args = p.parse_args()
-    r = agent_main()
+    exec_args: Dict[str, Any] = {"action": args.action}
+    if args.items is not None:
+        raw = args.items
+        exec_args["items"] = _j.loads(raw) if isinstance(raw, str) and raw.strip().startswith("[") else raw
+    if args.indices is not None:
+        raw = args.indices
+        exec_args["indices"] = _j.loads(raw) if isinstance(raw, str) and raw.strip().startswith("[") else raw
+    if args.item_index is not None:
+        exec_args["item_index"] = args.item_index
+    if args.text is not None:
+        exec_args["text"] = args.text
+    cid = str(getattr(args, "conversation_id", "") or "").strip()
+    if not cid:
+        print("CLI 调试须传 --conversation_id", file=sys.stderr)
+        sys.exit(2)
+    r = agent_main(conversation_id=cid, json_out=args.json_out, **exec_args)
     if args.json_out:
-        import json as _j
         print(_j.dumps(r, ensure_ascii=False))
     else:
-        print((r.get("error") or {}).get("message", ""), file=sys.stderr)
-        sys.exit(1)
+        if r.get("ok"):
+            print(_j.dumps(r.get("data"), ensure_ascii=False, indent=2))
+        else:
+            print((r.get("error") or {}).get("message", ""), file=sys.stderr)
+            sys.exit(1)
 
 
 if __name__ == "__main__":

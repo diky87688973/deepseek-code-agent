@@ -1,10 +1,11 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """session_send 工具：Agent 间互发消息，触发接收方执行。"""
 from __future__ import annotations
 
+import time
 from typing import Any, Dict, Optional
 
-from tools.agent_common import parse_tool_bool, utf8_preview
+import agent_common as ac
 
 
 def _get_last_assistant_content(messages: list) -> str:
@@ -17,7 +18,6 @@ def _get_last_assistant_content(messages: list) -> str:
 
 def agent_main(
     *,
-    action: str = "",
     target_id: str = "",
     message: str = "",
     priority: str = "normal",
@@ -26,12 +26,8 @@ def agent_main(
     channel: str = "direct",
     **_kwargs: Any,
 ) -> Dict[str, Any]:
-    """session_send 入口。action=send 发消息给目标会话并触发执行。"""
-    action = str(action or "").strip().lower()
-    if not action:
-        return {"ok": False, "error": {"type": "invalid_args", "message": "缺少 action 参数。可选: send"}}
-    if action != "send":
-        return {"ok": False, "error": {"type": "unknown_action", "message": f"未知 action: {action}。可选: send"}}
+    """session_send 入口：向目标 Agent 发消息并触发执行（无 action 参数）。"""
+    _kwargs.pop("action", None)
 
     tid = str(target_id or "").strip()
     msg = str(message or "").strip()
@@ -49,15 +45,15 @@ def agent_main(
                 "message": "requires_reply 是必填参数。收到消息后，根据对方消息中的 requires_reply 元数据决定传 true（需回复）或 false（纯通知）。",
             },
         }
-    requires_reply_bool = parse_tool_bool(_rr_raw, True)
-    from agent_v2.live_state import (
+    requires_reply_bool = ac.parse_tool_bool(_rr_raw, True)
+    from agent_v3.live_state import (
         CONVERSATIONS,
         _ACTIVE_CONVERSATION_RUNS,
         conversation_run_locks,
         enqueue_session_inbox,
         get_agent_session,
     )
-    from agent_v2.agent_core import (
+    from agent_v3.agent_core import (
         _append_incoming_session_message_impl,
         _append_session_message_v2,
         _ensure_conversation_loaded,
@@ -89,7 +85,11 @@ def agent_main(
 
     _sender_tag = sender_fields.get("_sender", "")
     _sender_name = sender_fields.get("_sender_name", "")
-    _thread = str(thread_id or _kwargs.get("thread_id") or "").strip()
+    _thread_raw = str(thread_id or _kwargs.get("thread_id") or "").strip()
+    if not _thread_raw:
+        _prefix = (src_cid[:8] if len(src_cid) >= 8 else src_cid)[:8]
+        _thread_raw = f"auto-{_prefix}-{int(time.time())}"
+    _thread = _thread_raw
     _channel = str(channel or "direct").strip() or "direct"
     _meta_parts = []
     if _sender_tag:
@@ -113,7 +113,7 @@ def agent_main(
         "_requires_reply": requires_reply_bool,
     }
     user_msg.update(sender_fields)
-    preview = utf8_preview(msg, 200)
+    preview = ac.utf8_preview(msg, 200)
 
     if requires_reply_bool and src_cid != tid:
         with conversation_run_locks(src_cid):
@@ -182,3 +182,47 @@ def agent_main(
             "_sender": sender_fields,
         },
     }
+
+
+def build_parser() -> "argparse.ArgumentParser":
+    import argparse
+
+    p = argparse.ArgumentParser(description="session_send：人工调试 CLI → agent_main（无 --action）")
+    p.add_argument("--conversation_id", required=True, help="发送方会话 ID")
+    p.add_argument("--target_id", required=True)
+    p.add_argument("--message", required=True)
+    p.add_argument("--requires_reply", required=True, help="true 或 false")
+    p.add_argument("--thread_id", default="")
+    p.add_argument("--channel", default="direct")
+    p.add_argument("--priority", default="normal")
+    p.add_argument("--json_out", action="store_true")
+    return p
+
+
+def main() -> None:
+    import json
+    import sys
+
+    args = build_parser().parse_args()
+    r = agent_main(
+        target_id=args.target_id,
+        message=args.message,
+        requires_reply=args.requires_reply,
+        thread_id=args.thread_id,
+        channel=args.channel,
+        priority=args.priority,
+        conversation_id=args.conversation_id,
+    )
+    if args.json_out:
+        print(json.dumps(r, ensure_ascii=False))
+    else:
+        if r.get("ok"):
+            print(json.dumps(r.get("data"), ensure_ascii=False, indent=2))
+        else:
+            err = r.get("error") or {}
+            print(err.get("message", r), file=sys.stderr)
+            sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

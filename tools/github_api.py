@@ -12,9 +12,10 @@ import json
 import os
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Any, Dict, List, Optional
-
-import requests
 
 # GitHub OAuth 设备登录 Client ID（GitHub CLI 官方公开 ID）
 _CLIENT_ID = "178c6fc778ccc68e1d6a"
@@ -33,13 +34,58 @@ def _gh_ok(data: Any) -> Dict[str, Any]:
     return {"ok": True, "data": data, "error": None}
 
 
+def _http_json(
+    url: str,
+    *,
+    method: str = "GET",
+    headers: Optional[Dict[str, str]] = None,
+    json_body: Any = None,
+    form_body: Optional[Dict[str, str]] = None,
+    timeout: float = 15,
+) -> Any:
+    """HTTP 请求并解析 JSON（标准库 urllib）。"""
+    hdrs = {str(k): str(v) for k, v in (headers or {}).items()}
+    body_bytes: Optional[bytes] = None
+    if json_body is not None:
+        body_bytes = json.dumps(json_body).encode("utf-8")
+        hdrs.setdefault("Content-Type", "application/json; charset=utf-8")
+    elif form_body is not None:
+        body_bytes = urllib.parse.urlencode(form_body).encode("utf-8")
+        hdrs.setdefault("Content-Type", "application/x-www-form-urlencoded")
+
+    req = urllib.request.Request(url, data=body_bytes, headers=hdrs, method=method.upper())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as ex:
+        detail = ""
+        try:
+            detail = ex.read().decode("utf-8", errors="replace")
+        except Exception:
+            detail = str(ex.reason)
+        raise RuntimeError(f"HTTP {ex.code}: {detail or ex.reason}") from ex
+    except urllib.error.URLError as ex:
+        raise RuntimeError(str(ex.reason)) from ex
+
+    if not raw.strip():
+        return {}
+    return json.loads(raw)
+
+
 def _find_token() -> str:
     """查找 GitHub Token。优先级：GH_TOKEN 环境变量 > gh_token.txt"""
     env = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
     if env.strip():
         return env.strip()
     root = os.path.dirname(os.path.dirname(__file__))
-    for p in [os.path.join(root, "gh_token.txt"), "D:/AI_DATA_ROOT/gh_token.txt"]:
+    data_root = (
+        os.environ.get("AGENT_DATA_ROOT", "").strip()
+        or os.environ.get("DATA_ROOT", "").strip()
+    )
+    candidates = [os.path.join(root, "gh_token.txt")]
+    if data_root:
+        candidates.append(os.path.join(data_root, "gh_token.txt"))
+    for p in candidates:
         if os.path.isfile(p):
             with open(p, encoding="utf-8") as f:
                 return f.read().strip()
@@ -48,7 +94,14 @@ def _find_token() -> str:
 
 def _save_token(token: str) -> None:
     root = os.path.dirname(os.path.dirname(__file__))
-    for p in [os.path.join(root, "gh_token.txt"), "D:/AI_DATA_ROOT/gh_token.txt"]:
+    data_root = (
+        os.environ.get("AGENT_DATA_ROOT", "").strip()
+        or os.environ.get("DATA_ROOT", "").strip()
+    )
+    candidates = [os.path.join(root, "gh_token.txt")]
+    if data_root:
+        candidates.append(os.path.join(data_root, "gh_token.txt"))
+    for p in candidates:
         try:
             os.makedirs(os.path.dirname(p), exist_ok=True)
             with open(p, "w", encoding="utf-8") as f:
@@ -71,16 +124,13 @@ def _api(repo: str, path: str, method: str = "GET", data: Any = None) -> Dict[st
     }
     url = f"https://api.github.com/repos/{repo}{path}"
     try:
-        if method == "GET":
-            r = requests.get(url, headers=headers, timeout=15)
-        elif method == "POST":
-            r = requests.post(url, headers=headers, json=data, timeout=15)
-        elif method == "PUT":
-            r = requests.put(url, headers=headers, json=data, timeout=15)
-        else:
-            return _gh_err(f"不支持的 HTTP 方法: {method}", "ValueError")
-        r.raise_for_status()
-        return _gh_ok(r.json())
+        payload = _http_json(
+            url,
+            method=method,
+            headers=headers,
+            json_body=data if method in ("POST", "PUT", "PATCH") else None,
+        )
+        return _gh_ok(payload)
     except Exception as e:
         return _gh_err(str(e), e.__class__.__name__)
 
@@ -88,17 +138,19 @@ def _api(repo: str, path: str, method: str = "GET", data: Any = None) -> Dict[st
 def cmd_login() -> Dict[str, Any]:
     """发起 GitHub 设备登录"""
     try:
-        r = requests.post(
+        data = _http_json(
             "https://github.com/login/device/code",
+            method="POST",
             headers={"Accept": "application/json"},
-            data={"client_id": _CLIENT_ID, "scope": "repo,read:org,admin:public_key"},
-            timeout=15,
+            form_body={
+                "client_id": _CLIENT_ID,
+                "scope": "repo,read:org,admin:public_key",
+            },
         )
-        data = r.json()
         user_code = data["user_code"]
         device_code = data["device_code"]
         verification_uri = data["verification_uri"]
-        interval = data.get("interval", 5)
+        interval = int(data.get("interval", 5))
 
         print(f"\n🔑 验证码: {user_code}")
         print(f"🌐 打开: {verification_uri}")
@@ -113,17 +165,16 @@ def cmd_login() -> Dict[str, Any]:
 
         for _attempt in range(120):
             time.sleep(interval)
-            r2 = requests.post(
+            result = _http_json(
                 "https://github.com/login/oauth/access_token",
+                method="POST",
                 headers={"Accept": "application/json"},
-                data={
+                form_body={
                     "client_id": _CLIENT_ID,
                     "device_code": device_code,
                     "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
                 },
-                timeout=15,
             )
-            result = r2.json()
             if "access_token" in result:
                 _save_token(result["access_token"])
                 return _gh_ok({"message": "登录成功！Token 已保存。"})

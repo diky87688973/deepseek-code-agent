@@ -119,14 +119,17 @@ def agent_main(
     *,
     path: str,
     glob_pattern: str = "**/*",
-    pattern: Optional[str] = None,
     recursive: bool = True,
     limit: int = 500,
-    restrict_to_workspace: bool = False,
     run_type: str = "",
     entry_type: str = "file",
     no_gitignore: bool = False,
+    **_kwargs: object,
 ) -> dict:
+    if _kwargs.get("pattern"):
+        return ac.err(
+            ValueError("glob_files 使用 glob_pattern 匹配文件名，勿传已废弃的 pattern 别名")
+        )
     """
     entry_type: file | dir | all；默认 file 与历史 glob_files 行为一致。
     no_gitignore=False 时在 Git 仓库内尝试用 git check-ignore 批量过滤。
@@ -138,21 +141,13 @@ def agent_main(
 
         et = _normalize_entry_type(entry_type)
 
-        rp = ac.resolve_path(path, allow_outside_workspace=not restrict_to_workspace)
+        rp = ac.resolve_path(path, allow_outside_workspace=True)
         if not rp.exists():
             raise FileNotFoundError(f"路径不存在: {rp}")
         if not rp.is_dir():
             raise ValueError(f"path 必须是目录: {rp}")
 
-        gp_raw = (glob_pattern or "").strip()
-        pt_raw = (pattern or "").strip()
-        if gp_raw and gp_raw != "**/*":
-            effective_glob = gp_raw
-        elif pt_raw:
-            effective_glob = pt_raw
-        else:
-            effective_glob = gp_raw or ("**/*" if recursive else "*")
-        match_pat = (effective_glob or "").strip() or ("**/*" if recursive else "*")
+        match_pat = (glob_pattern or "").strip() or ("**/*" if recursive else "*")
 
         respect_gitignore = not no_gitignore
         repo_root = _find_git_root(rp) if respect_gitignore else None
@@ -263,19 +258,9 @@ def main() -> None:
     p = argparse.ArgumentParser(description="glob_files")
     p.add_argument("--path", required=True, help="目录根路径")
     p.add_argument("--glob_pattern", default="**/*")
-    p.add_argument(
-        "--pattern",
-        default=None,
-        help="glob_pattern 的短别名；若与非默认 glob_pattern 同传则以 glob_pattern 为准。",
-    )
     p.add_argument("--recursive", action="store_true", default=True)
     p.add_argument("--no_recursive", action="store_false", dest="recursive")
     p.add_argument("--limit", type=int, default=500)
-    p.add_argument(
-        "--restrict_to_workspace",
-        action="store_true",
-        help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
-    )
     p.add_argument(
         "--entry_type",
         dest="entry_type",
@@ -290,15 +275,11 @@ def main() -> None:
     )
     p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
-    alias_pt = getattr(args, "pattern", None)
-    restrict = bool(args.restrict_to_workspace)
     r = agent_main(
         path=args.path,
         glob_pattern=args.glob_pattern,
-        pattern=str(alias_pt).strip() if alias_pt else None,
         recursive=args.recursive,
         limit=args.limit,
-        restrict_to_workspace=restrict,
         entry_type=str(args.entry_type),
         no_gitignore=bool(args.no_gitignore),
     )

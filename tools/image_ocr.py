@@ -163,14 +163,18 @@ def _ocr_easyocr(image_path: Path, lang: str, region: Optional[Tuple[int, int, i
 
 def agent_main(
     *,
-    source: str,
+    path: str = "",
     lang: str = "chi_sim+eng",
     region: Optional[str] = None,
     engine: str = "auto",
-    restrict_to_workspace: bool = False,
+    **_kwargs: object,
 ) -> dict:
+    if _kwargs.get("source"):
+        return ac.err(ValueError("image_ocr 使用 path 指定图片，勿传已废弃的 source 参数"))
+    if not str(path or "").strip():
+        return ac.err(ValueError("缺少 path（图片文件路径）"))
     try:
-        src = ac.resolve_path(source, allow_outside_workspace=not restrict_to_workspace)
+        src = ac.resolve_path(str(path).strip(), allow_outside_workspace=True)
         if not src.is_file():
             return ac.err(FileNotFoundError(f"图片不存在: {src}"))
 
@@ -230,23 +234,17 @@ def agent_main(
 
 def main() -> None:
     p = argparse.ArgumentParser(description="image_ocr")
-    p.add_argument("--source", required=True)
+    p.add_argument("--path", required=True, help="图片文件路径")
     p.add_argument("--lang", default="chi_sim+eng")
     p.add_argument("--region", default=None)
     p.add_argument("--engine", default="auto")
-    p.add_argument(
-        "--restrict_to_workspace",
-        action="store_true",
-        help="将 source 限定在 WORKSPACE_DIR 内（默认不限制）。",
-    )
     p.add_argument("--json_out", action="store_true")
     args = p.parse_args()
     r = agent_main(
-        source=args.source,
+        path=args.path,
         lang=args.lang,
         region=args.region,
         engine=args.engine,
-        restrict_to_workspace=bool(args.restrict_to_workspace),
     )
     if args.json_out:
         print(json.dumps(r, ensure_ascii=False))

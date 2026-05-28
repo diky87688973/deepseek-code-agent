@@ -331,7 +331,7 @@ def main() -> None:
         help="省略=仅常见文本/源码后缀；* 表示全部文件（含各类非文本/二进制）",
     )
     p.add_argument("--recursive", action="store_true", default=True)
-    p.add_argument("--no-recursive", action="store_false", dest="recursive")
+    p.add_argument("--no_recursive", action="store_false", dest="recursive")
     p.add_argument("--context_lines", type=int, default=0, dest="context_lines")
     p.add_argument("--ignore_case", action="store_true", dest="ignore_case")
     p.add_argument("--no_gitignore", action="store_true", dest="no_gitignore")

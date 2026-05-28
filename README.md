@@ -1,4 +1,4 @@
-# DeepSeek Code Agent v1.3
+# DeepSeek Code Agent v1.4
 
 <p align="center">
   <strong>🤖 基于 WEB 浏览器的 AI 桌面助手</strong>
@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="#"><img src="https://img.shields.io/badge/版本-v1.3-blue" alt="版本"></a>
+  <a href="#"><img src="https://img.shields.io/badge/版本-v1.4-blue" alt="版本"></a>
   <a href="#"><img src="https://img.shields.io/badge/Python-3.8+-brightgreen" alt="Python"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/许可证-Apache%202.0-green" alt="许可证"></a>
   <a href="#"><img src="https://img.shields.io/badge/模型-DeepSeek%20v4-orange" alt="模型"></a>
@@ -56,10 +56,12 @@ pip install edge-tts
 # 4. 启动
 #    Windows：双击 start.bat
 #    Linux：  chmod +x start.sh && ./start.sh
-#    或直接： python deepseek_code_agent2.py
+#    或直接： python deepseek_code_agent3.py
 ```
 
 启动后浏览器访问 `http://127.0.0.1:8801` 打开主界面；多列沉浸布局访问 `http://127.0.0.1:8801/immersive`。
+
+**大重构 / 发版前回归**：只说「按文档回归」→ Agent 读 [`回归测试方案.md`](回归测试方案.md) 后 **自动执行** `python scripts/run_layer0.py`（含 `check_agent_v3_health` 等全套 Layer 0）。
 
 ---
 
@@ -137,8 +139,10 @@ pip install edge-tts
 
 ```text
 deepseek-code-agent/
-├── deepseek_code_agent2.py     # v2 入口（FastAPI 装配）
-├── agent_v2/                   # v2 业务与 HTTP 模块
+├── deepseek_code_agent3.py     # 当前入口（FastAPI → agent_v3）
+├── agent_v3/                   # 宿主：HTTP、core 子模块、live_state
+├── scripts/run_layer0.py       # 回归 Layer 0 一键门禁
+├── 回归测试方案.md             # 发版/重构后回归（Layer 0～2）
 ├── config.ini                  # 配置文件
 ├── requirements.txt            # Python 依赖
 ├── start.bat / start.sh        # 一键启动脚本
@@ -152,7 +156,7 @@ deepseek-code-agent/
 │   ├── js/                     # 前端 JS
 │   ├── img/                    # 截图资源
 │
-├── tools/                      # 内置工具（15+）
+├── tools/                      # 内置工具（catalog 38 个 function）
 │   ├── read_file.py / write_file.py
 │   ├── grep_files.py / glob_files.py
 │   ├── run_command.py / python_inline.py
@@ -231,4 +235,4 @@ enabled = false        # 默认关闭，改为 true 开机自动语音
 
 > **⭐ 如果这个项目对你有帮助，欢迎给个 Star！**
 >
-> 文档版本：v1.3  |  更新于：2026-05-22  |  作者：Fan
+> 文档版本：v1.4  |  更新于：2026-05-27  |  作者：Fan

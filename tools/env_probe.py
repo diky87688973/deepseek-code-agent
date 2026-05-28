@@ -19,9 +19,9 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def agent_main(*, run_type: str = "") -> dict:
-    """扁平参数；无业务必填项。run_type 仅占位与清单一致。"""
-    _ = run_type
+def agent_main(*, run_type: str = "", json_out: bool = False, **_kwargs: object) -> dict:
+    """扁平参数；无业务必填项。run_type / json_out 仅占位与 catalog 一致。"""
+    _ = (run_type, json_out, _kwargs)
     candidates = [
         ("cmd", "cmd.exe"),
         ("powershell", "powershell.exe"),

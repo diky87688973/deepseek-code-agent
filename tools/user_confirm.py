@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """用户分岔确认：仅 Agent 宿主驱动 UI。进程内入口 agent_main（扁平参数）。"""
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ def agent_main(
             # 有待确认的 confirm_id 时自动标记
             if confirm_id:
                 try:
-                    from agent_v2.live_state import kling_mark_confirmed
+                    from agent_v3.live_state import kling_mark_confirmed
                     kling_mark_confirmed(confirm_id)
                 except Exception:
                     pass

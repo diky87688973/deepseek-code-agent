@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """组装 FastAPI 应用：lifespan、静态资源挂载、注册显式路由模块。"""
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ from typing import Optional
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from agent_v2 import agent_core as core
-from agent_v2.live_state import abort_all_conversation_runs_on_shutdown
-from agent_v2.routes import router as agent_http_router
+from agent_v3 import agent_core as core
+from agent_v3.live_state import abort_all_conversation_runs_on_shutdown
+from agent_v3.routes import router as agent_http_router
 
 
 def _is_harmless_client_disconnect(exc: Optional[BaseException]) -> bool:

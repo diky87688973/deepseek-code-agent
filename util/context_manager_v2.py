@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """ContextState.java 的 Python 落地：Round / ContextChunk / ContextManager。
 
-与 deepseek_code_agent2 配合：
+与 agent_v3 宿主（deepseek_code_agent3）配合：
 - 展平 / tryLoadPending：与 _build_api_messages_for_model、_merge_pending_excerpts 同语义；
 - 摘要调度：dialogue_summary_excerpt_half_open_for_messages、adjust_excerpt_range_half_open 由本模块提供，
   阈值与区间一律经 ContextManager 入口（_maybe_schedule_summarization）。

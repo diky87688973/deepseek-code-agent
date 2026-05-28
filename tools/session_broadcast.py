@@ -1,15 +1,14 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """session_broadcast 工具：向自由 Agent 网络广播消息。"""
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from tools.agent_common import parse_tool_bool
+import agent_common as ac
 
 
 def agent_main(
     *,
-    action: str = "",
     role: str = "",
     tag: str = "",
     exclude_self: bool = True,
@@ -19,13 +18,8 @@ def agent_main(
     priority: str = "normal",
     **_kwargs: Any,
 ) -> Dict[str, Any]:
-    """session_broadcast 入口。action=broadcast 向所有/筛选 Agent 群发。
-    requires_reply 控制收信方是否被标记为需要回复，必填参数。"""
-    action = str(action or "").strip().lower()
-    if not action:
-        return {"ok": False, "error": {"type": "invalid_args", "message": "缺少 action 参数。可选: broadcast"}}
-    if action != "broadcast":
-        return {"ok": False, "error": {"type": "unknown_action", "message": f"未知 action: {action}。可选: broadcast"}}
+    """session_broadcast 入口：按 tag/role 筛选后群发（无 action 参数）。requires_reply 必填。"""
+    _kwargs.pop("action", None)
     msg = str(message or "").strip()
     if not msg:
         return {"ok": False, "error": {"type": "missing_message", "message": "缺少 message"}}
@@ -40,15 +34,15 @@ def agent_main(
     if not target_tag:
         return {"ok": False, "error": {"type": "missing_tag", "message": "session_broadcast 必须传 tag 指定目标群组（如 tag=\"spy-game\"），禁止全员广播。"}}
 
-    from agent_v2.live_state import list_agent_sessions
-    from tools.session_send import agent_main as _send
+    from agent_v3.live_state import list_agent_sessions
+    from session_send import agent_main as _send
 
     src_cid = str(_kwargs.get("conversation_id") or "").strip()
     target_role = str(role or "").strip()
     sent, skipped = [], []
     members = list_agent_sessions()
     for mid, info in members.items():
-        if parse_tool_bool(exclude_self, True) and mid == src_cid:
+        if ac.parse_tool_bool(exclude_self, True) and mid == src_cid:
             continue
         if target_role and info.get("role") != target_role:
             continue
@@ -57,14 +51,13 @@ def agent_main(
             if target_tag not in tags:
                 continue
         r = _send(
-            action="send",
             target_id=mid,
             message=msg,
             channel="broadcast",
             thread_id=str(thread_id or _kwargs.get("thread_id") or ""),
             priority=str(priority or _kwargs.get("priority") or "normal"),
             conversation_id=src_cid,
-            requires_reply=parse_tool_bool(_rr, True),
+            requires_reply=ac.parse_tool_bool(_rr, True),
         )
         if r.get("ok"):
             sent.append(mid)
@@ -78,3 +71,49 @@ def agent_main(
             "data": {"sent": sent, "skipped": skipped, "count": 0, "partial": bool(skipped), "all_sent": False},
         }
     return {"ok": True, "data": {"sent": sent, "skipped": skipped, "count": len(sent), "partial": bool(skipped), "all_sent": not skipped}}
+
+
+def build_parser() -> "argparse.ArgumentParser":
+    import argparse
+
+    p = argparse.ArgumentParser(description="session_broadcast：人工调试 CLI → agent_main（无 --action）")
+    p.add_argument("--conversation_id", required=True)
+    p.add_argument("--tag", required=True, help="目标群组标签，禁止空值全员广播")
+    p.add_argument("--message", required=True)
+    p.add_argument("--requires_reply", required=True, help="true 或 false")
+    p.add_argument("--role", default="")
+    p.add_argument("--thread_id", default="")
+    p.add_argument("--priority", default="normal")
+    p.add_argument("--include_self", action="store_true", help="默认排除发送者自己；加此开关则包含自己")
+    p.add_argument("--json_out", action="store_true")
+    return p
+
+
+def main() -> None:
+    import json
+    import sys
+
+    args = build_parser().parse_args()
+    r = agent_main(
+        role=args.role,
+        tag=args.tag,
+        exclude_self=not args.include_self,
+        message=args.message,
+        requires_reply=args.requires_reply,
+        thread_id=args.thread_id,
+        priority=args.priority,
+        conversation_id=args.conversation_id,
+    )
+    if args.json_out:
+        print(json.dumps(r, ensure_ascii=False))
+    else:
+        if r.get("ok"):
+            print(json.dumps(r.get("data"), ensure_ascii=False, indent=2))
+        else:
+            err = r.get("error") or {}
+            print(err.get("message", r), file=sys.stderr)
+            sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

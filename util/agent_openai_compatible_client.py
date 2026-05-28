@@ -190,7 +190,7 @@ def chat_completion_stream(payload: dict) -> Iterator[dict]:
     try:
         while True:
             try:
-                from agent_v2.live_state import server_shutting_down
+                from agent_v3.live_state import server_shutting_down
 
                 if server_shutting_down():
                     break

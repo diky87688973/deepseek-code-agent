@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
-"""FastAPI HTTP 路由：显式依赖 agent_v2.agent_core，无动态 exec。"""
+﻿# -*- coding: utf-8 -*-
+"""FastAPI HTTP 路由：显式依赖 agent_v3.agent_core，无动态 exec。"""
 from __future__ import annotations
 
 import json
@@ -11,10 +11,10 @@ from typing import Any, Dict, List, Optional, Set
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 
-from agent_v2 import agent_core as core
-from agent_v2 import route_helpers as rh
-from agent_v2.live_state import get_conversation_run_lock
-from agent_v2.http_schemas import (
+from agent_v3 import agent_core as core
+from agent_v3 import route_helpers as rh
+from agent_v3.live_state import get_conversation_run_lock
+from agent_v3.http_schemas import (
     ChatIn,
     ChatStopIn,
     ChatTitleIn,
@@ -24,9 +24,9 @@ from agent_v2.http_schemas import (
     KbCheckedIn,
     UsageAccumIn,
 )
-from agent_v2.version import AGENT_APP_VERSION
+from agent_v3.version import AGENT_APP_VERSION
 from util.http_pipeline_v2 import resolve_client_ip_from_request
-from agent_v2.live_state import open_global_sse_channel, next_global_sse_event, is_global_sse_current
+from agent_v3.live_state import open_global_sse_channel, next_global_sse_event, is_global_sse_current
 
 router = APIRouter()
 
@@ -341,7 +341,7 @@ def chat_send(inp: ChatIn, request: Request) -> Dict[str, Any]:
                 _injected.append(f"\n\n【警告：无法读取 @{_fp}：{_e}】")
         if _injected:
             text = "".join(_injected) + "\n\n---\n用户消息：" + text
-    cid = str(inp.conversation_id or "").strip() or core._v2_new_conversation_id()
+    cid = str(inp.conversation_id or "").strip() or core._new_conversation_id()
     mode = str(inp.mode or "").strip().lower()
     if mode not in {"", "auto", "plan", "execute"}:
         raise HTTPException(400, "invalid mode")
@@ -373,7 +373,7 @@ def chat_command_input_submit(inp: ChatCommandInputIn) -> Dict[str, Any]:
         raise HTTPException(400, "conversation_id and tool_call_id required")
     if not text:
         raise HTTPException(400, "empty input")
-    from agent_v2.live_state import submit_command_input
+    from agent_v3.live_state import submit_command_input
 
     key = f"{cid}:{tid}"
     if not submit_command_input(key, text):
@@ -403,7 +403,7 @@ def chat_user_confirm_submit(inp: ChatUserConfirmIn, request: Request) -> Dict[s
             exec_args1 = exec_args0
         else:
             try:
-                from agent_v2.live_state import kling_mark_confirmed as _kmc, kling_consume_confirm_id as _kcc
+                from agent_v3.live_state import kling_mark_confirmed as _kmc, kling_consume_confirm_id as _kcc
                 _cid = str(exec_args0.get("confirm_id") or "")
                 if _cid:
                     _kmc(_cid)

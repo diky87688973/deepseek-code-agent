@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """session_create 工具：创建自由 Agent 会话（Agent Session Mesh）。"""
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def _pick_name(requested: str = "", scope_tags = None) -> str:
     taken = set()
     scope = list(scope_tags or [])
     try:
-        from agent_v2.live_state import AGENT_SESSIONS, _AGENT_SESSIONS_LOCK
+        from agent_v3.live_state import AGENT_SESSIONS, _AGENT_SESSIONS_LOCK
         with _AGENT_SESSIONS_LOCK:
             for m in AGENT_SESSIONS.values():
                 n = str(m.get("name") or "").strip()
@@ -76,7 +76,6 @@ def _pick_name(requested: str = "", scope_tags = None) -> str:
 
 def agent_main(
     *,
-    action: str = "",
     role: str = "",
     name: str = "",
     name_prefix: str = "",
@@ -86,12 +85,8 @@ def agent_main(
     skill: str = "",
     **_kwargs: Any,
 ) -> Dict[str, Any]:
-    """session_create 入口。action=create 创建一个或多个自由 Agent。"""
-    action = str(action or "").strip().lower()
-    if not action:
-        return {"ok": False, "error": {"type": "invalid_args", "message": "缺少 action 参数。可选: create"}}
-    if action != "create":
-        return {"ok": False, "error": {"type": "unknown_action", "message": f"未知 action: {action}。可选: create"}}
+    """创建自由 Agent 会话（无 action 参数）。"""
+    _kwargs.pop("action", None)
 
     try:
         n = max(1, min(50, int(count or 1)))
@@ -107,9 +102,9 @@ def agent_main(
 
     from util.session_store_v2 import new_conversation_id
 
-    from agent_v2.live_state import CONVERSATIONS, upsert_agent_session
-    from agent_v2.agent_core import _save_conversation as _svc, _save_title_file
-    from util.agent_prompt_constants import TOOL_AGENT_V2_SYSTEM_PROMPT as _v2
+    from agent_v3.live_state import CONVERSATIONS, upsert_agent_session
+    from agent_v3.agent_core import _save_conversation as _svc, _save_title_file
+    from util.agent_prompt_constants import TOOL_AGENT_SYSTEM_PROMPT as _sys_prompt
     agents = []
     now = int(time.time())
     for i in range(n):
@@ -124,7 +119,7 @@ def agent_main(
                 agent_name = _pick_name("", scope_tags=tag_list) or f"Agent{i + 1}"
         persona_text = base_persona or f"你是多 Agent 协作网络中的 {agent_name}，角色是 {base_role}。收到其他 Agent 的消息时，应通过 session_send 回复对方；需要群体协作时使用 session_multisend 或 session_broadcast。"
         init_msgs = [
-            {"role": "system", "content": _v2},
+            {"role": "system", "content": _sys_prompt},
             {"role": "system", "content": f"【Agent 身份】\n名称：{agent_name}\n角色：{base_role}\n\n{persona_text}"},
         ]
         CONVERSATIONS[sid] = init_msgs
@@ -136,7 +131,7 @@ def agent_main(
                 from util.skill_manager import get_skill_manager
                 _mgr = get_skill_manager()
                 if _mgr.get_skill(_sk):
-                    from agent_v2.agent_core import _append_session_message_v2
+                    from agent_v3.agent_core import _append_session_message_v2
                     _msg = {"role": "system", "content": f"【已加载技能：{_sk}】\n{_mgr.get_skill(_sk)}"}
                     _append_session_message_v2(sid, CONVERSATIONS[sid], _msg)
                     _svc(sid, CONVERSATIONS[sid])
@@ -159,3 +154,52 @@ def agent_main(
     if agents:
         data.update(agents[0])
     return {"ok": True, "data": data}
+
+
+def build_parser() -> "argparse.ArgumentParser":
+    import argparse
+
+    p = argparse.ArgumentParser(description="session_create：人工调试 CLI → agent_main（无 --action）")
+    p.add_argument("--conversation_id", default="", help="创建者会话 ID（可选）")
+    p.add_argument("--role", default="Agent")
+    p.add_argument("--name", default="")
+    p.add_argument("--name_prefix", default="")
+    p.add_argument("--persona", default="")
+    p.add_argument("--count", type=int, default=1)
+    p.add_argument("--tags", default="", help="逗号分隔标签")
+    p.add_argument("--skill", default="")
+    p.add_argument("--json_out", action="store_true")
+    return p
+
+
+def main() -> None:
+    import json
+    import sys
+
+    args = build_parser().parse_args()
+    tags_val: Any = None
+    if str(args.tags or "").strip():
+        tags_val = [x.strip() for x in str(args.tags).replace("，", ",").split(",") if x.strip()]
+    r = agent_main(
+        role=args.role,
+        name=args.name,
+        name_prefix=args.name_prefix,
+        persona=args.persona,
+        count=args.count,
+        tags=tags_val,
+        skill=args.skill,
+        conversation_id=args.conversation_id or None,
+    )
+    if args.json_out:
+        print(json.dumps(r, ensure_ascii=False))
+    else:
+        if r.get("ok"):
+            print(json.dumps(r.get("data"), ensure_ascii=False, indent=2))
+        else:
+            err = r.get("error") or {}
+            print(err.get("message", r), file=sys.stderr)
+            sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

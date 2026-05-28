@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import unittest
 
-from agent_v2.agent_core import _find_pending_requires_reply_peer_message
-from agent_v2.live_state import reset_peer_turn_chain, try_acquire_peer_turn_slot
+from agent_v3.agent_core import _find_pending_requires_reply_peer_message
+from agent_v3.live_state import reset_peer_turn_chain, try_acquire_peer_turn_slot
 from tools.agent_common import utf8_preview
 from util.agent_model_dispatch import model_max_context_tokens
 
