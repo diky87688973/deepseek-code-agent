@@ -1,3 +1,4 @@
 # GitHub Token（自动生成，勿提交）
 gh_token.txt
 gh_device_poll.json
+__pycache__/
