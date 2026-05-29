@@ -3727,7 +3727,7 @@
     {
       "name": "github_api.py",
       "path": "tools/github_api.py",
-      "purpose": "github_api：GitHub 远程 API（action=login/get_repo/list_issues/create_issue/list_releases/set_topics）。与 git_workspace 本地只读互补。",
+      "purpose": "github_api：GitHub 远程 API（login/get_repo/list_issues/create_issue/list_releases/set_topics/list_prs/get_pr/create_pr/close_pr/update_pr）。与 git_workspace 本地只读互补。",
       "stdout_output": "{\"ok\":true,\"data\":{...}} 或 {\"ok\":false,\"error\":\"...\"}",
       "args": [
         {
@@ -3740,9 +3740,14 @@
             "list_issues",
             "create_issue",
             "list_releases",
-            "set_topics"
+            "set_topics",
+            "list_prs",
+            "get_pr",
+            "create_pr",
+            "close_pr",
+            "update_pr"
           ],
-          "description": "action 参数：action=login / action=get_repo / action=list_issues / action=create_issue / action=list_releases / action=set_topics。"
+          "description": "action 参数：action=login / action=get_repo / action=list_issues / action=create_issue / action=list_releases / action=set_topics / action=list_prs / action=get_pr / action=create_pr / action=close_pr / action=update_pr。"
         },
         {
           "flag": "--repo",
@@ -3754,25 +3759,43 @@
           "flag": "--title",
           "type": "string",
           "required": false,
-          "description": "action=create_issue 时 Issue 标题。"
+          "description": "action=create_issue/action=create_pr 时的标题；action=update_pr 时可选更新标题。"
         },
         {
           "flag": "--body",
           "type": "string",
           "required": false,
-          "description": "action=create_issue 时 Issue 描述。"
+          "description": "action=create_issue/action=create_pr 时的描述；action=update_pr 时可选更新描述。"
         },
         {
           "flag": "--state",
           "type": "string",
           "required": false,
-          "description": "action=list_issues 时状态筛选，默认 open。"
+          "description": "action=list_issues/action=list_prs 时状态筛选（open/closed），默认 open；action=update_pr 时设为 closed 可关闭 PR。"
         },
         {
           "flag": "--topics",
           "type": "string",
           "required": false,
           "description": "action=set_topics 时 topics 逗号分隔列表。"
+        },
+        {
+          "flag": "--pr-number",
+          "type": "integer",
+          "required": false,
+          "description": "PR 编号（action=get_pr / action=close_pr / action=update_pr 时使用）。"
+        },
+        {
+          "flag": "--head",
+          "type": "string",
+          "required": false,
+          "description": "源分支（action=create_pr 时使用，如 fork:branch）。"
+        },
+        {
+          "flag": "--base",
+          "type": "string",
+          "required": false,
+          "description": "目标分支（action=create_pr 时使用，如 main）。"
         }
       ],
       "examples": [
@@ -3819,6 +3842,25 @@
           "args": {
             "action": "set_topics",
             "topics": "ai-agent,code-agent",
+            "repo": "owner/repo"
+          }
+        },
+        {
+          "title": "列出 Pull Requests",
+          "args": {
+            "action": "list_prs",
+            "state": "open",
+            "repo": "owner/repo"
+          }
+        },
+        {
+          "title": "创建 Pull Request",
+          "args": {
+            "action": "create_pr",
+            "title": "feat: add new feature",
+            "head": "diky87688973:feat/new-feature",
+            "base": "main",
+            "body": "## 变更说明\n\n- 新增功能 A\n- 修复问题 B",
             "repo": "owner/repo"
           }
         }

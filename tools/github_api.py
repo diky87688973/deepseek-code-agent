@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
-"""GitHub API 工具：管理 Issues / Releases / Topics 等远程操作。
+"""GitHub API 工具：管理 Issues / Releases / Topics / Pull Requests 等远程操作。
 
 用法：
   python tools/github_api.py --action get_repo --repo owner/repo
   python tools/github_api.py --action login
+  python tools/github_api.py --action list_prs --repo owner/repo
+  python tools/github_api.py --action create_pr --repo owner/repo --title "..." --head fork:branch --base main
 """
 from __future__ import annotations
 
@@ -212,6 +214,46 @@ def cmd_set_topics(repo: str, topics: List[str]) -> Dict[str, Any]:
     return _api(repo, "/topics", "PUT", {"names": topics})
 
 
+def cmd_list_prs(repo: str, state: str = "open") -> Dict[str, Any]:
+    """列出仓库的 Pull Requests。"""
+    return _api(repo, f"/pulls?state={state}&per_page=20")
+
+
+def cmd_get_pr(repo: str, pr_number: int) -> Dict[str, Any]:
+    """获取单个 PR 详情。"""
+    return _api(repo, f"/pulls/{pr_number}")
+
+
+def cmd_create_pr(repo: str, title: str, head: str, base: str, body: str = "") -> Dict[str, Any]:
+    """创建 Pull Request。"""
+    return _api(repo, "/pulls", "POST", {
+        "title": title,
+        "head": head,
+        "base": base,
+        "body": body,
+    })
+
+
+def cmd_close_pr(repo: str, pr_number: int) -> Dict[str, Any]:
+    """关闭 Pull Request（state = closed）。"""
+    return _api(repo, f"/pulls/{pr_number}", "PATCH", {"state": "closed"})
+
+
+def cmd_update_pr(repo: str, pr_number: int, title: Optional[str] = None,
+                  body: Optional[str] = None, state: Optional[str] = None) -> Dict[str, Any]:
+    """更新 PR 标题/描述/状态。传 None 的字段不修改。"""
+    payload: Dict[str, Any] = {}
+    if title is not None:
+        payload["title"] = title
+    if body is not None:
+        payload["body"] = body
+    if state is not None:
+        payload["state"] = state
+    if not payload:
+        return _gh_err("至少提供一个要更新的字段", "ValueError")
+    return _api(repo, f"/pulls/{pr_number}", "PATCH", payload)
+
+
 def agent_main(
     *,
     action: str = "",
@@ -220,6 +262,9 @@ def agent_main(
     body: Optional[str] = None,
     state: Optional[str] = None,
     topics: Optional[str] = None,
+    pr_number: int = 0,
+    head: Optional[str] = None,
+    base: Optional[str] = None,
 ) -> Dict[str, Any]:
     """GitHub API 工具入口（agent 调用）。"""
     action = (action or "").strip().lower()
@@ -242,6 +287,16 @@ def agent_main(
     if action == "set_topics":
         topics_list = [t.strip() for t in (topics or "").split(",") if t.strip()]
         return cmd_set_topics(repo, topics_list)
+    if action == "list_prs":
+        return cmd_list_prs(repo, state or "open")
+    if action == "get_pr":
+        return cmd_get_pr(repo, pr_number)
+    if action == "create_pr":
+        return cmd_create_pr(repo, title or "", head or "", base or "", body or "")
+    if action == "close_pr":
+        return cmd_close_pr(repo, pr_number)
+    if action == "update_pr":
+        return cmd_update_pr(repo, pr_number, title, body, state)
     return _gh_err(f"未知 action: {action}", "ValueError")
 
 
@@ -250,14 +305,19 @@ def main() -> None:
     parser.add_argument(
         "--action",
         required=True,
-        choices=["login", "get_repo", "list_issues", "create_issue", "list_releases", "set_topics"],
+        choices=["login", "get_repo", "list_issues", "create_issue",
+                 "list_releases", "set_topics",
+                 "list_prs", "get_pr", "create_pr", "close_pr", "update_pr"],
         help="操作类型",
     )
     parser.add_argument("--repo", default="", help="仓库名 owner/repo（login 可省略）")
-    parser.add_argument("--title", default="", help="Issue 标题")
-    parser.add_argument("--body", default="", help="Issue 描述")
-    parser.add_argument("--state", default="open", help="Issue 状态筛选，默认 open")
+    parser.add_argument("--title", default="", help="create_issue/create_pr 时的标题；update_pr 时可选更新标题")
+    parser.add_argument("--body", default="", help="create_issue/create_pr 时的描述；update_pr 时可选更新描述")
+    parser.add_argument("--state", default="open", help="list_issues/list_prs 时状态筛选(open/closed)；update_pr 时设为 closed 可关闭 PR，默认 open")
     parser.add_argument("--topics", default="", help="Topics 逗号分隔")
+    parser.add_argument("--pr-number", type=int, default=0, help="PR 编号（get_pr/close_pr/update_pr 时使用）")
+    parser.add_argument("--head", default="", help="源分支（create_pr 时使用，如 fork:branch）")
+    parser.add_argument("--base", default="", help="目标分支（create_pr 时使用，如 main）")
     args = parser.parse_args()
 
     result = agent_main(
@@ -267,6 +327,9 @@ def main() -> None:
         body=args.body,
         state=args.state,
         topics=args.topics,
+        pr_number=args.pr_number,
+        head=args.head,
+        base=args.base,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
