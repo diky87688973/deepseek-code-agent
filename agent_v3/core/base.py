@@ -38,6 +38,6 @@ for _mod in (
 ):
     _pull(_mod)
 
-from agent_v3.core._namespace import bind_core_modules
+from agent_v3.core.namespace import bind_core_modules
 
 bind_core_modules()

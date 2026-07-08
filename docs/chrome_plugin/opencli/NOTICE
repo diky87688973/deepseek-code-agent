@@ -1,0 +1,35 @@
+OpenCLI Browser Extension (v1.0.17)
+=====================================
+Copyright 2026 jackwener (https://github.com/jackwener/OpenCLI)
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+---
+
+Modifications
+-------------
+The extension source code (opencli-extension-v1.0.17-edge.zip) has been
+modified from the original Chrome extension for Edge compatibility.
+Suspected changes (not all individually verified):
+
+  - `AbortSignal.timeout()` → `AbortController` fallback
+  - `tabGroups` color `orange` → `yellow` (Edge doesn't support
+    `orange` as a group color)
+  - `debugger.getTargets()`: added callback→Promise shim
+  - `TAB_GROUP_ID_NONE`: replaced with `-1`
+  - `Runtime.evaluate` return: added `?.` safe access
+  - All CDP commands: wrapped with callback→Promise shim
+
+These changes are specific to the bundled archive; the upstream
+OpenCLI project at https://github.com/jackwener/OpenCLI remains
+unmodified and continues to target Chrome only.
+

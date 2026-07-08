@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<script>try{var _t=localStorage.getItem("codeWebAgent.uiTheme");document.documentElement.setAttribute("data-ui-theme",_t==="light"?"light":"dark");}catch(e){document.documentElement.setAttribute("data-ui-theme","dark");}</script>
+<title>DeepSeek Code Agent {{APP_VERSION}} · 侧边栏模式</title>
+<link rel="stylesheet" href="/assets/css/reset.css?v=20260516h"/>
+<link rel="stylesheet" href="/assets/css/sider/tokens.css?v=20260519a"/>
+<link rel="stylesheet" href="/assets/css/sider/layout.css?v=20260523peer11"/>
+<link rel="stylesheet" href="/assets/css/sider/columns.css?v=20260521peer10"/>
+<link rel="stylesheet" href="/assets/css/sider/composer.css?v=20260520c"/>
+<link rel="stylesheet" href="/assets/css/sider/kb-overlay.css?v=20260516h"/>
+<link rel="stylesheet" href="/assets/css/vendor/hljs-github-dark.min.css?v=20260516i"/>
+<link rel="stylesheet" href="/assets/css/vendor/hljs-github-scoped-light.min.css?v=20260516i"/>
+</head>
+<body class="imm-body">
+<div class="imm-header-dock">
+  <div class="imm-header-slide imm-header-slide-init">
+    <header class="imm-header">
+      <div class="imm-header-left">
+        <strong>DeepSeek Code Agent {{APP_VERSION}}</strong>
+        <span class="imm-muted">侧边栏模式</span>
+        <span class="imm-muted" id="immHdrModel">模型加载中…</span>
+        <span class="imm-muted" id="immCid"></span>
+      </div>
+      <div class="imm-header-right">
+        <button type="button" id="immTtsBtn" class="tts-toggle-btn off" onclick="toggleImmersiveTts()">🔇</button>
+        <button type="button" id="immThemeBtn" class="imm-btn imm-theme-btn" title="切换为白天界面">白天模式</button>
+        <button type="button" id="immFsBtn" class="imm-btn" title="全屏 (F11)">全屏</button>
+        <a class="imm-classic-pill" id="immClassicPill" href="/">回到经典模式</a>
+      </div>
+    </header>
+  </div>
+</div>
+<div class="imm-main">
+  <div id="immColumnsWrap" class="imm-columns-wrap">
+    <div id="immColumnsRow" class="imm-columns-row"></div>
+  </div>
+</div>
+<div class="imm-composer-dock">
+  <div class="imm-composer-inner">
+    <div class="imm-row">
+      <div class="imm-composer">
+        <textarea id="immT" placeholder="请输入你的任务，&#10;/ 输入命令　·　@ 关联文件"></textarea>
+        <div class="imm-composer-foot">
+          <div class="imm-left-tools">
+            <button type="button" id="immNwCol" class="imm-mode-plus" title="新会话栏">新栏 +</button>
+            <button type="button" id="immSessBtn" class="imm-mode-plus" title="会话列表">⋮</button>
+            <div id="immSessMenu" class="imm-session-menu hidden"></div>
+            <span class="imm-mode-anchor">
+              <button type="button" id="immModePlus" class="imm-mode-plus" title="选择模式">Auto +</button>
+              <div id="immModeMenu" class="imm-mode-menu hidden">
+                <button type="button" class="imm-mode-item" data-mode="auto">⚡ 默认模式 - Auto</button>
+                <button type="button" class="imm-mode-item" data-mode="plan">📋 方案设计 - Plan 模式</button>
+                <button type="button" class="imm-mode-item" data-mode="execute">▶️ 执行计划 - Execute 模式</button>
+                <div class="imm-mode-item-with-sub" id="immModelSubWrap">
+                  <button type="button" class="imm-mode-item imm-mode-sub-trigger" id="immModelSubBtn" data-action="model-menu">🧠 选择模型 ▸</button>
+                  <div id="immModelSubmenu" class="imm-mode-submenu hidden">
+                    <button type="button" class="imm-mode-item imm-model-choice" data-model="deepseek-v4-pro">deepseek-v4-pro</button>
+                    <button type="button" class="imm-mode-item imm-model-choice" data-model="deepseek-v4-flash">deepseek-v4-flash</button>
+                  </div>
+                </div>
+              </div>
+            </span>
+            <span id="immReasonAnchor" class="imm-reason-anchor">
+              <button type="button" id="immReasonBtn" class="imm-mode-plus imm-reasoning-btn" title="推理强度">思考 · <span id="immReasonLabel">Max</span></button>
+              <div id="immReasonMenu" class="imm-reason-menu hidden">
+                <button type="button" class="imm-reason-item reasoning-choice" data-effort="high">High — 标准推理</button>
+                <button type="button" class="imm-reason-item reasoning-choice reasoning-current" data-effort="max">Max — 深度推理</button>
+              </div>
+            </span>
+            <button type="button" id="immKbBtn" class="imm-mode-plus" title="知识库">📚 知识库</button>
+            <span id="immModeChip" class="imm-mode-chip hidden"><span id="immModeChipText">Plan</span><button type="button" id="immModeChipClear" class="imm-x" title="恢复默认">×</button></span>
+          </div>
+          <div class="imm-ctx-fill" aria-label="上下文视图">
+            <span class="imm-ctx-eyebrow">上下文视图</span>
+            <div id="immCtxBarHost" class="ctx-bar-host"></div>
+          </div>
+          <div class="imm-right-actions">
+            <span class="imm-send-hint">Enter 发送 / Shift+Enter 换行</span>
+            <button type="button" id="immStop" class="imm-mode-plus hidden" title="停止当前栏">停止</button>
+            <button type="button" id="immGo" class="imm-mode-plus" title="发送">发送</button>
+          </div>
+        </div>
+        <div id="immSlashPop" class="slash-pop hidden" aria-hidden="true">
+          <button type="button" class="slash-item" data-slash="auto"><span class="sl">/Auto</span><span class="sh"></span></button>
+          <button type="button" class="slash-item" data-slash="plan"><span class="sl">/Plan</span><span class="sh"></span></button>
+          <button type="button" class="slash-item" data-slash="execute"><span class="sl">/Execute</span><span class="sh"></span></button>
+        </div>
+        <div id="immAtPop" class="at-pop" style="visibility:hidden;top:-99999px" aria-hidden="true">
+          <div class="at-pop-head">
+            <button type="button" id="immAtUp" class="at-up-btn" title="上级目录">← 向上</button>
+            <span id="immAtPath" class="at-cur-path"></span>
+          </div>
+          <div id="immAtList" class="at-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="immKbOverlay" class="imm-kb-overlay hidden" aria-hidden="true">
+  <div class="imm-kb-backdrop"></div>
+  <div class="imm-kb-panel">
+    <div class="imm-kb-panel-head">
+      <span>知识库</span>
+      <button type="button" id="immKbClose" class="imm-x" title="关闭">×</button>
+    </div>
+    <div id="immKbBody" class="imm-kb-body kb-body"></div>
+  </div>
+</div>
+<script defer src="/assets/js/theme-ui.js?v=20260520copy"></script>
+<script defer src="/assets/js/vendor/highlight.min.js?v=20260516i"></script>
+<script defer src="/assets/js/code-highlight.js?v=20260516i"></script>
+<script defer src="/assets/js/sider/normalize.js"></script>
+<script defer src="/assets/js/sider/markdown.js?v=20260516i"></script>
+<script defer src="/assets/js/sider/context-bar.js"></script>
+<script defer src="/assets/js/sider/columns.js"></script>
+<script defer src="/assets/js/sider/sse.js?v=20260521peer9"></script>
+<script defer src="/assets/js/sider/tts.js"></script>
+<script defer src="/assets/js/sider/composer.js?v=20260521globalsse"></script>
+<script defer src="/assets/js/sider/kb.js"></script>
+<script defer src="/assets/js/sider/fullscreen.js"></script>
+<script defer src="/assets/js/sider/bootstrap.js?v=20260521globalsse"></script>
+</body>
+</html>

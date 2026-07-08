@@ -18,7 +18,7 @@ AGENT_REGISTERED_FUNCTION_NAMES: str = (
     "\n 写盘/改文件：write_file, replace_in_file, apply_patch, read_write, delete_file, file_ops, archive(action=extract|create)。"
     "\n 执行：run_command, python_inline（最后手段；Plan 模式禁用）。"
     "\n 任务/模式：todo_list, run_type, user_confirm。"
-    "\n 协作：session_send, session_multisend, session_broadcast, session_wait（suspend=true 挂起，false 仅查；跨会话 wait 传 sender_cid）, session_create, session_list；均无 action 参数。"
+    "\n 协作：session_send, session_multisend, session_broadcast, session_create, session_list；均无 action 参数。"
     "\n 技能/生成：skill_manage, kling_generate, dreamina_generate, github_api。"
 )
 
@@ -52,6 +52,7 @@ AGENT_TOOLING_DISCIPLINE: str = (
     "\n 7. **思考与正文分离**：用户可见结论写在 assistant content；勿写进 reasoning；勿假装已执行而未调工具。"
     "\n 8. **仅 API tool_calls**：禁止在 content 写伪工具调用块（invoke/parameter/XML/特殊标签）；"
     "凡要执行工具必须用 function calling（tool_calls），正文标签不会被宿主执行。"
+    "\n 9. **临时文件不放项目目录**：临时调试/一次性脚本文件禁止指定目录；不指定路径时工具默认写到 DATA_ROOT 下。"
 )
 
 # ── 沟通与输出格式 ───────────────────────────────────────────────────────────

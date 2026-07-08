@@ -104,7 +104,7 @@ else if(ev.type==="dispatch_title")addDispatchTitle(ev.title||"");
 else if(ev.type==="llm_round")addLlmRound(ev.round);
 else if(ev.type==="llm_request")onLlmRequest(ev);
 else if(ev.type==="llm_response")onLlmResponse(ev);
-else if(ev.type==="llm_done"){flushPendingToolTags();if(lastLlm){finishLlmTitle(true);lastLlm.tag.className="tag ok";lastLlm.tag.textContent="Done";}promoteReasoningToChatIfNeeded();}
+else if(ev.type==="llm_done"){flushPendingToolTags();if(lastLlm){finishLlmTitle(true);lastLlm.tag.className="tag ok";lastLlm.tag.textContent="Done";}}
 else if(ev.type==="usage"){const u=ev.usage||{};const inTok=Number(u.prompt_tokens??0)||0;const outTok=Number(u.completion_tokens??0)||0;const hitTok=Number(u.prompt_cache_hit_tokens??0)||0;const missTok=Number(u.prompt_cache_miss_tokens??0)||0;sessionTokenUsed+=Math.max(0,inTok+outTok);totalPromptTokens+=inTok;totalCompletionTokens+=outTok;totalCacheHitTokens+=hitTok;totalCacheMissTokens+=missTok;void ensureModelPricing();_updateUsageBottom();void persistUsageAccumulator();}
 else if(ev.type==="context_layout"){_ctxTab.lastContextLayout=ev;if(renderingContextVisible&&packetCid===normalizeConversationId(activeConversationId))_updateUsageBottom();}
 else if(ev.type==="tool_start")onToolStart(ev);
@@ -152,7 +152,7 @@ else if(ev.type==="dispatch_title")addDispatchTitle(ev.title||"");
 else if(ev.type==="llm_round")addLlmRound(ev.round);
 else if(ev.type==="llm_request")onLlmRequest(ev);
 else if(ev.type==="llm_response")onLlmResponse(ev);
-else if(ev.type==="llm_done"){flushPendingToolTags();if(lastLlm){finishLlmTitle(true);lastLlm.tag.className="tag ok";lastLlm.tag.textContent="Done";}promoteReasoningToChatIfNeeded();}
+else if(ev.type==="llm_done"){flushPendingToolTags();if(lastLlm){finishLlmTitle(true);lastLlm.tag.className="tag ok";lastLlm.tag.textContent="Done";}}
 else if(ev.type==="usage"){const u=ev.usage||{};const inTok=Number(u.prompt_tokens??0)||0;const outTok=Number(u.completion_tokens??0)||0;const hitTok=Number(u.prompt_cache_hit_tokens??0)||0;const missTok=Number(u.prompt_cache_miss_tokens??0)||0;sessionTokenUsed+=Math.max(0,inTok+outTok);totalPromptTokens+=inTok;totalCompletionTokens+=outTok;totalCacheHitTokens+=hitTok;totalCacheMissTokens+=missTok;void ensureModelPricing();_updateUsageBottom();void persistUsageAccumulator();}
 else if(ev.type==="context_layout"){_ctxTab.lastContextLayout=ev;if(renderingContextVisible&&packetCid===normalizeConversationId(activeConversationId))_updateUsageBottom();}
 else if(ev.type==="tool_start")onToolStart(ev);
@@ -589,8 +589,6 @@ return out;
 for(let i=0;i<lines.length;i++){
 let line=lines[i];
 if(!line.trim()){
-html+=closeOpenLists(listState);
-html+=closeQuotes(0);
 continue;
 }
 let quote=0;
@@ -623,14 +621,16 @@ const checked=(m[2].toLowerCase()==='x')?' checked':'';
 html+='<li class="task-item"><input type="checkbox" disabled'+checked+'/><span>'+renderInlineMarkdown(m[3])+'</span></li>';
 continue;
 }
-m=line.match(/^\s*[-*+]\s+\[( |x|X)\]\s+(.+)$/);
-if(m){
-const depth=Math.floor((line.match(/^\s*/)||[''])[0].length/2)+1;
-html+=ensureListLevel(listState,'ul',depth);
-const checked=(m[1].toLowerCase()==='x')?' checked':'';
-html+='<li class="task-item"><input type="checkbox" disabled'+checked+'/><span>'+renderInlineMarkdown(m[2])+'</span></li>';
-continue;
-}
+    if(shouldStartUnifiedDiffBlock(lines,i)){
+    var _ud=collectUnifiedDiffBlock(lines,i);
+    if(looksLikeUnifiedDiffBlock(_ud.lines)){
+    html+=closeOpenLists(listState);
+    html+=renderUnifiedDiffBlockHtml(_ud.lines);
+    i=_ud.next-1;
+    continue;
+    }
+    }
+    
 m=line.match(/^\s*[-*+]\s+(.+)$/);
 if(m){
 const depth=Math.floor((line.match(/^\s*/)||[''])[0].length/2)+1;
@@ -652,6 +652,115 @@ html+=closeOpenLists(listState);
 html+=closeQuotes(0);
 return html;
 }
+function isUnifiedDiffLine(line){
+var s=String(line||"");
+if(!s)return false;
+if(/^---\s/.test(s)||/^\+\+\+\s/.test(s)||/^@@\s/.test(s))return true;
+if(/^[-+ ]/.test(s))return true;
+return false;
+}
+function shouldStartUnifiedDiffBlock(lines,i){
+if(i>=lines.length||!isUnifiedDiffLine(lines[i]))return false;
+if(/^---\s/.test(lines[i])||/^@@\s/.test(lines[i]))return true;
+if(i+1>=lines.length)return/^[-+]/.test(lines[i]);
+return isUnifiedDiffLine(lines[i+1]);
+}
+function collectUnifiedDiffBlock(lines,start){
+var block=[],i=start;
+while(i<lines.length){
+var line=lines[i];
+if(isUnifiedDiffLine(line)){block.push(line);i++;continue;}
+if(!String(line).trim()&&i+1<lines.length&&isUnifiedDiffLine(lines[i+1])){block.push(line);i++;continue;}
+break;
+}
+return {lines:block,next:i};
+}
+function looksLikeUnifiedDiffBlock(block){
+if(!block||block.length<2)return false;
+var hasMarker=false,hasChange=false;
+for(var j=0;j<block.length;j++){
+var L=block[j];
+if(/^---\s/.test(L)||/^\+\+\+\s/.test(L)||/^@@\s/.test(L))hasMarker=true;
+if((/^-/.test(L)&&!/^---/.test(L))||(/^\+/.test(L)&&!/^\+\+\+/.test(L)))hasChange=true;
+}
+return hasMarker||hasChange;
+}
+function renderUnifiedDiffBlockHtml(block){
+var body=block.join("\n");
+var pr=parseUnifiedDiffBodyForRows(body);
+if(pr.oldT!==""||pr.newT!==""){
+return buildChatDiffCardHtml(pr.oldT,pr.newT,diffFileNameFromBody(body));
+}
+return '<pre><code>'+escapeHtml(body)+'</code></pre>';
+}
+function isDevNullPath(p){
+var s=String(p||"").trim().replace(/\\/g,"/").toLowerCase();
+if(!s||s==="null")return true;
+return s==="/dev/null"||s==="dev/null"||s.endsWith("/dev/null");
+}
+function parseDiffHeaderPath(line){
+var m=/^(---|\+\+\+)\s+(.+)$/.exec(String(line||"").trim());
+if(!m)return "";
+return m[2].split("\t")[0].trim();
+}
+function diffFileNameFromBody(body){
+var lines=String(body||'').replace(/\r/g,'').split('\n');
+var fromRaw="",toRaw="";
+for(var i=0;i<lines.length;i++){
+var L=lines[i];
+if(!fromRaw&&L.indexOf("--- ")===0)fromRaw=parseDiffHeaderPath(L);
+if(!toRaw&&L.indexOf("+++ ")===0)toRaw=parseDiffHeaderPath(L);
+}
+if(toRaw&&!isDevNullPath(toRaw))return baseNameOnly(toRaw);
+if(fromRaw&&!isDevNullPath(fromRaw))return baseNameOnly(fromRaw);
+return "文件";
+}
+function iterMarkdownCodeFences(text,visit){
+var src=String(text||"").replace(/\r\n/g,"\n");
+var i=0;
+while(i<src.length){
+var open=src.indexOf("```",i);
+if(open<0){visit("text",src.slice(i));break;}
+if(open>i)visit("text",src.slice(i,open));
+var langEnd=src.indexOf("\n",open+3);
+if(langEnd<0){visit("text",src.slice(open));break;}
+var lang=src.slice(open+3,langEnd);
+var langLow=lang.trim().toLowerCase();
+var pos=langEnd+1;
+var closed=false;
+if(langLow==="diff"||langLow==="patch"){
+var rest=src.slice(pos);
+var lastClose=-1,reLine=/^[ \t]*```[ \t]*$/gm,m;
+while((m=reLine.exec(rest))!==null)lastClose=m.index;
+if(lastClose>=0){
+var closeMatch=rest.slice(lastClose).match(/^[ \t]*```/);
+visit("fence",lang,rest.slice(0,lastClose).replace(/\n$/,""));
+i=pos+lastClose+closeMatch[0].length;
+var nl=src.indexOf("\n",i);
+i=nl<0?src.length:nl+1;
+closed=true;
+}
+}else{
+while(pos<src.length){
+var idx=src.indexOf("```",pos);
+if(idx<0)break;
+var lineStart=src.lastIndexOf("\n",idx-1)+1;
+if(lineStart!==idx){pos=idx+3;continue;}
+var lineEnd=src.indexOf("\n",idx);
+if(lineEnd<0)lineEnd=src.length;
+var line=src.slice(lineStart,lineEnd);
+if(/^[ \t]*```[ \t]*$/.test(line)){
+visit("fence",lang,src.slice(langEnd+1,lineStart).replace(/\n$/,""));
+i=lineEnd<src.length?lineEnd+1:src.length;
+closed=true;
+break;
+}
+pos=idx+3;
+}
+}
+if(!closed){visit("text",src.slice(open));break;}
+}
+}
 function parseUnifiedDiffBodyForRows(body){
 var lines=String(body||'').replace(/\r/g,'').split('\n');
 var oldL=[],newL=[];
@@ -665,17 +774,6 @@ else if(/^\+/.test(L)&&!/^\+\+\+/.test(L))newL.push(L.slice(1));
 else if(/^ /.test(L)){var c=L.slice(1);oldL.push(c);newL.push(c);}
 }
 return {oldT:oldL.join('\n'),newT:newL.join('\n')};
-}
-function diffFileNameFromBody(body){
-var lines=String(body||'').replace(/\r/g,'').split('\n');
-for(var i=0;i<lines.length;i++){
-var L=lines[i];
-var m=/^---\s+(.+?)(?:\s+·|\s*$)/.exec(L);
-if(m)return baseNameOnly(m[1].trim());
-m=/^\+\+\+\s+(.+?)(?:\s+·|\s*$)/.exec(L);
-if(m)return baseNameOnly(m[1].trim());
-}
-return "文件";
 }
 function diffRowInnerHtml(r){
 var g=r.t==='-'?'−':(r.t==='+'?'+':' ');
@@ -704,14 +802,11 @@ return '<div class="chat-diff-card">'+cap+box+'</div>';
 }
 function renderMarkdown(md){
 const text=String(md||'').replace(/\r\n/g,'\n');
-const re=/```([^\n`]*)\n([\s\S]*?)```/g;
 let html='';
-let last=0;
-let m;
-while((m=re.exec(text))!==null){
-html+=renderMarkdownBlocks(text.slice(last,m.index));
-const lang=String(m[1]||'').trim();
-const inner=m[2];
+iterMarkdownCodeFences(text,function(kind,a,b){
+if(kind==='text'){html+=renderMarkdownBlocks(a);return;}
+const lang=String(a||'').trim();
+const inner=b;
 const langLow=lang.toLowerCase();
 if((langLow==='diff'||langLow==='patch')&&inner){
 const pr=parseUnifiedDiffBodyForRows(inner);
@@ -723,9 +818,7 @@ var _hc=hljsCodeClass(lang);html+='<pre><code'+(_hc?' class="'+_hc+'"':'')+(lang
 }else{
 var _hc2=hljsCodeClass(lang);html+='<pre><code'+(_hc2?' class="'+_hc2+'"':'')+(lang?' data-lang="'+escapeHtml(lang)+'"':'')+'>'+highlightCode(inner,lang)+'</code></pre>';
 }
-last=re.lastIndex;
-}
-html+=renderMarkdownBlocks(text.slice(last));
+});
 return html||'<p></p>';
 }
 function add(role,t){

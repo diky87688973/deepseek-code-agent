@@ -25,6 +25,12 @@ def _finish_conversation_stopped(
     run_id: str = "",
 ) -> Dict[str, Any]:
     """用户停止：保留本轮已追加内容，为未执行工具补占位结果后落盘。"""
+    # 清理该会话的预览缓存
+    try:
+        from agent_v3.core.agent_turn import _CONVERSATION_PREVIEWED
+        _CONVERSATION_PREVIEWED.pop(cid, None)
+    except Exception:
+        pass
     _pad_trailing_missing_tool_results_for_user_stop(cid, messages, round_id=round_id)
     _normalize_persisted_conversation(messages)
     CONVERSATIONS[cid] = messages

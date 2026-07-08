@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """v2：配置、数据根路径、KB 勾选、工具路径与调试辅助。"""
 from __future__ import annotations
 
@@ -149,7 +149,7 @@ except Exception:
 
 # ── Skills 初始化 ──
 from util.skill_manager import init_skill_manager as _init_skill_manager
-from util.agent_prompt_constants import resolve_user_rules_system_prompt
+from util.agent_prompt_constants_v2 import resolve_user_rules_system_prompt
 _init_skill_manager(SKILLS_DIR, SKILLS_MAX_FILE_SIZE)
 
 

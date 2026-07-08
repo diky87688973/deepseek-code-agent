@@ -1,0 +1,182 @@
+/* 滚动条：更细、更淡；颜色随 tokens --imm-sb-* */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--imm-sb-thumb) transparent;
+}
+*::-webkit-scrollbar {
+  width: var(--imm-sb-width);
+  height: var(--imm-sb-width);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--imm-sb-thumb);
+  border-radius: var(--imm-sb-radius);
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--imm-sb-thumb-hover);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+html, body.imm-body {
+  margin: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--imm-bg);
+  color: var(--imm-text);
+  font-family: system-ui, Segoe UI, "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 13px;
+}
+/* 顶栏：默认上收，仅露出底边一条触发区；悬停滑出（全屏/经典链接） */
+.imm-header-dock {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  height: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+/* 收起 1s；悬停展开 0.3s（展开快、收起慢） */
+.imm-header-slide {
+  transform: translateY(calc(-100% + 8px));
+  transition: transform 1s ease;
+  pointer-events: auto;
+}
+/* 首屏完全展开；由 bootstrap 在 1s 后移除本类，再以 1s 过渡到上收态 */
+.imm-header-slide.imm-header-slide-init {
+  transform: translateY(0);
+  transition: none;
+}
+.imm-header-dock:hover .imm-header-slide {
+  transform: translateY(0);
+  transition: transform 0.3s ease;
+}
+.imm-header-slide .imm-header {
+  flex: 0 0 40px;
+  height: 40px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--imm-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  gap: 12px;
+  background: var(--imm-bg);
+}
+.imm-header-left, .imm-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.imm-muted { color: var(--imm-muted); font-size: 12px; }
+.imm-link { color: var(--imm-accent); text-decoration: none; font-size: 12px; }
+.imm-link:hover { text-decoration: underline; }
+/* 顶栏返回经典：与经典页「沉浸模式」一致的暗金胶囊，不用默认链接蓝 */
+.imm-classic-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--imm-gold);
+  background: var(--imm-gold-fill);
+  border: 1px solid var(--imm-gold-border);
+  text-decoration: none;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+.imm-classic-pill:hover {
+  color: var(--imm-gold-bright);
+  border-color: var(--imm-gold-border-hover);
+  background: var(--imm-gold-fill-hover);
+  text-decoration: none;
+}
+.imm-btn {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--imm-btn-text);
+  font-weight: 600;
+  font-size: 12px;
+  border: 1px solid var(--imm-btn-border);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.imm-btn:hover { background: var(--imm-btn-hover); }
+.imm-main {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.imm-columns-wrap {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 1px;
+}
+.imm-columns-row {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: auto;
+}
+.imm-composer-dock {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--imm-border);
+  background: var(--imm-composer-dock-bg);
+}
+html[data-ui-theme="light"] .imm-composer-dock {
+  border-top-color: #e6ebf4;
+}
+.imm-composer-inner { padding: 8px 10px 10px; }
+.imm-row { max-width: 100%; }
+html:fullscreen .imm-header-slide .imm-header,
+html:-webkit-full-screen .imm-header-slide .imm-header,
+html:fullscreen .imm-composer-dock,
+html:-webkit-full-screen .imm-composer-dock {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+/* 其他 Agent：与 agent-ui.css 同步（14160327） */
+.peer-chat-row{display:flex;flex-direction:column;align-items:stretch;gap:0;width:100%;max-width:none;align-self:stretch;margin:10px 0;padding:0;background:transparent;border:0;box-sizing:border-box}
+.peer-top{display:flex;align-items:center;gap:8px;min-width:0;margin:0}
+.peer-avatar{position:relative;flex:0 0 40px;width:40px;height:40px;border-radius:50%;overflow:hidden;background:linear-gradient(145deg,#6b5a3a,#4a4030);color:#f5e6c8;font-size:16px;font-weight:700;line-height:40px;text-align:center;user-select:none;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.peer-top-text{flex:0 1 auto;min-width:0;max-width:calc(100% - 48px);display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:0}
+.peer-agent-name{font-size:12px;font-weight:600;color:#e6edf3;margin:0;padding:0;min-width:0;line-height:1.25}
+.peer-agent-cid{font-weight:500;color:#8b949e;font-size:10px}
+.peer-top-text>.peer-meta-tag{display:inline-block;width:max-content;max-width:100%;margin:0;padding:0 6px;border-radius:999px;border:1px solid #5c6573;background:#4a515c;font-size:10px;line-height:1.1;font-family:ui-monospace,Consolas,monospace;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-sizing:border-box;zoom:0.9;transform-origin:left center}
+.peer-avatar::before,.peer-avatar::after{display:none!important;content:none!important;border:0!important;width:0!important;height:0!important}
+.peer-chat-row>.peer-bubble{position:relative;display:block;width:100%;max-width:100%;margin:8px 0 0;padding:8px 12px;border-radius:10px;background:#171717;border:1px solid #2c2c30;color:#c9d1d9;box-shadow:none;overflow:visible;isolation:isolate}
+.peer-bubble::after{content:"";position:absolute;left:12px;top:-9px;width:0;height:0;border-style:solid;border-width:0 8px 9px 8px;border-color:transparent transparent #2c2c30 transparent;z-index:1;pointer-events:none}
+.peer-bubble::before{content:"";position:absolute;left:13px;top:-7px;width:0;height:0;border-style:solid;border-width:0 7px 8px 7px;border-color:transparent transparent #171717 transparent;z-index:2;pointer-events:none}
+.peer-agent-body{margin:0;font-size:13px;font-weight:400}
+.peer-bubble .peer-agent-body.b.a{padding:0;background:transparent;border:0;white-space:normal;color:#c9d1d9}
+html[data-ui-theme="light"] .peer-avatar{background:linear-gradient(145deg,#d4b87a,#a88b4a);color:#3d2f10}
+html[data-ui-theme="light"] .peer-bubble{background:#f6f8fa;border-color:#c8d0da;color:#1a2233;box-shadow:0 1px 2px rgba(15,23,42,.06)}
+html[data-ui-theme="light"] .peer-bubble::before{border-color:transparent transparent #f6f8fa transparent}
+html[data-ui-theme="light"] .peer-bubble::after{border-color:transparent transparent #c8d0da transparent}
+html[data-ui-theme="light"] .peer-agent-name{color:#1a2233}
+html[data-ui-theme="light"] .peer-bubble .peer-agent-body.b.a{color:#1a2233;font-weight:400}
+
+/* 语音开关按钮 */
+.tts-toggle-btn{display:inline-flex;align-items:center;justify-content:center;height:24px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:600;color:#aeb9c8;background:transparent;border:1px solid #5a6a82;cursor:pointer;font:inherit;white-space:nowrap;box-sizing:border-box;gap:3px}
+.tts-toggle-btn.on{border-color:#4a9c6a;color:#6acc8a}
+.tts-toggle-btn.off{border-color:#6a5a5a;color:#b08888}

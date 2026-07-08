@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """FastAPI HTTP 路由：显式依赖 agent_v3.agent_core，无动态 exec。"""
 from __future__ import annotations
 
@@ -37,12 +37,26 @@ _IMMERSIVE_HTML_BODY = (
     else ""
 )
 
+_SIDER_HTML = core.AGENT_ROOT / "res" / "html" / "agent-sider.html"
+_SIDER_HTML_BODY = (
+    _SIDER_HTML.read_text(encoding="utf-8").replace("{{APP_VERSION}}", AGENT_APP_VERSION)
+    if _SIDER_HTML.is_file()
+    else ""
+)
+
 
 @router.get("/immersive", include_in_schema=False)
 def immersive_index() -> HTMLResponse:
     if not _IMMERSIVE_HTML_BODY:
         raise HTTPException(404, "immersive UI not found")
     return HTMLResponse(_IMMERSIVE_HTML_BODY, media_type="text/html; charset=utf-8")
+
+
+@router.get("/sider", include_in_schema=False)
+def sider_index() -> HTMLResponse:
+    if not _SIDER_HTML_BODY:
+        raise HTTPException(404, "sider UI not found")
+    return HTMLResponse(_SIDER_HTML_BODY, media_type="text/html; charset=utf-8")
 
 
 @router.get("/")
@@ -403,7 +417,7 @@ def chat_user_confirm_submit(inp: ChatUserConfirmIn, request: Request) -> Dict[s
             exec_args1 = exec_args0
         else:
             try:
-                from agent_v3.live_state import kling_mark_confirmed as _kmc, kling_consume_confirm_id as _kcc
+                from agent_v3.live_state import mark_confirmed as _kmc, consume_confirm_id as _kcc
                 _cid = str(exec_args0.get("confirm_id") or "")
                 if _cid:
                     _kmc(_cid)

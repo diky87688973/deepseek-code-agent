@@ -2,7 +2,7 @@
 """agent_v3.core.turn_runner"""
 from __future__ import annotations
 
-from agent_v3.core import _base as _core_base
+from agent_v3.core import base as _core_base
 
 for _k, _v in vars(_core_base).items():
     if not _k.startswith("__"):

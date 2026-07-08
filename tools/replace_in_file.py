@@ -47,9 +47,12 @@ def _apply_rules_sequential(
     *,
     replace_all: bool,
 ) -> Tuple[str, List[int]]:
-    cur = original
+    # 统一换行符为 \n，消除 Windows/Mac/Linux 差异
+    cur = original.replace("\r\n", "\n").replace("\r", "\n")
     counts: List[int] = []
     for old_s, new_s in rules:
+        old_s = old_s.replace("\r\n", "\n").replace("\r", "\n")
+        new_s = new_s.replace("\r\n", "\n").replace("\r", "\n")
         if replace_all:
             c = cur.count(old_s)
             if c:
@@ -161,17 +164,6 @@ def agent_main(
         if want_write and rt == "plan":
             return {"ok": False, "data": None, "error": {"type": "ModeConflict", "message": "当前为 Plan 模式，不允许写文件"}}
 
-        # raw 模式：将 new_text/old_text 中的实际换行/制表符还原为字面转义序列
-        if raw:
-            _r = lambda s: str(s or "").replace("\r\n", "\\n").replace("\r", "\\n").replace("\n", "\\n").replace("\t", "\\t")
-            new_text = _r(new_text)
-            old_text = _r(old_text)
-            if rules:
-                for item in rules:
-                    if isinstance(item, dict):
-                        item["old_text"] = _r(item.get("old_text"))
-                        item["new_text"] = _r(item.get("new_text"))
-
         mode = _detect_replace_modes(
             old_text=old_text,
             new_text=new_text,
@@ -196,6 +188,15 @@ def agent_main(
 
         if mode == "literal":
             rule_list = _merge_literal_rules(old_text, new_text, rules)
+            # ── 安全校验：禁止 old_text 含反斜杠（匹配转义序列如 \n、\t、\\ 等极易因 JSON 转义歧义导致匹配失败） ──
+            for old_s, _ in rule_list:
+                if "\\" in old_s:
+                    raise ValueError(
+                        "old_text 含反斜杠字符，禁止字面替换。\n"
+                        "  原因：JSON 的 \\n、\\t、\\\\ 等经 JSON 解码后歧义大，极易匹配失败。\n"
+                        "  请改用 line_start+line_end（行替换，坐标来自 grep_files/read_file）。\n"
+                        f"  内容：{old_s!r}"
+                    )
             new_body, counts_per_rule = _apply_rules_sequential(
                 original, rule_list, replace_all=replace_all
             )
@@ -290,6 +291,9 @@ def agent_main(
             else:
                 before = "".join(lines_keepends[:ls])
                 after = "".join(lines_keepends[le + 1:])
+                # 确保 rep 末尾换行符与原行一致，防止与下一行粘连
+                if after and not rep.endswith("\n"):
+                    rep = rep + "\n"
                 new_body = before + rep + after
                 counts_per_rule = [1 if new_body != original else 0]
         else:
@@ -307,6 +311,18 @@ def agent_main(
             counts_per_rule = [1 if new_body != original else 0]
 
         total_repl = sum(counts_per_rule)
+
+        # 字面替换零匹配：给出诊断提示而非静默返回
+        if mode == "literal" and total_repl == 0:
+            snippet = original[:300].replace("\n", "\\n")
+            hint_lines = [
+                f"old_text 在文件中匹配 0 次。",
+                f"文件内容前 300 字符: {snippet}",
+                "常见原因：① 注意 \\n 是反斜杠+n 两个字面字符还是真换行符",
+                "② 首尾空白差异→检查 old_text 是否与 read_file 输出字节完全一致",
+                "③ 建议改用 line_start+line_end（行替换，坐标不漂移）",
+            ]
+            raise ValueError("\n".join(hint_lines))
 
         if mode == "literal" and expected_replacements is not None and total_repl != int(
             expected_replacements

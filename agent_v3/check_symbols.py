@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """静态/运行时符号检查：v3 门面 agent_core 与 routes 的引用是否齐全。"""
 from __future__ import annotations

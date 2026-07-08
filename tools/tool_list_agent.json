@@ -28,7 +28,7 @@
     "delete_safe": "delete_file 不落盘 unlink，而是将文件移到 DATA_ROOT/safe_delete 下按日期分桶；默认 dry_run。",
     "catalog_examples": "各工具的 examples 会并入宿主下发给模型的 function.description（及失败时的 tool_help）；示例键名与 function schema 完全一致，布尔为 JSON true/false。宿主默认最多并入 2 条示例以节省 context。",
     "search_tool_choice": "【内容搜索三选一，勿混用】① grep_files：默认首选。目录/单文件、字面或简单正则（pattern 中 | 为 OR）、要快、要 region 给 replace_in_file。② regex_locate：需 Python 正则特性（lookahead、dotall 跨行、复杂分组）时用。③ file_search：仅当 path 很大（数千文件）、或需要侧栏 tool_progress 时用；勿用 run_command 旁路调用。三者 path/glob_pattern/recursive 语义一致。",
-    "session_collab": "session_send/session_multisend/session_broadcast/session_list/session_create 均无 action 参数（勿传 action）。requires_reply 在 session_send/session_multisend/session_broadcast 必填。session_wait：pending 时 suspend=true（或省略）挂起当前 Agent；suspend=false 仅查询、宿主不挂起。同一会话内 session_send 与 session_wait 须同一发送方 conversation_id 且 thread_id 一致；若 wait 在另一会话 Tab 执行，须传 sender_cid=发出 session_send 的 conversation_id（哨兵与回复记录在该会话）。",
+    "session_collab": "session_send/session_multisend/session_broadcast/session_list/session_create 均无 action 参数（勿传 action）。requires_reply 在 session_send/session_multisend/session_broadcast 必填。",
     "replace_in_file_raw": "字面 old_text/new_text 时：JSON 参数里若含真实换行/制表符、而要写入源码中的字面 \\n、\\t（两字符），传 raw=true；行号/region 替换勿用 raw。与 agent_hints.string_escape 配合：不确定转义时优先 line_start+line_end 或 region。",
     "run_command_vs_python_inline": "run_command：单条 shell 命令，safe_mode 默认 true（禁止 ; & | 等）。python -c 含分号会被拒→改用 python_inline 多行脚本，或拆成多次 run_command。python_inline：最后手段，禁止内嵌 file_search/grep_files。",
     "tool_help_on_failure": "ok=false 时读 error.tool_help。路径/参数/门控类错误为简短说明；复杂未知错误才附 argparse --help 与 catalog 摘要。",
@@ -3345,7 +3345,7 @@
     {
       "name": "skill_manage.py",
       "path": "tools/skill_manage.py",
-      "purpose": "skill_manage：action=list 列出所有可用技能名称与描述，或 action=read 按名称读取指定技能完整正文。读取的正文会以 tool 消息形式出现在对话区，不影响前缀缓存。必须直接调用 skill_manage，不要用 python_inline 或 run_command 或任何其他方式替代。",
+      "purpose": "skill_manage：action=list 列出所有可用技能名称与描述，action=read 按名称读取指定技能完整正文，action=copy 从 source 路径或按 name 复制技能文件到 skills 配置目录。必须直接调用 skill_manage，不要用 python_inline 或 run_command 或任何其他方式替代。",
       "stdout_output": "{ok,data:{name,content}}",
       "args": [
         {
@@ -3354,15 +3354,34 @@
           "required": true,
           "values": [
             "list",
-            "read"
+            "read",
+            "copy"
           ],
-          "description": "操作类型：action=list 列出所有可用技能（名称+描述）；action=read 读取指定技能的完整正文。"
+          "description": "操作类型：action=list 列出所有可用技能（名称+描述）；action=read 读取指定技能的完整正文；action=copy 将文件复制到 skills 配置目录（支持按 name 复制已注册的技能，或按 source 路径复制文件/目录）。"
         },
         {
           "flag": "--name",
           "type": "string",
           "required": false,
-          "description": "技能名称（action=read 时必填）。从 skill_manage(action=list) 或上下文前缀的【可用技能清单】获取。"
+          "description": "技能名称。action=read 时必填；action=copy 时可选（按名称复制已注册技能文件）。从 skill_manage(action=list) 或上下文前缀的【可用技能清单】获取。"
+        },
+        {
+          "flag": "--source",
+          "type": "string",
+          "required": false,
+          "description": "源路径（action=copy 时可选，与 name 二选一）。指向目录或单个 .md 文件。如 docs/third-party/skills（目录）或 docs/third-party/skills/opencli/opencli-usage.md（单文件）。"
+        },
+        {
+          "flag": "--subdir",
+          "type": "string",
+          "required": false,
+          "description": "源目录下的子目录名（action=copy 时可选），如 opencli。"
+        },
+        {
+          "flag": "--confirm_id",
+          "type": "string",
+          "required": false,
+          "description": "确认ID（action=copy 存在冲突时使用，从首次调用的返回获取）。已确认后传入可继续覆盖写入。"
         }
       ],
       "examples": [
@@ -3380,6 +3399,31 @@
             "action": "read",
             "name": "Python 编码规范"
           }
+        },
+        {
+          "title": "复制技能文件到 skills 目录（目录模式）",
+          "note": "从项目 docs/third-party/skills 复制 opencli 技能目录到配置的 skills 目录。",
+          "args": {
+            "action": "copy",
+            "source": "docs/third-party/skills",
+            "subdir": "opencli"
+          }
+        },
+        {
+          "title": "复制技能文件到 skills 目录（单文件模式）",
+          "note": "从路径复制单个 .md 文件到 skills 目录。",
+          "args": {
+            "action": "copy",
+            "source": "docs/third-party/skills/opencli/opencli-usage.md"
+          }
+        },
+        {
+          "title": "复制技能文件到 skills 目录（按名称模式）",
+          "note": "按已注册的技能名称复制文件。",
+          "args": {
+            "action": "copy",
+            "name": "opencli-usage"
+          }
         }
       ]
     },
@@ -3393,7 +3437,7 @@
           "flag": "--target_id",
           "type": "string",
           "required": true,
-          "description": "目标 Agent 会话 ID，可由 session_create/session_list/session_wait 返回。"
+          "description": "目标 Agent 会话 ID，可由 session_create/session_list 返回。"
         },
         {
           "flag": "--message",
@@ -3599,63 +3643,6 @@
           "title": "查看 Agent 列表",
           "note": "获取可通讯 Agent。",
           "args": {}
-        }
-      ]
-    },
-    {
-      "name": "session_wait.py",
-      "path": "tools/session_wait.py",
-      "purpose": "session_wait：检查 target_ids 是否已在 thread_id 下回复。pending 时传 suspend=true 挂起当前 Agent，目标 session_send 回复后自动恢复。同会话内 send/wait 共用发送方 conversation_id；跨会话 Tab 等待时传 sender_cid=发出 session_send 的会话 ID。",
-      "stdout_output": "{ok,data:{completed,pending,messages,all_done,thread_id,should_stop_turn?,suspend?,wait_state?,instruction?}}",
-      "args": [
-        {
-          "flag": "--target_ids",
-          "type": "array",
-          "required": true,
-          "description": "等待回复的 Agent 会话 ID 数组；也可传逗号分隔字符串。"
-        },
-        {
-          "flag": "--thread_id",
-          "type": "string",
-          "required": false,
-          "description": "协作线程 ID。传入后只统计同一 thread_id 的回复。"
-        },
-        {
-          "flag": "--suspend",
-          "type": "boolean",
-          "required": false,
-          "description": "为 true 时，pending 会挂起当前 Agent，本轮不再继续轮询 session_wait。"
-        },
-        {
-          "flag": "--sender_cid",
-          "type": "string",
-          "required": false,
-          "description": "跨会话等待时指定发送方 conversation_id；省略时默认用当前会话。"
-        }
-      ],
-      "examples": [
-        {
-          "title": "检查单人回复",
-          "note": "同一会话内 wait；未齐时 suspend=true 挂起。",
-          "args": {
-            "target_ids": [
-              "uuid-a1"
-            ],
-            "thread_id": "day1-speak-1",
-            "suspend": true
-          }
-        },
-        {
-          "title": "跨会话 sender_cid",
-          "note": "session_send 在会话 A 发出 requires_reply；在会话 B 调 wait 时传 sender_cid=A 的 conversation_id，thread_id 与 send 一致。",
-          "args": {
-            "target_ids": [
-              "uuid-a1"
-            ],
-            "thread_id": "day1-speak-1",
-            "sender_cid": "conv-session-a-uuid",
-            "suspend": true
-          }
         }
       ]
     },

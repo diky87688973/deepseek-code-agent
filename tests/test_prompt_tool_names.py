@@ -229,7 +229,7 @@ def _find_shorthand_issues(blob: str) -> List[str]:
 
 
 def _prompt_text_blobs() -> str:
-    from util import agent_prompt_constants as apc
+    from util import agent_prompt_constants_v2 as apc
 
     return "\n".join(
         [
@@ -351,7 +351,7 @@ class TestPromptToolNames(unittest.TestCase):
         blob = _agent_hints_blob()
         for pat in (r"\bglob/grep\b", r"\bread/grep\b", r"\bglob/read\b"):
             self.assertIsNone(re.search(pat, blob), f"agent_hints 含简称: {pat}")
-        from util.agent_prompt_constants import list_registered_api_names
+        from util.agent_prompt_constants_v2 import list_registered_api_names
 
         names = list_registered_api_names()
         self.assertIn("grep_files", names)
@@ -360,7 +360,7 @@ class TestPromptToolNames(unittest.TestCase):
 
     def test_main_system_prompt_not_v1_legacy(self) -> None:
         """主 system 须为完整版，不得残留 v1 三行精简提示。"""
-        from util import agent_prompt_constants as apc
+        from util import agent_prompt_constants_v2 as apc
 
         body = apc.TOOL_AGENT_SYSTEM_PROMPT
         self.assertIn("身份与边界", body)

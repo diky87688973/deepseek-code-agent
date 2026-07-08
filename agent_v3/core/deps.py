@@ -102,15 +102,15 @@ from agent_v3.live_state import (
     _request_conversation_stop,
     _ACTIVE_CONVERSATION_RUNS,
     server_shutting_down,
-    kling_create_confirm_id,
-    kling_consume_confirm_id,
+    create_confirm_id,
+    consume_confirm_id,
 )
 from util.agent_tool_budget import (
     apply_turn_tool_budget_to_result,
     tool_call_limit_reached_result,
     turn_tool_budget_exhausted,
 )
-from util.agent_prompt_constants import (
+from util.agent_prompt_constants_v2 import (
     AGENT_CODE_HINT_SYSTEM_PROMPT,
     TOOL_AGENT_AUDIT_MODE_PROMPT,
     TOOL_AGENT_PLAN_MODE_PROMPT,

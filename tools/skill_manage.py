@@ -9,6 +9,9 @@ def agent_main(
     *,
     action: str = "",
     name: str = "",
+    source: str = "",
+    subdir: str = "",
+    confirm_id: str = "",
     **_kwargs: Any,
 ) -> Dict[str, Any]:
     """skill_manage 入口。
@@ -16,6 +19,10 @@ def agent_main(
     action:
       - read: 按 name 返回 skill 全文内容。
       - list: 返回所有可用 skill 的名称与描述（不含正文）。
+      - copy: 将 source 路径下的 .md 文件复制到 skills 配置目录，subdir 为子目录名（可选）。
+
+    source: action=copy 时必填，源目录路径。
+    subdir: action=copy 时可选，源目录下的子目录名。
     """
     action = str(action or "").strip().lower()
     if not action:
@@ -77,7 +84,76 @@ def agent_main(
             }
         return {"ok": True, "data": {"name": key, "content": content}}
 
-    return _with_meta({"ok": False, "error": {"type": "unknown_action", "message": f"未知 action: {action}。可选: read, list"}})
+    if action == "copy":
+        from pathlib import Path
+        _cid = str(confirm_id or "").strip()
+        sub = str(subdir or "").strip()
+        src = str(source or "").strip()
+
+        # 生成源路径（按 name 或 source）
+        def _resolve_src():
+            nonlocal src
+            name_key = str(name or "").strip()
+            if name_key:
+                meta = mgr.get_skill_meta(name_key)
+                if not meta:
+                    return None, f"未找到名为 '{name_key}' 的 skill"
+                return Path(meta.file_path).expanduser().resolve(), None
+            if src:
+                return Path(src).expanduser().resolve(), None
+            return None, "action=copy 需要指定 source（路径）或 name（skill 名称）"
+
+        src_path, err = _resolve_src()
+        if err:
+            return {"ok": False, "error": {"type": "missing_source", "message": err}}
+
+        result = mgr.copy_from(src_path, sub)
+
+        # ── 无冲突：直接返回 ──
+        if not result.get("conflict"):
+            return _with_meta({"ok": True, "data": result})
+
+        # ── 有冲突：confirm_id 流程 ──
+        if _cid:
+            from agent_v3.live_state import consume_confirm_id
+            info = consume_confirm_id(_cid)
+            if info and info.get("confirmed"):
+                import shutil
+                conflict_path = Path(result["conflict"])
+                if src_path.is_file():
+                    conflict_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(src_path), str(conflict_path))
+                else:
+                    sub = str(subdir or "").strip()
+                    target_sub = mgr.skills_dir / sub if sub else mgr.skills_dir
+                    target_sub.mkdir(parents=True, exist_ok=True)
+                    for f in sorted(src_path.iterdir()):
+                        if not f.is_file() or f.suffix != ".md":
+                            continue
+                        shutil.copy2(str(f), str(target_sub / f.name))
+                mgr._scan(full=True)
+                return _with_meta({"ok": True, "data": {"copied": 1, "overwritten": True}})
+            return {"ok": False, "error": {"type": "confirm_failed",
+                "message": "确认ID无效或尚未确认。请先调用 user_confirm 确认覆盖。"}}
+
+        # ── 首次冲突：生成 confirm_id 让模型确认 ──
+        from agent_v3.live_state import create_confirm_id
+        new_id = create_confirm_id("copy", {"source": source, "subdir": subdir})
+        return _with_meta({
+            "ok": False,
+            "error": {
+                "type": "UserConfirmRequired",
+                "message": f"目标文件已存在: {result['conflict']}。确认覆盖后传入 confirm_id 重试。",
+            },
+            "data": {
+                "title": "确认覆盖技能文件",
+                "confirms": ["确认覆盖", "取消"],
+                "confirm_id": new_id,
+                "conflict": result["conflict"],
+            },
+        })
+
+    return _with_meta({"ok": False, "error": {"type": "unknown_action", "message": f"未知 action: {action}。可选: read, list, copy"}})
 
 
 # ── CLI 入口（供手动调试）──

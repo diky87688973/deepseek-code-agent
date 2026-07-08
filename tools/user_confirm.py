@@ -63,8 +63,8 @@ def agent_main(
             # 有待确认的 confirm_id 时自动标记
             if confirm_id:
                 try:
-                    from agent_v3.live_state import kling_mark_confirmed
-                    kling_mark_confirmed(confirm_id)
+                    from agent_v3.live_state import mark_confirmed
+                    mark_confirmed(confirm_id)
                 except Exception:
                     pass
             _result = {"confirm": str(confirm)}

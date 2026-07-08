@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """组装 FastAPI 应用：lifespan、静态资源挂载、注册显式路由模块。"""
 from __future__ import annotations
 

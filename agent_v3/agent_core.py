@@ -14,7 +14,7 @@ def _export_module(mod: Any) -> None:
         g[name] = val
 
 
-from agent_v3.core import _base as _core_base
+from agent_v3.core import base as _core_base
 from agent_v3.core import agent_turn as _core_agent_turn
 from agent_v3.core import turn_runner as _core_turn_runner
 _export_module(_core_base)

@@ -34,6 +34,84 @@ class SkillManager:
         if self.skills_dir and self.skills_dir.is_dir():
             self._scan(full=True)
 
+    def copy_from(self, source_dir: Path, subdir: str = "") -> Dict[str, Any]:
+        """将 source_dir 下的 .md 文件复制到 skills 目录，触发重新扫描。
+
+        Args:
+            source_dir: 源目录或文件（必须存在）。
+            subdir: 源目录下的子目录名，如 "opencli"。
+
+        Returns:
+            {"copied": int, "skipped": int, "errors": [str],
+             "conflict": Optional[str]}  # 冲突时返回冲突路径
+        """
+        if not self.skills_dir:
+            return {"ok": False, "error": "skills 目录未配置"}
+
+        import shutil
+
+        # ── 单文件 copy ──
+        if source_dir.is_file():
+            f = source_dir
+            target_sub = target_dir = self.skills_dir
+            if subdir:
+                target_sub = self.skills_dir / subdir
+            target_sub.mkdir(parents=True, exist_ok=True)
+            dest = target_sub / f.name
+
+            if dest.exists():
+                return {"conflict": str(dest), "copied": 0, "skipped": 0, "errors": []}
+
+            try:
+                shutil.copy2(str(f), str(dest))
+                self._scan(full=True)
+                return {"copied": 1, "skipped": 0, "errors": [], "conflict": None}
+            except Exception as exc:
+                return {"copied": 0, "skipped": 0, "errors": [str(exc)], "conflict": None}
+
+        # ── 目录 copy ──
+        if not source_dir.is_dir():
+            return {"ok": False, "error": f"源路径不存在: {source_dir}"}
+
+        src = source_dir / subdir if subdir else source_dir
+        if not src.is_dir():
+            return {"ok": False, "error": f"子目录不存在: {src}"}
+
+        copied = 0
+        skipped = 0
+        errors: List[str] = []
+        conflict = None
+
+        self.skills_dir.mkdir(parents=True, exist_ok=True)
+        target_dir = self.skills_dir / subdir if subdir else self.skills_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        # 先检查冲突
+        for f in sorted(src.iterdir()):
+            if not f.is_file() or f.suffix != ".md":
+                skipped += 1
+                continue
+            dest = target_dir / f.name
+            if dest.exists():
+                conflict = str(dest)
+                break
+
+        if conflict:
+            return {"conflict": conflict, "copied": 0, "skipped": skipped, "errors": []}
+
+        for f in sorted(src.iterdir()):
+            if not f.is_file() or f.suffix != ".md":
+                continue
+            dest = target_dir / f.name
+            try:
+                shutil.copy2(str(f), str(dest))
+                copied += 1
+            except Exception as exc:
+                errors.append(f"{f.name}: {exc}")
+
+        self._scan(full=True)
+        return {"copied": copied, "skipped": skipped, "errors": errors, "conflict": None}
+
     # ── 隐藏目录过滤 ──
 
     @staticmethod
@@ -303,6 +381,22 @@ class SkillManager:
             {"name": s.name, "description": s.description, "auto_load": s.is_auto_load}
             for s in self.skills if not s.is_auto_load
         ]
+
+    def get_skill_meta(self, name: str) -> Optional[SkillMeta]:
+        """按 name 获取 SkillMeta（含 file_path）。name 匹配规则同 get_skill。"""
+        self._check_rescan()
+        key = (name or "").strip()
+        if not key:
+            return None
+        # 精确匹配
+        for s in self.skills:
+            if s.name == key:
+                return s
+        # 纯文件名匹配
+        for s in self.skills:
+            if Path(s.name).stem == key:
+                return s
+        return None
 
     def get_skill(self, name: str) -> Optional[str]:
         """按 name 获取完整正文。name 必须与相对路径完全一致。

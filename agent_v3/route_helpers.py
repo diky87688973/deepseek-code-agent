@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """HTTP 与 agent_core 之间的薄适配：SSE 包装、会话选项。"""
 from __future__ import annotations
 

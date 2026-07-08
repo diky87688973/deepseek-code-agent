@@ -2,11 +2,106 @@
 """agent_v3.core.agent_turn"""
 from __future__ import annotations
 
-from agent_v3.core import _base as _core_base
+import os
+
+from agent_v3.core import base as _core_base
 
 for _k, _v in vars(_core_base).items():
     if not _k.startswith("__"):
         globals()[_k] = _v
+
+# ── 写盘预览强制检查 ──
+_PREVIEW_PATH_SCRIPTS: frozenset = frozenset(
+    {"write_file.py", "replace_in_file.py", "read_write.py", "apply_patch.py"}
+)
+
+_PREVIEW_REQUIRED_MSG = (
+    "Execute/Auto 模式下禁止直接 dry_run=false 写入。"
+    "请先对同一文件调用 dry_run=true 预览 diff，确认无误后再 dry_run=false 执行。"
+)
+
+def _check_write_preview(
+    script: str,
+    exec_args: dict,
+    step_title: str,
+    previewed_files: dict,
+    written_files: dict,
+):
+    """强制 dry_run=true 预览后才允许 dry_run=false 写入。
+    返回 None 表示通过检查；返回 dict 表示被拦截。
+    """
+    sn = str(script or "")
+    if sn not in _PREVIEW_PATH_SCRIPTS:
+        return None
+    path = str(exec_args.get("path") or "").strip()
+    if not path:
+        return None
+    dr = exec_args.get("dry_run", True)
+    if dr is True or dr == 1 or str(dr).strip() in ("1", "true", "True"):
+        previewed_files[path] = step_title or sn
+        return None
+    if path in previewed_files:
+        written_files[path] = step_title or sn
+        return None
+    return {
+        "ok": False, "data": None,
+        "error": {"type": "PreviewRequired", "message": _PREVIEW_REQUIRED_MSG},
+    }
+
+
+def _build_post_write_diagnostic(
+    written_files: dict,
+    conversation_id: str,
+):
+    """写盘后自动诊断 + 多文件自查提示。
+    返回要注入的 tool 消息列表（作为额外消息追加到对话）。
+    """
+    msgs = []
+    paths = [p for p in written_files if p.strip()]
+
+    # 自动触发 unified_diagnose
+    if paths:
+        try:
+            import unified_diagnose as _udiag
+            diag_path = os.path.dirname(paths[0]) if len(paths) == 1 else os.path.commonpath(paths)
+            diag_result = _udiag.agent_main(path=diag_path, no_ruff=False, limit=50)
+            diag_str = json.dumps(diag_result, ensure_ascii=False, indent=2)
+            if len(diag_str) > 4000:
+                diag_str = diag_str[:4000] + "\n...（截断）"
+            msgs.append({
+                "role": "tool",
+                "tool_call_id": f"_host_diag_{conversation_id[-8:]}",
+                "content": json.dumps({
+                    "host_check": "auto_diagnose",
+                    "files_checked": paths[:10],
+                    "diagnostic": diag_str,
+                }, ensure_ascii=False),
+            })
+        except Exception:
+            pass  # 诊断失败不阻断流程
+
+    # 多文件自查提示
+    if len(paths) > 1:
+        file_list = "\n".join(f"  - {p}" for p in paths[:10])
+        msgs.append({
+            "role": "tool",
+            "tool_call_id": f"_host_review_{conversation_id[-8:]}",
+            "content": json.dumps({
+                "host_check": "cross_file_review",
+                "modified_files": paths,
+                "message": (
+                    f"本轮修改了 {len(paths)} 个文件，请逐一自检：\n"
+                    f"{file_list}\n\n"
+                    "每项确认：① 是否遗漏了引用该文件的符号？② 风格与周围代码一致？\n"
+                    "③ 是否无意中引入了新依赖或调试代码？④ 变量/函数命名合理？"
+                ),
+            }, ensure_ascii=False),
+        })
+
+    return msgs
+
+# ── 会话级预览追踪（跨回合持久化）──
+_CONVERSATION_PREVIEWED: Dict[str, Dict[str, str]] = {}
 
 def run_agent_turn(
     conversation_id: str,
@@ -178,6 +273,9 @@ def run_agent_turn(
             _save_conversation(conversation_id, messages)
             direct_preview_content: List[str] = []
             turn_stop_after_this_batch = False
+            # ── 本轮写盘追踪状态 ──
+            _previewed_files = _CONVERSATION_PREVIEWED.setdefault(conversation_id, {})
+            _written_files: Dict[str, str] = {}
             for tc in tcalls:
                 if _turn_abort_requested(conversation_id, run_id):
                     yield _finish_conversation_stopped(
@@ -333,14 +431,27 @@ def run_agent_turn(
                                     result = {"ok": False, "data": None, "error": {"type": "ModeConflict", "message": "当前为 Execute 模式，但未找到执行清单(Todo-List)。请先用 todo_list（action=create）创建执行清单后再执行写操作。"}}
                                     result = attach_tool_help_on_failure(script, None, result)
                                 else:
+                                    # 执行前强制预览检查
+                                    _block = _check_write_preview(
+                                        script, exec_args, step_title or "", _previewed_files, _written_files)
+                                    if _block:
+                                        result = _block
+                                        result = attach_tool_help_on_failure(script, None, result)
+                                    else:
+                                        result = _execute_tool_script_stoppable(
+                                            conversation_id, run_id, script, exec_args
+                                        )
+                            else:
+                                # Auto 模式：不拦截，但强制预览检查
+                                _block = _check_write_preview(
+                                    script, exec_args, step_title or "", _previewed_files, _written_files)
+                                if _block:
+                                    result = _block
+                                    result = attach_tool_help_on_failure(script, None, result)
+                                else:
                                     result = _execute_tool_script_stoppable(
                                         conversation_id, run_id, script, exec_args
                                     )
-                            else:
-                                # Auto 模式：不拦截
-                                result = _execute_tool_script_stoppable(
-                                    conversation_id, run_id, script, exec_args
-                                )
                         else:
                             # file_search / grep_files / regex_locate：线程执行 + 注入 _progress_dict，宿主轮询推送 tool_progress
                             if script in _TOOL_PROGRESS_SCRIPTS:
@@ -453,6 +564,7 @@ def run_agent_turn(
                         result,
                         CONVERSATION_MODES.get(conversation_id, ""),
                     )
+                    # 预览记录持久到会话结束，允许同文件多次写入无需反复预览
                     if not (isinstance(result, dict) and result.get("ok") is True):
                         _record_tool_debug_failure(
                             conversation_id=conversation_id,
@@ -639,6 +751,11 @@ def run_agent_turn(
                     conversation_id, messages, round_id=active_round_id, run_id=run_id
                 )
                 return
+            # ── 写盘后自动诊断 + 多文件自查 ──
+            if _written_files:
+                _post_msgs = _build_post_write_diagnostic(_written_files, conversation_id)
+                for _pm in _post_msgs:
+                    messages.append(_pm)
             api_messages = _build_api_messages_for_model(messages, conversation_id)
             continue
 
@@ -763,5 +880,6 @@ def run_agent_turn(
     CONVERSATIONS[conversation_id] = messages
     _save_conversation(conversation_id, messages)
     yield _context_layout_event(conversation_id, messages)
+    _CONVERSATION_PREVIEWED.pop(conversation_id, None)
     yield {"type": "done"}
 

@@ -93,7 +93,7 @@ def check_runtime_no_agent_v2() -> None:
 
 
 def check_main_system_prompt() -> None:
-    from util import agent_prompt_constants as apc
+    from util import agent_prompt_constants_v2 as apc
 
     body = apc.TOOL_AGENT_SYSTEM_PROMPT
     if len(body) < 400:
@@ -101,7 +101,7 @@ def check_main_system_prompt() -> None:
     if "身份与边界" not in body:
         errors.append("TOOL_AGENT_SYSTEM_PROMPT 缺少「身份与边界」段")
     if hasattr(apc, "TOOL_AGENT_V2_SYSTEM_PROMPT"):
-        errors.append("util.agent_prompt_constants 仍导出 TOOL_AGENT_V2_* 别名")
+        errors.append("agent_prompt_constants 不应存在（已替换为 _v2）")
 
 
 def check_session_create_prompt_import() -> None:

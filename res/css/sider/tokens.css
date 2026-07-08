@@ -1,0 +1,315 @@
+/* 沉浸：语义色 + 滚动条；html[data-ui-theme="light"] 覆盖白天 */
+:root {
+  --imm-sb-thumb: rgba(120, 120, 130, 0.18);
+  --imm-sb-thumb-hover: rgba(95, 98, 108, 0.32);
+  --imm-sb-width: 6px;
+  --imm-sb-radius: 4px;
+
+  --imm-bg: #1e1e1e;
+  --imm-panel: #252526;
+  --imm-border: #333;
+  --imm-text: #ccc;
+  --imm-muted: #888;
+  --imm-accent: #4da3ff;
+  --imm-gold: #c9a86a;
+  --imm-gold-bright: #dfc08c;
+  --imm-gold-border: #8a7048;
+  --imm-gold-border-hover: #a08055;
+  --imm-gold-fill: rgba(138, 112, 72, 0.14);
+  --imm-gold-fill-hover: rgba(160, 128, 85, 0.22);
+  --imm-gold-ring: rgba(180, 150, 95, 0.38);
+
+  --imm-col-bg: #1a1c20;
+  --imm-col-head-color: #888;
+  --imm-close: #8f98a5;
+  --imm-close-hover: #e1e6ed;
+  /* 选中分栏外轮廓（夜间沿用金边） */
+  --imm-col-active-outline: var(--imm-gold-border);
+  --imm-col-active-glow: var(--imm-gold-ring);
+
+  --imm-msg-user-bg: #171717;
+  --imm-msg-user-border: #2c2c30;
+  --imm-msg-user-text: #aeb6c0;
+  --imm-msg-assistant-bg: transparent;
+  --imm-msg-assistant-border: transparent;
+  --imm-msg-assistant-shadow: none;
+  --imm-msg-assistant-radius: 0;
+  --imm-msg-assistant-padding-y: 8px;
+  --imm-msg-assistant-padding-x: 0;
+
+  --imm-pre-bg: #0d0d0d;
+  --imm-pre-border: #2a2a2a;
+  --imm-code-inline-bg: rgba(255, 255, 255, 0.06);
+
+  --imm-resizer-bg: #363b44;
+  --imm-resizer-border: #2a2d32;
+  --imm-resizer-hover: #454b56;
+  --imm-resizer-hover-border: #32363c;
+
+  --imm-diff-card-bg: #141820;
+  --imm-diff-card-border: rgba(255, 255, 255, 0.09);
+  --imm-diff-cap-border: rgba(255, 255, 255, 0.1);
+  --imm-diff-cap-text: #d6dde5;
+  --diff-cap-bg: #23262b;
+
+  /* diff 正文（与卡片同色系，避免夜间白底块） */
+  --diff-surface-bg: #141820;
+  --diff-surface-border: #2a2f37;
+  --diff-surface-text: #d4dae3;
+  --diff-eq-text: #8b949e;
+  --diff-eq-gutter-bg: #12151a;
+  --diff-del-bg: rgba(248, 81, 73, 0.12);
+  --diff-del-border: #c23c3c;
+  --diff-del-gutter-text: #f0a8a4;
+  --diff-del-gutter-bg: rgba(248, 81, 73, 0.2);
+  --diff-add-bg: rgba(63, 185, 80, 0.12);
+  --diff-add-border: #2ea043;
+  --diff-add-gutter-text: #9fdc9f;
+  --diff-add-gutter-bg: rgba(46, 160, 67, 0.2);
+  --diff-meta-bg: #12151a;
+  --diff-meta-text: #8b949e;
+  --diff-meta-border: #30363d;
+  --diff-stat-del: #ff7b72;
+  --diff-stat-add: #7ee787;
+  --diff-run-cmd-bg: rgba(0, 0, 0, 0.22);
+  --diff-run-out-bg: rgba(0, 0, 0, 0.08);
+  --diff-run-sep: rgba(255, 255, 255, 0.22);
+  --imm-todo-bg: #161a20;
+  --imm-todo-border: #3a3f47;
+  --imm-todo-hdr: #aeb9c8;
+
+  --imm-spinner-border: #555;
+  --imm-spinner-top: #8ab4f8;
+
+  --imm-composer-bg: #1e1e1e;
+  --imm-composer-border: #3c3c3c;
+  --imm-composer-dock-bg: #1e1e1e;
+  --imm-input-text: #ccc;
+
+  --imm-chip-text: #aeb9c8;
+  --imm-chip-border: #4f5f76;
+  --imm-chip-hover: rgba(120, 130, 145, 0.1);
+  --imm-plan-border: #8b6a2d;
+  --imm-plan-text: #e8c98a;
+  --imm-plan-hover-bg: rgba(139, 106, 45, 0.12);
+  --imm-exec-border: #7a5ca8;
+  --imm-exec-text: #d8c3ff;
+  --imm-exec-hover-bg: rgba(122, 92, 168, 0.16);
+  --imm-reason-br: #555;
+  --imm-reason-br-hover: #888;
+
+  --imm-pop-bg: #1a1e24;
+  --imm-pop-border: #3a3f47;
+  --imm-pop-shadow: rgba(0, 0, 0, 0.42);
+  --imm-menu-row: #d0d7de;
+  --imm-menu-hover-bg: #252b34;
+  --imm-menu-hint: #8b949e;
+  --imm-send-hint: #6e7681;
+  --imm-open-badge: #89d185;
+
+  --imm-model-current-bg: #2a3548;
+  --imm-model-current-ring: #569cd6;
+
+  --imm-reason-menu-bg: #1a1f28;
+  --imm-reason-menu-border: #333;
+  --imm-reason-item: #ccc;
+  --imm-reason-item-hover-bg: #2d333b;
+  --imm-reason-item-hover-text: #fff;
+  --imm-reason-current-bg: #1a2530;
+  --imm-reason-current-border: #58a6ff;
+  --imm-reason-current-text: #58a6ff;
+  --imm-reason-max-bg: #1a1810;
+  --imm-reason-max-border: #8b6a2d;
+  --imm-reason-max-text: #e8c98a;
+
+  --imm-at-head-border: #2a2f37;
+  --imm-at-up-bg: #2a3548;
+  --imm-at-up-text: #a0c0ff;
+  --imm-at-up-hover: #3a4a60;
+  --imm-at-path: #888;
+  --imm-at-item: #d0d7de;
+  --imm-at-item-hover-bg: #2a3548;
+  --imm-at-item-ring: #569cd6;
+  --imm-at-dir: #a0c0ff;
+
+  --imm-uc-border: #333;
+  --imm-uc-bg: #161a20;
+  --imm-uc-text: #ddd;
+  --imm-uc-pick: #4da3ff;
+  --imm-uc-dot-off: #666;
+
+  --imm-btn-text: #aeb9c8;
+  --imm-btn-border: #4f5f76;
+  --imm-btn-hover: rgba(120, 130, 145, 0.1);
+
+  --imm-kb-panel-bg: #1a1e24;
+  --imm-kb-panel-border: #3a3f47;
+  --imm-kb-panel-shadow: rgba(0, 0, 0, 0.5);
+  --imm-kb-head-border: #2a2f37;
+  --imm-kb-body-text: #bbb;
+  --imm-kb-backdrop: rgba(0, 0, 0, 0.45);
+  --imm-kb-row-border: #2a2d32;
+  --imm-kb-header-bg: #202328;
+  --imm-kb-hint-bar-bg: #1e2024;
+  --imm-kb-muted: #9aa0a6;
+  --imm-kb-fpath: #6e7681;
+
+  --imm-slash-muted: #888;
+}
+
+html[data-ui-theme="light"] {
+  --imm-sb-thumb: rgba(90, 98, 112, 0.22);
+  --imm-sb-thumb-hover: rgba(70, 76, 90, 0.38);
+  --imm-sb-width: 6px;
+
+  --imm-bg: #f5f6f8;
+  --imm-panel: #fafbfc;
+  --imm-border: #d8dee8;
+  --imm-text: #1a2233;
+  --imm-muted: #5a6474;
+  --imm-accent: #0969da;
+  --imm-gold: #7a5f28;
+  --imm-gold-bright: #5c4818;
+  --imm-gold-border: #a68b4a;
+  --imm-gold-border-hover: #8f743c;
+  --imm-gold-fill: rgba(166, 139, 74, 0.12);
+  --imm-gold-fill-hover: rgba(166, 139, 74, 0.2);
+  --imm-gold-ring: rgba(140, 110, 50, 0.35);
+
+  --imm-col-bg: #f7f8fa;
+  --imm-col-head-color: #5a6474;
+  --imm-close: #6a7384;
+  --imm-close-hover: #1a2233;
+  /* 白天：选中分栏为暗红边框 + 光晕 */
+  --imm-col-active-outline: #84252a;
+  --imm-col-active-glow: rgba(96, 22, 28, 0.45);
+
+  --imm-msg-user-bg: #eef1f6;
+  --imm-msg-user-border: #d0d8e4;
+  --imm-msg-user-text: #2c3545;
+  /* 助手与分栏背板融合，仅用户气泡为卡片 */
+  --imm-msg-assistant-bg: transparent;
+  --imm-msg-assistant-border: transparent;
+  --imm-msg-assistant-shadow: none;
+  --imm-msg-assistant-radius: 0;
+  --imm-msg-assistant-padding-y: 8px;
+  --imm-msg-assistant-padding-x: 0;
+
+  --imm-pre-bg: #fafbfc;
+  --imm-pre-border: #d8e0ea;
+  --imm-code-inline-bg: rgba(9, 105, 218, 0.08);
+
+  --imm-resizer-bg: #c5cad6;
+  --imm-resizer-border: #aeb6c8;
+  --imm-resizer-hover: #b4bac8;
+  --imm-resizer-hover-border: #9aa3b5;
+
+  --imm-diff-card-bg: #ffffff;
+  --imm-diff-card-border: #d0dae8;
+  --imm-diff-cap-border: #e2e8f4;
+  --imm-diff-cap-text: #2c3545;
+  --diff-cap-bg: #f6f8fa;
+
+  --diff-surface-bg: #f6f8fa;
+  --diff-surface-border: #e2e8f4;
+  --diff-surface-text: #24292f;
+  --diff-eq-text: #57606a;
+  --diff-eq-gutter-bg: #f6f8fa;
+  --diff-del-bg: #ffeef0;
+  --diff-del-border: #cf222e;
+  --diff-del-gutter-text: #9a1c1c;
+  --diff-del-gutter-bg: #ffd7d5;
+  --diff-add-bg: #e6ffed;
+  --diff-add-border: #1a7f37;
+  --diff-add-gutter-text: #116329;
+  --diff-add-gutter-bg: #ccffd8;
+  --diff-meta-bg: #f6f8fa;
+  --diff-meta-text: #57606a;
+  --diff-meta-border: #d0d7de;
+  --diff-stat-del: #d73a49;
+  --diff-stat-add: #2ea043;
+  --diff-run-cmd-bg: #f0f4fa;
+  --diff-run-out-bg: #fafbfc;
+  --diff-run-sep: #c5ceda;
+  --imm-todo-bg: #ffffff;
+  --imm-todo-border: #d0dae8;
+  --imm-todo-hdr: #3a4456;
+
+  --imm-spinner-border: #b8c0d0;
+  --imm-spinner-top: #0969da;
+
+  --imm-composer-bg: #ffffff;
+  --imm-composer-border: #dce3ef;
+  --imm-composer-dock-bg: #fcfcfd;
+  --imm-input-text: #1a2233;
+
+  --imm-chip-text: #3a4a5f;
+  --imm-chip-border: #9eb0cc;
+  --imm-chip-hover: rgba(9, 105, 218, 0.08);
+  --imm-plan-border: #9a7a32;
+  --imm-plan-text: #6b5420;
+  --imm-plan-hover-bg: rgba(154, 122, 50, 0.12);
+  --imm-exec-border: #6b4f9e;
+  --imm-exec-text: #4a3a72;
+  --imm-exec-hover-bg: rgba(107, 79, 158, 0.12);
+  --imm-reason-br: #8899b8;
+  --imm-reason-br-hover: #5a6a85;
+
+  --imm-pop-bg: #ffffff;
+  --imm-pop-border: #c8d4e8;
+  --imm-pop-shadow: rgba(15, 23, 42, 0.12);
+  --imm-menu-row: #1a2233;
+  --imm-menu-hover-bg: #eef2fa;
+  --imm-menu-hint: #5a6474;
+  --imm-send-hint: #6a7588;
+  --imm-open-badge: #2d8a3e;
+
+  --imm-model-current-bg: #e8f1ff;
+  --imm-model-current-ring: #0969da;
+
+  --imm-reason-menu-bg: #fafbfc;
+  --imm-reason-menu-border: #c8d4e8;
+  --imm-reason-item: #1a2233;
+  --imm-reason-item-hover-bg: #eef2fa;
+  --imm-reason-item-hover-text: #0a0f18;
+  --imm-reason-current-bg: #e8f1ff;
+  --imm-reason-current-border: #0969da;
+  --imm-reason-current-text: #0558b8;
+  --imm-reason-max-bg: #fdf8ee;
+  --imm-reason-max-border: #c9a227;
+  --imm-reason-max-text: #6b5420;
+
+  --imm-at-head-border: #dde6f2;
+  --imm-at-up-bg: #e8f1ff;
+  --imm-at-up-text: #0558b8;
+  --imm-at-up-hover: #d4e5ff;
+  --imm-at-path: #5a6474;
+  --imm-at-item: #1a2233;
+  --imm-at-item-hover-bg: #eef2fa;
+  --imm-at-item-ring: #0969da;
+  --imm-at-dir: #0558b8;
+
+  --imm-uc-border: #c8d4e8;
+  --imm-uc-bg: #ffffff;
+  --imm-uc-text: #2c3545;
+  --imm-uc-pick: #0969da;
+  --imm-uc-dot-off: #9aa8bc;
+
+  --imm-btn-text: #3a4a5f;
+  --imm-btn-border: #9eb0cc;
+  --imm-btn-hover: rgba(9, 105, 218, 0.08);
+
+  --imm-kb-panel-bg: #ffffff;
+  --imm-kb-panel-border: #c8d4e8;
+  --imm-kb-panel-shadow: rgba(15, 23, 42, 0.14);
+  --imm-kb-head-border: #e2e8f4;
+  --imm-kb-body-text: #3a4456;
+  --imm-kb-backdrop: rgba(15, 23, 42, 0.28);
+  --imm-kb-row-border: #e2e8f4;
+  --imm-kb-header-bg: #fafbfc;
+  --imm-kb-hint-bar-bg: #f4f6f9;
+  --imm-kb-muted: #5a6474;
+  --imm-kb-fpath: #6a7588;
+
+  --imm-slash-muted: #6a7588;
+}

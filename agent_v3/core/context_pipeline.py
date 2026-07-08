@@ -131,7 +131,7 @@ def _build_team_role_prefix(conversation_id: str) -> str:
                 persona = str(meta.get("persona") or "").strip()
                 tags = meta.get("tags") or []
                 tags_text = "、".join(str(x) for x in tags if str(x).strip()) if isinstance(tags, list) else str(tags or "").strip()
-                from util.agent_prompt_constants import TEAM_ROLE_DEFAULT
+                from util.agent_prompt_constants_v2 import TEAM_ROLE_DEFAULT
                 extra = ""
                 if tags_text:
                     extra += f"\n【Agent 标签】{tags_text}"

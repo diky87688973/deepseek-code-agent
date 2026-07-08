@@ -101,6 +101,9 @@ def _chat_diff_markdown_for_tool(script_name: str, result: dict, exec_args: Dict
     if "replace_in_file" in sn or "write_file" in sn or "apply_patch" in sn:
         dt = data.get("diff_text")
         if isinstance(dt, str) and dt.strip():
+            path_hint = data.get("path") or exec_args.get("path") or exec_args.get("patch_file") or ""
+            if path_hint:
+                dt = _normalize_diff_display_headers(dt, str(path_hint))
             return "```diff\n" + dt + "\n```" if not dt.strip().startswith("```") else dt
         return None
     return None
@@ -271,15 +274,15 @@ def _execute_tool_script_locked(script_name: str, args: Dict[str, Any]) -> dict:
             has_cid = raw_cid is not None and str(raw_cid).strip() != ""
             if has_cid:
                 confirm_id = str(raw_cid).strip()
-                info = kling_consume_confirm_id(confirm_id)
+                info = consume_confirm_id(confirm_id)
                 if info is None:
                     # 尝试自动确认（ID 存在但未确认时，直接确认后消耗）
                     try:
-                        from agent_v3.live_state import kling_mark_confirmed
-                        kling_mark_confirmed(confirm_id)
+                        from agent_v3.live_state import mark_confirmed
+                        mark_confirmed(confirm_id)
                     except Exception:
                         pass
-                    info = kling_consume_confirm_id(confirm_id)
+                    info = consume_confirm_id(confirm_id)
                 if info and info.get("action") == action:
                     args.pop("confirm_id", None)  # 消耗后移除，避免传给 agent_main
                     pass  # 拦截消耗通过
@@ -295,7 +298,24 @@ def _execute_tool_script_locked(script_name: str, args: Dict[str, Any]) -> dict:
                     }
             else:
                 import json as _json
-                new_id = kling_create_confirm_id(action, dict(args))
+                new_id = create_confirm_id(action, dict(args))
+                if _is_skill_copy:
+                    return {
+                        "ok": False,
+                        "data": {
+                            "title": "确认覆盖技能文件",
+                            "confirms": ["确认覆盖", "取消"],
+                            "confirm_id": new_id,
+                            "preview": {"action": "copy", "source": str(args.get("source", args.get("name", "")))},
+                        },
+                        "error": {
+                            "code": "E_USER_CONFIRM_REQUIRED",
+                            "type": "UserConfirmRequired",
+                            "message": "目标文件已存在，是否覆盖？",
+                            "hint": "前端弹窗显示 title/confirms；用户确认后传入 confirm_id 重新调用 skill_manage",
+                            "retryable": False,
+                        },
+                    }
                 cost_info = _kling_estimate_cost(action, args)
                 action_cn = {"text2video":"文生视频","image2video":"图生视频","text2image":"文生图","image2image":"图生图"}.get(action, action)
                 return {
@@ -421,6 +441,29 @@ def _fenced_diff_from_unified_lines(lines: List[str]) -> str:
     if len(body) > _CHAT_DIFF_BODY_MAX:
         body = body[:_CHAT_DIFF_BODY_MAX] + "\n…"
     return "```diff\n" + body + "\n```"
+
+
+def _normalize_diff_display_headers(diff_text: str, display_path: str) -> str:
+    """新建文件时 diff 常含 --- /dev/null；统一为 a/文件名 b/文件名 供前端标题解析。"""
+    from pathlib import Path
+
+    raw = str(diff_text or "")
+    path_raw = str(display_path or "").strip()
+    if not raw.strip() or not path_raw:
+        return raw
+    label = Path(path_raw.replace("\\", "/")).name
+    if not label:
+        return raw
+    out: List[str] = []
+    for line in raw.splitlines():
+        if line.startswith("--- ") and "dev/null" in line.replace("\\", "/").lower():
+            out.append(f"--- a/{label}")
+        elif line.startswith("+++ "):
+            out.append(f"+++ b/{label}")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
 
 def _get_catalog_hints_system_prompt() -> str:
     global _CATALOG_HINTS_SYSTEM_CACHE

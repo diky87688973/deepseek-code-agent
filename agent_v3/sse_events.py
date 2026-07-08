@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """SSE 事件组装：绑定 conversation_id、context_layout 等（agent_core 与 HTTP 层共用）。"""
 from __future__ import annotations
 

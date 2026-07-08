@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """进程内会话表、并发 run、停止标志（agent_v3 运行时状态）。"""
 from __future__ import annotations
 
@@ -206,31 +206,31 @@ def pop_waits_satisfied_by(sender_id: str, target_id: str, thread_id: str = "") 
 
 # ── SSE 多播：Worker 执行事件推送给观察者 ──
 # session_id → list of observer session_ids
-_KLING_CONFIRM_IDS: Dict[str, Dict[str, Any]] = {}
-_KLING_CONFIRM_LOCK = threading.Lock()
+_CONFIRM_IDS: Dict[str, Dict[str, Any]] = {}
+_CONFIRM_LOCK = threading.Lock()
 
 
-def _prune_stale_kling_confirms() -> None:
+def _prune_stale_confirms() -> None:
     """移除超时未消耗的 Kling 确认项，避免内存泄漏。"""
     now = time.time()
-    with _KLING_CONFIRM_LOCK:
+    with _CONFIRM_LOCK:
         stale = [
             k
-            for k, v in _KLING_CONFIRM_IDS.items()
-            if now - float(v.get("created_at") or 0) > _KLING_CONFIRM_MAX_AGE_SEC
+            for k, v in _CONFIRM_IDS.items()
+            if now - float(v.get("created_at") or 0) > _CONFIRM_MAX_AGE_SEC
         ]
         for k in stale:
-            _KLING_CONFIRM_IDS.pop(k, None)
+            _CONFIRM_IDS.pop(k, None)
 
 
-def kling_create_confirm_id(action: str, params: dict) -> str:
+def create_confirm_id(action: str, params: dict) -> str:
     """创建待确认的确认ID，返回 UUID。"""
     import uuid
 
-    _prune_stale_kling_confirms()
+    _prune_stale_confirms()
     cid = str(uuid.uuid4())
-    with _KLING_CONFIRM_LOCK:
-        _KLING_CONFIRM_IDS[cid] = {
+    with _CONFIRM_LOCK:
+        _CONFIRM_IDS[cid] = {
             "confirmed": False,
             "action": action,
             "params": dict(params),
@@ -239,26 +239,27 @@ def kling_create_confirm_id(action: str, params: dict) -> str:
     return cid
 
 
-def kling_mark_confirmed(confirm_id: str) -> bool:
+def mark_confirmed(confirm_id: str) -> bool:
     """将确认ID标记为已确认。"""
-    with _KLING_CONFIRM_LOCK:
-        if confirm_id in _KLING_CONFIRM_IDS:
-            _KLING_CONFIRM_IDS[confirm_id]["confirmed"] = True
+    with _CONFIRM_LOCK:
+        if confirm_id in _CONFIRM_IDS:
+            _CONFIRM_IDS[confirm_id]["confirmed"] = True
             return True
     return False
 
 
-def kling_consume_confirm_id(confirm_id: str) -> Optional[Dict[str, Any]]:
+def consume_confirm_id(confirm_id: str) -> Optional[Dict[str, Any]]:
     """检查并消耗确认ID。返回任务信息表示放行，None 表示无效。"""
-    with _KLING_CONFIRM_LOCK:
-        info = _KLING_CONFIRM_IDS.get(confirm_id)
+    with _CONFIRM_LOCK:
+        info = _CONFIRM_IDS.get(confirm_id)
         if info is None:
             return None
         if not info.get("confirmed"):
             return None
         # 已确认，消耗删除
-        del _KLING_CONFIRM_IDS[confirm_id]
+        del _CONFIRM_IDS[confirm_id]
         return dict(info)
+
 CONVERSATION_MODES: Dict[str, str] = {}
 CONVERSATION_AUDIT_ONLY: Dict[str, bool] = {}
 SUMMARY_IN_PROGRESS: Dict[str, float] = {}
@@ -271,7 +272,7 @@ _TOOL_EXEC_LOCKS: Dict[str, threading.RLock] = {}
 _TOOL_EXEC_LOCKS_META = threading.Lock()
 _FILE_SEARCH_GATE: Dict[str, bool] = {}
 _FILE_SEARCH_GATE_LOCK = threading.Lock()
-_KLING_CONFIRM_MAX_AGE_SEC = 3600
+_CONFIRM_MAX_AGE_SEC = 3600
 _CONVERSATION_STOP_FLAGS: Dict[str, Set[str]] = {}
 _ACTIVE_CONVERSATION_RUNS: Dict[str, str] = {}
 _CONVERSATION_STOP_LOCK = threading.Lock()
