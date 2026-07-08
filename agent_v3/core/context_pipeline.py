@@ -865,7 +865,7 @@ def _summarize_messages_slice_with_llm(slice_msgs: List[Dict[str, Any]], cid: st
     reff = _get_reasoning_effort(cid)
     th_type = "enabled" if SUMMARY_THINKING_ENABLED else "disabled"
     payload = {
-        "model": default_model_from_env(),
+        "model": effective_model(cid),
         "messages": [
             {"role": "system", "content": sys_h},
             {"role": "user", "content": json.dumps(slice_msgs, ensure_ascii=False)},

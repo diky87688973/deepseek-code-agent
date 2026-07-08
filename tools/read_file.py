@@ -6,8 +6,15 @@
 """
 
 from __future__ import annotations
-
+import hashlib
+import sys
+from pathlib import Path
 from typing import List, Optional, Tuple
+
+if __package__ in (None, ""):
+    _ROOT = Path(__file__).resolve().parents[1]
+    if str(_ROOT) not in sys.path:
+        sys.path.insert(0, str(_ROOT))
 
 import agent_common as ac
 
@@ -16,6 +23,7 @@ def agent_main(
     *,
     path: str,
     encoding: str = "utf-8",
+    raw: bool = False,
     line_start: Optional[int] = None,
     line_end: Optional[int] = None,
     start_column: Optional[int] = None,
@@ -129,6 +137,12 @@ def agent_main(
                 "resolved_chars": list(resolved_char) if resolved_char else None,
             },
         }
+
+        # raw 模式附加数据
+        if raw:
+            data["content_lines"] = chunk.splitlines()
+            data["content_hash"] = hashlib.sha256(chunk.encode("utf-8")).hexdigest()
+
         return ac.ok(data)
     except Exception as e:
         return ac.err(e)
@@ -140,6 +154,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="read_file：人工调试入口 → agent_main（仅 Python 类型）")
     p.add_argument("--path", required=True)
     p.add_argument("--encoding", default="utf-8")
+    p.add_argument("--raw", action="store_true", help="额外返回 content_lines 与 content_hash")
     p.add_argument("--line_start", type=int, default=None)
     p.add_argument("--line_end", type=int, default=None)
     p.add_argument("--start_column", type=int, default=None)
@@ -165,6 +180,7 @@ def main() -> None:
     r = agent_main(
         path=args.path,
         encoding=args.encoding,
+        raw=bool(args.raw),
         line_start=args.line_start,
         line_end=args.line_end,
         start_column=args.start_column,

@@ -28,11 +28,11 @@
     "delete_safe": "delete_file 不落盘 unlink，而是将文件移到 DATA_ROOT/safe_delete 下按日期分桶；默认 dry_run。",
     "catalog_examples": "各工具的 examples 会并入宿主下发给模型的 function.description（及失败时的 tool_help）；示例键名与 function schema 完全一致，布尔为 JSON true/false。宿主默认最多并入 2 条示例以节省 context。",
     "search_tool_choice": "【内容搜索三选一，勿混用】① grep_files：默认首选。目录/单文件、字面或简单正则（pattern 中 | 为 OR）、要快、要 region 给 replace_in_file。② regex_locate：需 Python 正则特性（lookahead、dotall 跨行、复杂分组）时用。③ file_search：仅当 path 很大（数千文件）、或需要侧栏 tool_progress 时用；勿用 run_command 旁路调用。三者 path/glob_pattern/recursive 语义一致。",
-    "session_collab": "session_send/session_multisend/session_broadcast/session_list/session_create 均无 action 参数（勿传 action）。requires_reply 在 session_send/session_multisend/session_broadcast 必填。",
+    "session_collab": "session_send/session_multisend/session_broadcast/session_list/session_create 均无 action 参数（勿传 action）。requires_reply 在 session_send/session_multisend/session_broadcast 必填。session_wait：pending 时 suspend=true（或省略）挂起当前 Agent；suspend=false 仅查询、宿主不挂起。同一会话内 session_send 与 session_wait 须同一发送方 conversation_id 且 thread_id 一致；若 wait 在另一会话 Tab 执行，须传 sender_cid=发出 session_send 的 conversation_id（哨兵与回复记录在该会话）。",
     "replace_in_file_raw": "字面 old_text/new_text 时：JSON 参数里若含真实换行/制表符、而要写入源码中的字面 \\n、\\t（两字符），传 raw=true；行号/region 替换勿用 raw。与 agent_hints.string_escape 配合：不确定转义时优先 line_start+line_end 或 region。",
     "run_command_vs_python_inline": "run_command：单条 shell 命令，safe_mode 默认 true（禁止 ; & | 等）。python -c 含分号会被拒→改用 python_inline 多行脚本，或拆成多次 run_command。python_inline：最后手段，禁止内嵌 file_search/grep_files。",
     "tool_help_on_failure": "ok=false 时读 error.tool_help。路径/参数/门控类错误为简短说明；复杂未知错误才附 argparse --help 与 catalog 摘要。",
-    "region_replace_safety": "replace_in_file 提供四种替换方式：① line_start+line_end（行替换，推荐）：按行号替换，坐标永不漂移。② regions 数组：一次传入 [{region_start,region_end,new_text},...]，工具自动降序防漂移。③ 单次 region_start+region_end：精确替换。④ rules 数组：字面 old_text→new_text 批量替换。",
+    "region_replace_safety": "replace_in_file 提供四种替换方式：① line_start+line_end（行替换，推荐）：按行号替换；其后仍有行时 new_text 必须以换行符结尾，否则工具报错（避免与下一行黏连）。② regions 数组：一次传入 [{region_start,region_end,new_text},...]，工具自动降序防漂移。③ 单次 region_start+region_end：精确替换。④ rules 数组：字面 old_text→new_text 批量替换。",
     "literal_replace_ambiguity": "⚠️ old_text+new_text 字面替换默认 replace_all=true。若某文件中有多处相同匹配会全部误伤。安全建议：① 建议设 expected_replacements=n 校验替换次数；② old_text 包含足够长的唯一上下文；③ 可改用 line_start+line_end 或 region_start/region_end；④ 不确定匹配数时先用 find_in_file 看匹配位置。",
     "string_escape": "⚠️ 字符串参数（old_text、new_text、pattern、patch_text、code 等）中的反斜杠 \\ 按 JSON 标准转义。例如：arguments 中 \\n 表示字面反斜杠+n（而非换行符），\\\\ 表示单个反斜杠。若 replace_in_file 的 old_text/new_text 在 JSON 里已是真实换行/制表符、却要改写成源码字面量 \\n、\\t，传 raw=true（见 agent_hints.replace_in_file_raw）。不确定时优先 line_start+line_end 或 region 替换。",
     "kling_video_markdown": "【🔴 强制规则】视频播放必须用 `![播放视频](url)` 格式，禁止任何其他写法。\n规则：\n1. kling_generate(action=query_result) 返回的 data.message 已包含正确格式，必须原样逐字输出，不得改写、不得省略、不得追加评论。\n2. 如果 data.message 中有多个 ![播放视频](url)，必须全部保留。\n3. 禁止用 [下载视频](url)、视频链接：xxx、![video](url)、Markdown video 标签、HTML video 标签 — 前端只认 ![播放视频](url) 这一种格式。\n4. 若工具未返回 message（如任务还在处理中），但你手上有视频 URL，也必须自行组装 ![播放视频](url) 格式。\n5. 验证方法：你输出后如果没看到视频播放控件，说明你写错格式了，必须立刻修正。",
@@ -88,7 +88,7 @@
     {
       "name": "read_file.py",
       "path": "tools/read_file.py",
-      "purpose": "read_file：读取单个文本文件 path 的全文或局部。改文件前**必须先 read_file** 确认上下文（见 agent_hints.read_before_write）。大文件先 grep_files 定位行号再按 line_start/region 用 read_file 读局部，避免一次 read_file 全文。切片模式互斥：max_chars；line_start+line_end；行列矩形；char_start+char_end。精确区间请用 find_in_file/regex_locate 得 region_start/end 再 read_file 或 replace_in_file。",
+      "purpose": "read_file：读取单个文本文件 path 的全文或局部。改文件前**必须先 read_file** 确认上下文（见 agent_hints.read_before_write）。大文件先 grep_files 定位行号再按 line_start/region 用 read_file 读局部，避免一次 read_file 全文。raw=true 时额外返回 content_lines 与 content_hash，便于区分 JSON 转义。切片模式互斥：max_chars；line_start+line_end；行列矩形；char_start+char_end。精确区间请用 find_in_file/regex_locate 得 region_start/end 再 read_file 或 replace_in_file。",
       "stdout_output": "{ok,data:{content,path,...}}",
       "args": [
         {
@@ -102,6 +102,12 @@
           "type": "string",
           "required": false,
           "description": "utf-8（默认）按 encoding 解码；auto 依次尝试 utf-8、gb18030、gbk 等，解码失败则容错字符替换（非 replace_in_file）。"
+        },
+        {
+          "flag": "--raw",
+          "type": "boolean",
+          "required": false,
+          "description": "true 时额外返回 content_lines（按行数组）与 content_hash（SHA256），帮助区分 JSON 显示转义与文件真实内容。"
         },
         {
           "flag": "--line_start",
@@ -1525,7 +1531,7 @@
           "flag": "--new_text",
           "type": "string",
           "required": false,
-          "description": "新文本；区间模式下为插入内容，空串表示删除该区间。"
+          "description": "新文本；区间模式下为插入内容，空串表示删除该区间。行替换（line_start+line_end / line_ranges）且其后仍有行时，非空 new_text 必须以换行符结尾，否则拒绝并提示黏连风险；宿主不会自动补换行。"
         },
         {
           "flag": "--region_start",
@@ -1660,7 +1666,7 @@
           "flag": "--backup",
           "type": "boolean",
           "required": false,
-          "description": "写盘前备份原文件为 .bak。"
+          "description": "写盘前创建版本化备份，返回 mod_id；备份位于 DATA_ROOT/temp/replace_backup，不写同目录 .bak。"
         },
         {
           "flag": "--raw",
@@ -1795,7 +1801,7 @@
         },
         {
           "title": "纯行替换（line_start+line_end）",
-          "note": "只传行号不传列坐标，行号永不漂移。",
+          "note": "只传行号不传列坐标。其后仍有行时 new_text 须以换行结尾（与 read_file 同区间 content 同构）；工具会校验，不会自动补换行。",
           "args": {
             "path": "app.py",
             "line_start": 10,
@@ -1842,6 +1848,64 @@
               }
             ],
             "dry_run": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "replace_undo.py",
+      "path": "tools/replace_undo.py",
+      "purpose": "replace_undo：回滚 replace_in_file 的版本化备份。action=list + path 列历史；action=undo + mod_id 回滚。回滚前会自动备份当前文件。",
+      "stdout_output": "{ok,data:{backups,mod_id,restored_path,...}}",
+      "args": [
+        {
+          "flag": "--action",
+          "type": "enum",
+          "required": true,
+          "values": ["list", "undo"],
+          "description": "action=list：列出指定文件的历史备份；action=undo：回滚到指定 mod_id。"
+        },
+        {
+          "flag": "--mod_id",
+          "type": "string",
+          "required": false,
+          "description": "action=undo 时的备份流水号。"
+        },
+        {
+          "flag": "--path",
+          "type": "string",
+          "required": false,
+          "description": "action=list 时指定文件路径。"
+        },
+        {
+          "flag": "--restrict_to_workspace",
+          "type": "boolean",
+          "required": false,
+          "description": "true 时将 path 限定在 WORKSPACE_DIR 内。"
+        },
+        {
+          "flag": "--run_type",
+          "type": "enum",
+          "required": false,
+          "values": ["auto", "plan", "execute"],
+          "description": "写操作时 plan 模式拒绝。"
+        }
+      ],
+      "examples": [
+        {
+          "title": "列历史",
+          "note": "查看文件的所有备份。",
+          "args": {
+            "action": "list",
+            "path": "app.py"
+          }
+        },
+        {
+          "title": "回滚",
+          "note": "按 mod_id 回滚。",
+          "args": {
+            "action": "undo",
+            "mod_id": "MicroAppController_20260609_185423_a7x3"
           }
         }
       ]
@@ -3714,7 +3778,7 @@
     {
       "name": "github_api.py",
       "path": "tools/github_api.py",
-      "purpose": "github_api：GitHub 远程 API（login/get_repo/list_issues/create_issue/list_releases/set_topics/list_prs/get_pr/create_pr/close_pr/update_pr）。与 git_workspace 本地只读互补。",
+      "purpose": "github_api：GitHub 远程 API（action=login/get_repo/list_issues/create_issue/list_releases/set_topics/list_prs/get_pr/create_pr/close_pr/update_pr）。与 git_workspace 本地只读互补。",
       "stdout_output": "{\"ok\":true,\"data\":{...}} 或 {\"ok\":false,\"error\":\"...\"}",
       "args": [
         {
@@ -3767,7 +3831,7 @@
           "description": "action=set_topics 时 topics 逗号分隔列表。"
         },
         {
-          "flag": "--pr-number",
+          "flag": "--pr_number",
           "type": "integer",
           "required": false,
           "description": "PR 编号（action=get_pr / action=close_pr / action=update_pr 时使用）。"

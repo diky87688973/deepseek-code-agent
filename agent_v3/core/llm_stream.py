@@ -5,6 +5,13 @@ from __future__ import annotations
 from agent_v3.core.deps import *  # noqa: F403
 from agent_v3.core.shared_state import *  # noqa: F403
 
+from util.agent_model_provider import (
+    get_provider,
+    provider_api_base_url,
+    provider_api_key,
+    adapt_request_body,
+)
+
 def _assistant_display_content_for_sse(content: str, reasoning_content: str) -> str:
     """有效 assistant 正文：content 优先；为空时用 reasoning_content（展示/SSE/落盘/折叠/摘要统一）。"""
     c = str(content or "").strip()
@@ -182,9 +189,27 @@ def _tool_calls_from_snapshot_message(message: Optional[Dict[str, Any]]) -> List
         )
     return out
 
-def deepseek_request(payload: dict) -> dict:
-    return chat_completion_request(payload)
+def model_request(payload: dict) -> dict:
+    """通过 provider 路由发送非流式聊天补全请求。"""
+    model = payload.get("model", "")
+    provider = get_provider(model)
+    base_url = provider_api_base_url(provider)
+    api_key = provider_api_key(provider)
+    body = adapt_request_body(payload, provider)
+    return chat_completion_request(body, base_url=base_url, api_key=api_key)
 
-def deepseek_stream_request(payload: dict):
-    yield from chat_completion_stream(payload)
+
+def model_stream_request(payload: dict):
+    """通过 provider 路由发送流式聊天补全请求。"""
+    model = payload.get("model", "")
+    provider = get_provider(model)
+    base_url = provider_api_base_url(provider)
+    api_key = provider_api_key(provider)
+    body = adapt_request_body(payload, provider)
+    yield from chat_completion_stream(body, base_url=base_url, api_key=api_key)
+
+
+# ── 向后兼容别名（旧调用点无需立即改名） ──
+deepseek_request = model_request
+deepseek_stream_request = model_stream_request
 

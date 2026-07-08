@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from agent_v3.core.deps import *  # noqa: F403
 from agent_v3.core.shared_state import *  # noqa: F403
+from agent_v3.core.shared_state import (
+    _CATALOG_TOOL_DESCRIPTION_MAX_CHARS,
+    _HOST_DRY_RUN_NOTICE_ZH,
+    _TOOL_HELP_COMPACT_MAX_CHARS,
+    _TOOL_HELP_MAX_CHARS,
+)
 from agent_v3.core.turn_control import (  # noqa: F401
     _turn_abort_requested,
     _user_stopped_tool_result_dict,
@@ -31,6 +37,48 @@ def _camel_to_snake(name: str) -> str:
     name = str(name or "").strip().lstrip("-").replace("-", "_")
     s1 = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", name)
     return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
+
+def _format_catalog_tool_examples(examples: Any, *, max_examples: int = 2) -> str:
+    """将 tool_list_agent.json 中的 examples 并入工具 description / tool_help，便于模型对齐用法。"""
+    if not isinstance(examples, list) or not examples:
+        return ""
+    if max_examples > 0:
+        examples = examples[:max_examples]
+    blocks: List[str] = []
+    for i, ex in enumerate(examples, 1):
+        if isinstance(ex, str) and str(ex).strip():
+            blocks.append(f"示例{i}：\n{str(ex).strip()}")
+            continue
+        if not isinstance(ex, dict):
+            continue
+        title = str(ex.get("title") or ex.get("name") or f"示例{i}").strip()
+        note = ex.get("note") or ex.get("description")
+        note_s = str(note).strip() if note is not None else ""
+        args = ex.get("args")
+        lines = [f"示例{i}：{title}"]
+        if note_s:
+            lines.append(note_s)
+        if isinstance(args, dict) and args:
+            try:
+                dumped = json.dumps(args, ensure_ascii=False, indent=2)
+            except TypeError:
+                dumped = str(args)
+            lines.append("建议 arguments（键名与 function 参数一致，布尔用小写 true/false）：")
+            lines.append(dumped)
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+def _catalog_tool_full_description(entry: dict, script_fn: str) -> str:
+    base = str(entry.get("purpose") or script_fn).strip()
+    ext = entry.get("extended_description")
+    if isinstance(ext, str) and ext.strip():
+        base = f"{base}\n\n{ext.strip()}"
+    ex_text = _format_catalog_tool_examples(entry.get("examples"))
+    if ex_text:
+        base = f"{base}\n\n—— 调用示例 ——\n{ex_text}"
+    if len(base) > _CATALOG_TOOL_DESCRIPTION_MAX_CHARS:
+        base = base[: _CATALOG_TOOL_DESCRIPTION_MAX_CHARS - 2] + "\n…"
+    return base
 
 def _capture_tool_help_from_catalog(script_name: str) -> Optional[str]:
     try:
@@ -299,23 +347,6 @@ def _execute_tool_script_locked(script_name: str, args: Dict[str, Any]) -> dict:
             else:
                 import json as _json
                 new_id = create_confirm_id(action, dict(args))
-                if _is_skill_copy:
-                    return {
-                        "ok": False,
-                        "data": {
-                            "title": "确认覆盖技能文件",
-                            "confirms": ["确认覆盖", "取消"],
-                            "confirm_id": new_id,
-                            "preview": {"action": "copy", "source": str(args.get("source", args.get("name", "")))},
-                        },
-                        "error": {
-                            "code": "E_USER_CONFIRM_REQUIRED",
-                            "type": "UserConfirmRequired",
-                            "message": "目标文件已存在，是否覆盖？",
-                            "hint": "前端弹窗显示 title/confirms；用户确认后传入 confirm_id 重新调用 skill_manage",
-                            "retryable": False,
-                        },
-                    }
                 cost_info = _kling_estimate_cost(action, args)
                 action_cn = {"text2video":"文生视频","image2video":"图生视频","text2image":"文生图","image2image":"图生图"}.get(action, action)
                 return {
@@ -837,10 +868,14 @@ def catalog_to_openai_tools(catalog: dict) -> Tuple[List[dict], Dict[str, str]]:
     tools: List[dict] = []
     name_map: Dict[str, str] = {}
     for t in catalog.get("tools", []):
-        fn = t["name"]
+        if not isinstance(t, dict):
+            continue
+        fn = str(t.get("name") or "").strip()
         if not fn.endswith(".py"):
             continue
         api = api_function_name(fn)
+        if api in name_map:
+            continue
         name_map[api] = fn
         props: Dict[str, Any] = {}
         required: List[str] = []

@@ -322,7 +322,7 @@ function switchConversationTab(id){id=normalizeConversationId(id);if(!id)return;
 function createConversationTab(){saveActiveConversationView();var t=makeConversationTab(newConversationId());conversationTabs.push(t);activeConversationId=t.id;sessionId=t.id;conv=t.id;storeConversationId(t.id);restoreConversationView(t);renderChatTabs();persistConversationLayout();}
 function closeConversationTab(id){id=normalizeConversationId(id);if(conversationTabs.length<=1)return;var idx=-1;for(var i=0;i<conversationTabs.length;i++){if(conversationTabs[i].id===id){idx=i;break;}}if(idx<0)return;if(isTabBusy(conversationTabs[idx])){alert("该会话正在响应或等待确认，请完成后再关闭。");return;}var wasActive=id===activeConversationId;var _closedT=conversationTabs[idx];conversationTabs.splice(idx,1);if(_closedT&&_closedT.conversationPane&&conversationMount&&_closedT.conversationPane.parentNode===conversationMount){try{conversationMount.removeChild(_closedT.conversationPane);}catch(_eM){}}if(wasActive){var next=conversationTabs[Math.max(0,idx-1)]||conversationTabs[0];activeConversationId=next.id;sessionId=next.id;conv=next.id;storeConversationId(next.id);restoreConversationView(next);}renderChatTabs();persistConversationLayout();}
 const modePlus=document.getElementById("modePlus"),modeMenu=document.getElementById("modeMenu"),modeChip=document.getElementById("modeChip"),modeChipText=document.getElementById("modeChipText"),modeChipClear=document.getElementById("modeChipClear"),goBtn=document.getElementById("go"),stopTaskBtn=document.getElementById("stopTask"),chatMoreBtn=document.getElementById("chatMoreBtn"),chatSessionMenu=document.getElementById("chatSessionMenu");
-let selectedMode="auto";let selectedModel="deepseek-v4-flash";const allowedModels=["deepseek-v4-pro","deepseek-v4-flash"];
+let selectedMode="auto";let selectedModel="deepseek-v4-flash";const allowedModels=["deepseek-v4-pro","deepseek-v4-flash","glm-5.2","local-model"];
 let slashSelectedIndex=0;
 function updateTaskControls(){var t=getActiveTab();var canStop=!!(t&&t.abortController);if(goBtn){goBtn.classList.toggle("hidden",canStop);goBtn.disabled=!canStop&&isConversationBusy();}if(stopTaskBtn){stopTaskBtn.classList.toggle("hidden",!canStop);stopTaskBtn.disabled=!canStop;}}
 function stopCurrentTask(){var t=getActiveTab();if(!t||!t.abortController)return;t.stopRequested=true;var rid=String(t.activeRunId||"");try{fetch("/api/chat/stop",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({conversation_id:t.id,run_id:rid})}).catch(function(){});}catch(_e){}try{t.abortController.abort();}catch(_e2){}withConversationContext(t.id,function(){markCurrentTurnStoped();resetTurnState();hideChatLoading();add("a","任务已停止。");});t.abortController=null;t.activeRunId="";updateTaskControls();renderChatTabs();}
@@ -683,14 +683,12 @@ var L=block[j];
 if(/^---\s/.test(L)||/^\+\+\+\s/.test(L)||/^@@\s/.test(L))hasMarker=true;
 if((/^-/.test(L)&&!/^---/.test(L))||(/^\+/.test(L)&&!/^\+\+\+/.test(L)))hasChange=true;
 }
-return hasMarker||hasChange;
+return hasMarker;
 }
 function renderUnifiedDiffBlockHtml(block){
 var body=block.join("\n");
-var pr=parseUnifiedDiffBodyForRows(body);
-if(pr.oldT!==""||pr.newT!==""){
-return buildChatDiffCardHtml(pr.oldT,pr.newT,diffFileNameFromBody(body));
-}
+var cards=renderUnifiedDiffBodyAsCardsHtml(body);
+if(cards)return cards;
 return '<pre><code>'+escapeHtml(body)+'</code></pre>';
 }
 function isDevNullPath(p){
@@ -715,6 +713,54 @@ if(toRaw&&!isDevNullPath(toRaw))return baseNameOnly(toRaw);
 if(fromRaw&&!isDevNullPath(fromRaw))return baseNameOnly(fromRaw);
 return "文件";
 }
+function findDiffFenceCloseIndex(rest){
+var reLine=/^[ \t]*```[ \t]*$/gm,m;
+while((m=reLine.exec(rest))!==null){
+var after=rest.slice(m.index+m[0].length);
+var trimmed=after.replace(/^\r?\n/,"");
+if(!trimmed.trim())return m.index;
+if(/^```(?:diff|patch)\b/i.test(trimmed))return m.index;
+var firstLine=(trimmed.split(/\r?\n/)[0]||"").trim();
+if(/^---\s/.test(firstLine)||/^\+\+\+\s/.test(firstLine)||/^@@\s/.test(firstLine))continue;
+if(/^[-+ ]/.test(firstLine))continue;
+return m.index;
+}
+return -1;
+}
+function splitUnifiedDiffSections(body){
+var lines=String(body||"").replace(/\r/g,"").split("\n");
+var sections=[],cur=[];
+for(var i=0;i<lines.length;i++){
+var L=lines[i];
+if(/^---\s/.test(L)&&cur.some(function(x){return /^---\s/.test(x);})){
+sections.push(cur.join("\n"));
+cur=[L];
+continue;
+}
+cur.push(L);
+}
+if(cur.length)sections.push(cur.join("\n"));
+return sections.filter(function(s){return String(s).trim();});
+}
+function renderUnifiedDiffBodyAsCardsHtml(body){
+var sections=splitUnifiedDiffSections(body);
+if(!sections.length)return "";
+if(sections.length===1){
+var pr=parseUnifiedDiffBodyForRows(body);
+if(pr.oldT!==""||pr.newT!==""){
+return buildChatDiffCardHtml(pr.oldT,pr.newT,diffFileNameFromBody(body));
+}
+return "";
+}
+var html="";
+for(var si=0;si<sections.length;si++){
+var sec=sections[si];
+var pr2=parseUnifiedDiffBodyForRows(sec);
+if(pr2.oldT===""&&pr2.newT==="")continue;
+html+=buildChatDiffCardHtml(pr2.oldT,pr2.newT,diffFileNameFromBody(sec));
+}
+return html;
+}
 function iterMarkdownCodeFences(text,visit){
 var src=String(text||"").replace(/\r\n/g,"\n");
 var i=0;
@@ -730,12 +776,11 @@ var pos=langEnd+1;
 var closed=false;
 if(langLow==="diff"||langLow==="patch"){
 var rest=src.slice(pos);
-var lastClose=-1,reLine=/^[ \t]*```[ \t]*$/gm,m;
-while((m=reLine.exec(rest))!==null)lastClose=m.index;
-if(lastClose>=0){
-var closeMatch=rest.slice(lastClose).match(/^[ \t]*```/);
-visit("fence",lang,rest.slice(0,lastClose).replace(/\n$/,""));
-i=pos+lastClose+closeMatch[0].length;
+var closeAt=findDiffFenceCloseIndex(rest);
+if(closeAt>=0){
+var closeMatch=rest.slice(closeAt).match(/^[ \t]*```/);
+visit("fence",lang,rest.slice(0,closeAt).replace(/\n$/,""));
+i=pos+closeAt+closeMatch[0].length;
 var nl=src.indexOf("\n",i);
 i=nl<0?src.length:nl+1;
 closed=true;
@@ -809,9 +854,9 @@ const lang=String(a||'').trim();
 const inner=b;
 const langLow=lang.toLowerCase();
 if((langLow==='diff'||langLow==='patch')&&inner){
-const pr=parseUnifiedDiffBodyForRows(inner);
-if(pr.oldT!==''||pr.newT!==''){
-html+=buildChatDiffCardHtml(pr.oldT,pr.newT,diffFileNameFromBody(inner));
+var cards=renderUnifiedDiffBodyAsCardsHtml(inner);
+if(cards){
+html+=cards;
 }else{
 var _hc=hljsCodeClass(lang);html+='<pre><code'+(_hc?' class="'+_hc+'"':'')+(lang?' data-lang="'+escapeHtml(lang)+'"':'')+'>'+highlightCode(inner,lang)+'</code></pre>';
 }
@@ -1455,12 +1500,21 @@ o.previewSlot.style.display="none";
 try{
 const j=JSON.parse(ev.preview||"{}");
 const dt=(j&&j.data&&typeof j.data.diffText==="string")?j.data.diffText:"";
+const fp=(j&&j.data&&j.data.path)?String(j.data.path):"";
 if(dt&&dt.trim()){
 o.previewSlot.style.display="block";
-const cap=document.createElement("p");cap.textContent="替换 diff 预览";
-const box=document.createElement("div");box.className="diff-unified diff-surface-adaptive";
+const cap=document.createElement("p");
+cap.textContent=(fp?baseNameOnly(fp)+" · ":"")+"替换 diff 预览";
+const wrap=document.createElement("div");
+wrap.innerHTML=renderUnifiedDiffBodyAsCardsHtml(dt);
+if(!wrap.innerHTML.trim()){
+const box=document.createElement("div");
+box.className="diff-unified diff-surface-adaptive";
 renderUnifiedDiffRows(box,dt.split(/\r?\n/));
-o.previewSlot.appendChild(cap);o.previewSlot.appendChild(box);
+wrap.appendChild(box);
+}
+o.previewSlot.appendChild(cap);
+o.previewSlot.appendChild(wrap);
 }
 }catch(_e2){}
 return;}
@@ -1637,6 +1691,58 @@ o.resLb.textContent="实时输出";
 o.resPb.className="sub chat-run-live-out";
 o.liveOutPre=o.resPb;
 }
+// 在左侧对话区创建/获取“执行命令脚本 + 执行结果”卡片；执行结果区随 stdout 增量刷新
+function ensureChatRunCard(o){
+if(!o)return null;
+if(o.chatRunCard&&o.chatRunCard.parentNode)return o.chatRunCard;
+var _cardDiv=document.createElement("div");_cardDiv.className="b a";
+var _cardTitle=(o.stepTitle&&o.stepTitle.trim())?escapeHtml(o.stepTitle.trim()):"执行命令脚本";
+var _cmdRaw=(o.args&&(o.args.command||o.args.code))||"";
+var _cmdLang=detectScriptLang(_cmdRaw,(o.args&&(o.args.language||o.args.lang))||"");
+var _cmdCls=hljsCodeClass(_cmdLang);
+_cardDiv.innerHTML='<div class="chat-diff-card"><div class="chat-diff-cap">'+_cardTitle+'<span class="chat-run-status" style="margin-left:8px;font-size:12px;font-weight:normal;color:#e0a300"></span></div><div class="diff-unified chat-run-wrap chat-run-cmd-block"><pre class="chat-run-pre chat-run-pre--cmd"><code'+(_cmdCls?' class="'+_cmdCls+'"':'')+'>'+highlightCode(_cmdRaw,_cmdLang)+'</code></pre></div><div class="chat-diff-cap chat-diff-cap--sect">执行结果</div><pre class="chat-run-pre chat-run-pre--out"><code></code></pre></div>';
+if(streamAssistantEl){streamAssistantEl.after(_cardDiv);streamAssistantEl=null;streamAssistantText="";}else{msgs.appendChild(_cardDiv);}
+o.chatRunCard=_cardDiv;
+o.chatRunOutPre=_cardDiv.querySelector(".chat-run-pre--out code");
+o.chatRunStatus=_cardDiv.querySelector(".chat-run-status");
+startChatRunCountdown(o);
+scrollMsgsToBottom();
+return _cardDiv;
+}
+// 标题后状态注记 + 基于 timeout_sec 的倒计时（等待执行结果中…剩余 Ns）
+function startChatRunCountdown(o){
+if(!o||o._chatRunTimer)return;
+var _to=0;try{_to=parseInt((o.args&&o.args.timeout_sec)||0,10)||0;}catch(e){_to=0;}
+var _start=Date.now();
+function _tick(){
+if(!o.chatRunStatus||!o.chatRunCard||!o.chatRunCard.parentNode){stopChatRunCountdown(o);return;}
+var _elapsed=Math.floor((Date.now()-_start)/1000);
+if(_to>0){
+var _left=_to-_elapsed;
+if(_left<0)_left=0;
+o.chatRunStatus.textContent="⏳ 等待执行结果中…（剩余 "+_left+"s / 超时 "+_to+"s）";
+}else{
+o.chatRunStatus.textContent="⏳ 等待执行结果中…（已用时 "+_elapsed+"s）";
+}
+}
+_tick();
+o._chatRunTimer=setInterval(_tick,1000);
+}
+function stopChatRunCountdown(o){
+if(o&&o._chatRunTimer){try{clearInterval(o._chatRunTimer);}catch(e){}o._chatRunTimer=null;}
+}
+// 增量刷新对话区卡片的执行结果文本
+function updateChatRunCardOutput(o,text){
+if(!o)return;
+if(!o.chatRunCard||!o.chatRunCard.parentNode)ensureChatRunCard(o);
+if(o.chatRunOutPre){o.chatRunOutPre.textContent=text!=null?String(text):"";scrollMsgsToBottom();}
+}
+// 命令结束：停止倒计时，标题状态置为完成/失败
+function finalizeChatRunCard(o,ok){
+if(!o)return;
+stopChatRunCountdown(o);
+if(o.chatRunStatus){o.chatRunStatus.textContent=ok?"✓ 执行完成":"✗ 执行结束（失败）";o.chatRunStatus.style.color=ok?"#3fb950":"#f85149";}
+}
 function renderRunCommandInputBar(o,ev){
 var card=findStepCardForToolCall(String(ev.tool_call_id||"").trim());
 if(!card||o.cmdInputBar)return;
@@ -1735,7 +1841,9 @@ flushPendingSteps();
 body.appendChild(inner);
 c.appendChild(h);c.appendChild(body);
 h.onclick=function(){c.classList.toggle("open");};
-appendStep(c);if(mergeKeepOpen)c.classList.add("open");toolOpen.set(tid,{tag:tag,resLb:lb,resPb:pb,previewSlot:pv,args:ev.args||{},script:ev.script||"",spinWrap:spinWrap,stepTitle:_stt,fileSpan:null,progressBadge:null,liveOutPre:isStreamOutputToolScript(ev.script)?pb:null,cmdInputBar:null});}
+appendStep(c);if(mergeKeepOpen)c.classList.add("open");toolOpen.set(tid,{tag:tag,resLb:lb,resPb:pb,previewSlot:pv,args:ev.args||{},script:ev.script||"",spinWrap:spinWrap,stepTitle:_stt,fileSpan:null,progressBadge:null,liveOutPre:isStreamOutputToolScript(ev.script)?pb:null,cmdInputBar:null,chatRunCard:null,chatRunOutPre:null});
+// 流式命令：执行一开始就在左侧对话区建卡，执行结果随后增量刷新
+if(isStreamOutputToolScript(ev.script)){ensureChatRunCard(toolOpen.get(tid));}}
 
 function onToolProgress(ev){
 var tid=String(ev.tool_call_id!=null?ev.tool_call_id:"").trim();
@@ -1746,6 +1854,7 @@ ensureRunCommandLivePanel(o);
 if(o.tag&&o.tag.parentNode)o.tag.textContent="进行中 "+(ev.elapsed_sec!=null?ev.elapsed_sec+"s":"");
 var tail=String(ev.stdout_tail!=null?ev.stdout_tail:ev.stdoutTail||"");
 if(o.liveOutPre&&tail){o.liveOutPre.textContent=tail;scrollMsgsToBottom();}
+if(tail)updateChatRunCardOutput(o,tail);
 if(isRunCommandToolScript(o.script)&&ev.awaiting_input)renderRunCommandInputBar(o,ev);
 return;
 }
@@ -1772,7 +1881,7 @@ if(!o.fileSpan){var _fs=document.createElement("span");_fs.className="step-curre
 if(o.fileSpan){o.fileSpan.textContent=_cfOnly;if(_cfOnly)o.fileSpan.title=_cfOnly;else{try{o.fileSpan.removeAttribute("title");}catch(e){o.fileSpan.title="";}}}
 }
 
-function resetTurnState(){closeUserConfirmCardHost();clearLlmAnim();hideChatLoading();lastLlm=null;llmStreamBuffer={round:null,reqHtml:"",resHtml:"",consumed:false};pendingToolTags=[];lastAnalysisTail="";toolOpen.clear();anyToolThisTurn=false;pendingStepEls=[];streamAssistantEl=null;streamAssistantText="";pendingDeltaSeparator=false;seenDispatchTitle="";endedAwaitingUserConfirm=false;}
+function resetTurnState(){closeUserConfirmCardHost();clearLlmAnim();hideChatLoading();lastLlm=null;llmStreamBuffer={round:null,reqHtml:"",resHtml:"",consumed:false};pendingToolTags=[];lastAnalysisTail="";try{toolOpen.forEach(function(o){stopChatRunCountdown(o);});}catch(e){}toolOpen.clear();anyToolThisTurn=false;pendingStepEls=[];streamAssistantEl=null;streamAssistantText="";pendingDeltaSeparator=false;seenDispatchTitle="";endedAwaitingUserConfirm=false;}
 function resetSteps(){resetTurnState();stepSeq=0;}
 
 function onToolEnd(ev){const tid=String(ev.tool_call_id!=null?ev.tool_call_id:"").trim();
@@ -1787,8 +1896,8 @@ pendingToolTags.push({tag:o.tag,ok:!!ok||!!ev.user_confirm_required});
 if(ev.user_confirm_required){o.tag.textContent="待确认";o.tag.className="tag tag-run";}
 o.resLb.style.display="block";o.resPb.style.display="block";if(ev.user_confirm_required){try{var _pj=JSON.parse(ev.preview||"{}");var _em=_pj&&_pj.error&&_pj.error.message?String(_pj.error.message):"";var _em2=_em.indexOf("\n\n--help:")>=0?_em.split("\n\n--help:")[0].trim():_em;var slim={ok:_pj.ok,data:_pj.data,error:_pj.error?{code:_pj.error.code,type:_pj.error.type,message:_em2,hint:_pj.error.hint,retryable:_pj.error.retryable}:null};o.resPb.textContent=JSON.stringify(slim,null,2);}catch(e){o.resPb.textContent=ev.preview||"";}}else{try{var _pj2=JSON.parse(ev.preview||"{}");o.resPb.textContent=JSON.stringify(_pj2,null,2);}catch(e){o.resPb.textContent=ev.preview||"";}}
 fillToolPreview(o,ev);
-try{var _pp=typeof ev.preview==="string"?JSON.parse(ev.preview):ev.preview;var _so=_pp&&_pp.data&&_pp.data.stdout;if(_so&&typeof _so==="string"&&_so.trim()){var _cardDiv=document.createElement("div");_cardDiv.className="b a";var _cardTitle=(o.stepTitle&&o.stepTitle.trim())?escapeHtml(o.stepTitle.trim()):"执行命令脚本";var _cmdRaw=(o.args&&(o.args.command||o.args.code))||"";var _cmdLang=detectScriptLang(_cmdRaw,(o.args&&(o.args.language||o.args.lang))||"");var _cmdCls=hljsCodeClass(_cmdLang);_cardDiv.innerHTML='<div class="chat-diff-card"><div class="chat-diff-cap">'+_cardTitle+'</div><div class="diff-unified chat-run-wrap chat-run-cmd-block"><pre class="chat-run-pre chat-run-pre--cmd"><code'+(_cmdCls?' class="'+_cmdCls+'"':'')+'>'+highlightCode(_cmdRaw,_cmdLang)+'</code></pre></div><div class="chat-diff-cap chat-diff-cap--sect">执行结果</div><pre class="chat-run-pre chat-run-pre--out"><code>'+escapeHtml(_so)+'</code></pre></div>';if(streamAssistantEl){streamAssistantEl.after(_cardDiv);streamAssistantEl=null;streamAssistantText="";}else{msgs.appendChild(_cardDiv);}
-scrollMsgsToBottom();}}catch(_e3){}
+try{var _pp=typeof ev.preview==="string"?JSON.parse(ev.preview):ev.preview;var _so=_pp&&_pp.data&&_pp.data.stdout;if(_so&&typeof _so==="string"&&_so.trim()){if(o.chatRunCard&&o.chatRunCard.parentNode){updateChatRunCardOutput(o,_so);}else{ensureChatRunCard(o);updateChatRunCardOutput(o,_so);}}}catch(_e3){}
+if(isStreamOutputToolScript(o.script))finalizeChatRunCard(o,ok);
 if(ev.user_confirm_required)openUserConfirmModalFromToolEnd(ev);toolOpen.delete(tid);}
 
 async function sendChatMessage(){

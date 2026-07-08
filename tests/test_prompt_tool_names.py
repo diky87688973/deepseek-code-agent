@@ -259,6 +259,25 @@ class TestPromptToolNames(unittest.TestCase):
         cls.prompt_blob = _prompt_text_blobs()
         cls.catalog_blob = _catalog_schema_text_blob()
 
+    def test_catalog_tool_entries_are_named_once(self) -> None:
+        """tools 数组只能包含具名 Python 工具，且 function 名不能重复。"""
+        data = _load_catalog()
+        issues: List[str] = []
+        seen: set[str] = set()
+        for idx, t in enumerate(data.get("tools") or []):
+            if not isinstance(t, dict):
+                issues.append(f"tools[{idx}] 不是对象")
+                continue
+            fn = str(t.get("name") or "").strip()
+            if not fn.endswith(".py"):
+                issues.append(f"tools[{idx}] 缺少有效 name: {fn!r}")
+                continue
+            api = fn[:-3]
+            if api in seen:
+                issues.append(f"重复工具名: {api}")
+            seen.add(api)
+        self.assertEqual([], issues, f"catalog 结构异常: {issues}")
+
     def test_no_forbidden_shorthand_tokens(self) -> None:
         """禁止独立出现的 grep/glob/read 等简称（须用 grep_files 等）。"""
         issues = _find_shorthand_issues(self.prompt_blob)

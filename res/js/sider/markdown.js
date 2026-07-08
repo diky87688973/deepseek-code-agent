@@ -288,15 +288,67 @@
       if (/^---\s/.test(L) || /^\+\+\+\s/.test(L) || /^@@\s/.test(L)) hasMarker = true;
       if ((/^-/.test(L) && !/^---/.test(L)) || (/^\+/.test(L) && !/^\+\+\+/.test(L))) hasChange = true;
     }
-    return hasMarker || hasChange;
+    return hasMarker;
   }
   function renderUnifiedDiffBlockHtml(block) {
     var body = block.join("\n");
-    var pr = parseUnifiedDiffBodyForRows(body);
-    if (pr.oldT !== "" || pr.newT !== "") {
-      return buildChatDiffCardHtml(pr.oldT, pr.newT, diffFileNameFromBody(body));
-    }
+    var cards = renderUnifiedDiffBodyAsCardsHtml(body);
+    if (cards) return cards;
     return "<pre><code>" + escapeHtml(body) + "</code></pre>";
+  }
+  function findDiffFenceCloseIndex(rest) {
+    var reLine = /^[ \t]*```[ \t]*$/gm,
+      m;
+    while ((m = reLine.exec(rest)) !== null) {
+      var after = rest.slice(m.index + m[0].length);
+      var trimmed = after.replace(/^\r?\n/, "");
+      if (!trimmed.trim()) return m.index;
+      if (/^```(?:diff|patch)\b/i.test(trimmed)) return m.index;
+      var firstLine = (trimmed.split(/\r?\n/)[0] || "").trim();
+      if (/^---\s/.test(firstLine) || /^\+\+\+\s/.test(firstLine) || /^@@\s/.test(firstLine)) continue;
+      if (/^[-+ ]/.test(firstLine)) continue;
+      return m.index;
+    }
+    return -1;
+  }
+  function splitUnifiedDiffSections(body) {
+    var lines = String(body || "").replace(/\r/g, "").split("\n");
+    var sections = [],
+      cur = [];
+    for (var i = 0; i < lines.length; i++) {
+      var L = lines[i];
+      if (/^---\s/.test(L) && cur.some(function (x) {
+        return /^---\s/.test(x);
+      })) {
+        sections.push(cur.join("\n"));
+        cur = [L];
+        continue;
+      }
+      cur.push(L);
+    }
+    if (cur.length) sections.push(cur.join("\n"));
+    return sections.filter(function (s) {
+      return String(s).trim();
+    });
+  }
+  function renderUnifiedDiffBodyAsCardsHtml(body) {
+    var sections = splitUnifiedDiffSections(body);
+    if (!sections.length) return "";
+    if (sections.length === 1) {
+      var pr = parseUnifiedDiffBodyForRows(body);
+      if (pr.oldT !== "" || pr.newT !== "") {
+        return buildChatDiffCardHtml(pr.oldT, pr.newT, diffFileNameFromBody(body));
+      }
+      return "";
+    }
+    var html = "";
+    for (var si = 0; si < sections.length; si++) {
+      var sec = sections[si];
+      var pr2 = parseUnifiedDiffBodyForRows(sec);
+      if (pr2.oldT === "" && pr2.newT === "") continue;
+      html += buildChatDiffCardHtml(pr2.oldT, pr2.newT, diffFileNameFromBody(sec));
+    }
+    return html;
   }
   function iterMarkdownCodeFences(text, visit) {
     var src = String(text || "").replace(/\r\n/g, "\n");
@@ -319,14 +371,11 @@
       var closed = false;
       if (langLow === "diff" || langLow === "patch") {
         var rest = src.slice(pos);
-        var lastClose = -1,
-          reLine = /^[ \t]*```[ \t]*$/gm,
-          m;
-        while ((m = reLine.exec(rest)) !== null) lastClose = m.index;
-        if (lastClose >= 0) {
-          var closeMatch = rest.slice(lastClose).match(/^[ \t]*```/);
-          visit("fence", lang, rest.slice(0, lastClose).replace(/\n$/, ""));
-          i = pos + lastClose + closeMatch[0].length;
+        var closeAt = findDiffFenceCloseIndex(rest);
+        if (closeAt >= 0) {
+          var closeMatch = rest.slice(closeAt).match(/^[ \t]*```/);
+          visit("fence", lang, rest.slice(0, closeAt).replace(/\n$/, ""));
+          i = pos + closeAt + closeMatch[0].length;
           var nl = src.indexOf("\n", i);
           i = nl < 0 ? src.length : nl + 1;
           closed = true;
@@ -501,9 +550,9 @@
       var inner = b;
       var langLow = lang.toLowerCase();
       if ((langLow === "diff" || langLow === "patch") && inner) {
-        var pr = parseUnifiedDiffBodyForRows(inner);
-        if (pr.oldT !== "" || pr.newT !== "") {
-          html += buildChatDiffCardHtml(pr.oldT, pr.newT, diffFileNameFromBody(inner));
+        var cards = renderUnifiedDiffBodyAsCardsHtml(inner);
+        if (cards) {
+          html += cards;
         } else {
           var _hc = hljsCodeClass(lang);
           html +=

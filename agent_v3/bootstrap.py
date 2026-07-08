@@ -136,10 +136,11 @@ def _ensure_tools_sys_path() -> None:
 _ensure_tools_sys_path()
 import delete_file as _delete_file_mod
 import todo_list as _todo_list_mod
+import agent_common as _agent_common_mod
 
 _todo_list_mod.configure_storage(DATA_ROOT / "cache" / "todo_lists")
 _delete_file_mod.configure_trash_root(DATA_ROOT / "safe_delete")
-
+_agent_common_mod.configure_replace_backup_root(DATA_ROOT / "temp" / "replace_backup")
 # ── Agent 会话加载 ──
 try:
     from agent_v3.live_state import load_agent_sessions

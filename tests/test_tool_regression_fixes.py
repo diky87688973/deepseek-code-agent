@@ -12,7 +12,7 @@ from agent_v3.agent_core import (
     _merge_stream_tool_calls_with_snapshot,
 )
 import agent_patch_engine as pe
-from tools import archive, github_api, replace_in_file, web_fetch, web_fetch_render
+from tools import archive, github_api, replace_in_file, skill_manage, web_fetch, web_fetch_render
 
 
 class TestPlaceholderTitle(unittest.TestCase):
@@ -235,6 +235,28 @@ class TestGithubApiEnvelope(unittest.TestCase):
         err = r.get("error")
         self.assertIsInstance(err, dict)
         self.assertEqual(err.get("type"), "ValueError")
+
+
+class TestSkillManageConfirm(unittest.TestCase):
+    def test_copy_conflict_returns_host_confirm_envelope(self) -> None:
+        from util.skill_manager import init_skill_manager
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            skills = root / "skills"
+            src = root / "src"
+            skills.mkdir()
+            src.mkdir()
+            (skills / "demo.md").write_text("old", encoding="utf-8")
+            (src / "demo.md").write_text("new", encoding="utf-8")
+            init_skill_manager(skills, 200000)
+
+            r = skill_manage.agent_main(action="copy", source=str(src))
+            self.assertFalse(r.get("ok"))
+            self.assertEqual("E_USER_CONFIRM_REQUIRED", (r.get("error") or {}).get("code"))
+            data = r.get("data") or {}
+            self.assertEqual("确认覆盖技能文件", data.get("title"))
+            self.assertTrue(data.get("confirm_id"))
 
 
 if __name__ == "__main__":

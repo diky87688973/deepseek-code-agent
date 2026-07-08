@@ -12,6 +12,30 @@ import difflib
 import agent_common as ac
 
 
+def _text_ends_with_newline(text: str) -> bool:
+    return text.endswith("\n") or text.endswith("\r\n")
+
+
+def _validate_line_replace_trailing_newline(
+    new_text: str,
+    *,
+    has_following_lines: bool,
+    line_start: int,
+    line_end: int,
+) -> None:
+    """行替换：后面仍有行时，非空 new_text 必须以换行结尾，否则下一行会黏连。"""
+    if not has_following_lines or not new_text or _text_ends_with_newline(new_text):
+        return
+    next_line = line_end + 1
+    raise ValueError(
+        f"行替换 new_text 末尾缺少换行符（第 {line_start}–{line_end} 行）。"
+        f"其后仍有第 {next_line} 行及之后的内容；若不在 new_text 末尾写入换行符，"
+        f"新内容的最后一行将与下一行黏连在同一物理行上。"
+        f"请先 read_file(path, line_start={line_start}, line_end={line_end}) "
+        f"对照该区间 content 的换行形态，或在 new_text 末尾补上 \\n 后再提交。"
+    )
+
+
 def _merge_literal_rules(
     old_text: Optional[str],
     new_text: Optional[str],
@@ -41,6 +65,36 @@ def _merge_literal_rules(
     return out
 
 
+def _raw_escape_text(text: str) -> str:
+    """将 JSON 中的真实控制字符转为源码里常见的字面转义序列。"""
+    return text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\\n").replace("\t", "\\t")
+
+
+def _apply_raw_to_literal_inputs(
+    old_text: Optional[str],
+    new_text: Optional[str],
+    rules: Optional[list],
+) -> Tuple[Optional[str], Optional[str], Optional[list]]:
+    if old_text is not None:
+        old_text = _raw_escape_text(old_text)
+    if new_text is not None:
+        new_text = _raw_escape_text(new_text)
+    if rules:
+        out = []
+        for item in rules:
+            if not isinstance(item, dict):
+                out.append(item)
+                continue
+            copied = dict(item)
+            if isinstance(copied.get("old_text"), str):
+                copied["old_text"] = _raw_escape_text(copied["old_text"])
+            if isinstance(copied.get("new_text"), str):
+                copied["new_text"] = _raw_escape_text(copied["new_text"])
+            out.append(copied)
+        rules = out
+    return old_text, new_text, rules
+
+
 def _apply_rules_sequential(
     original: str,
     rules: List[Tuple[str, str]],
@@ -62,6 +116,42 @@ def _apply_rules_sequential(
             cur = cur.replace(old_s, new_s, 1) if c else cur
         counts.append(c)
     return cur, counts
+
+
+def _first_content_line(text: str) -> str:
+    lines = text.splitlines()
+    return lines[0].strip() if lines else ""
+
+
+def _last_content_line(text: str) -> str:
+    lines = text.splitlines()
+    return lines[-1].strip() if lines else ""
+
+
+def _detect_warnings(
+    *,
+    mode: str,
+    rep: str,
+    before: str,
+    after: str,
+    original: str,
+    new_body: str,
+) -> List[str]:
+    warnings: List[str] = []
+    if mode == "linerange" and rep and after:
+        rep_last = _last_content_line(rep)
+        after_first = _first_content_line(after)
+        if rep_last and rep_last == after_first:
+            warnings.append("替换文本末行与替换范围后的首行相同，可能是 line_end 过窄导致重复行。")
+
+    normalized = new_body.replace("\r\n", "\n").replace("\r", "\n")
+    if "\n\n\n\n" in normalized:
+        warnings.append("结果中出现 2 个以上连续空行，请确认替换范围和换行是否正确。")
+
+    if original == new_body:
+        warnings.append("替换后内容未变化，请确认目标范围或 old_text 是否符合预期。")
+
+    return warnings
 
 
 def _detect_replace_modes(
@@ -187,10 +277,12 @@ def agent_main(
         rule_list: List[Tuple[str, str]] = []
 
         if mode == "literal":
+            if raw:
+                old_text, new_text, rules = _apply_raw_to_literal_inputs(old_text, new_text, rules)
             rule_list = _merge_literal_rules(old_text, new_text, rules)
             # ── 安全校验：禁止 old_text 含反斜杠（匹配转义序列如 \n、\t、\\ 等极易因 JSON 转义歧义导致匹配失败） ──
             for old_s, _ in rule_list:
-                if "\\" in old_s:
+                if "\\" in old_s and not raw:
                     raise ValueError(
                         "old_text 含反斜杠字符，禁止字面替换。\n"
                         "  原因：JSON 的 \\n、\\t、\\\\ 等经 JSON 解码后歧义大，极易匹配失败。\n"
@@ -267,6 +359,12 @@ def agent_main(
                     continue
                 before = "".join(lines_kd[:s])
                 after = "".join(lines_kd[e + 1:])
+                _validate_line_replace_trailing_newline(
+                    nt,
+                    has_following_lines=bool(after),
+                    line_start=ls,
+                    line_end=le,
+                )
                 new_body = before + nt + after
                 counts_per_rule.append(1)
         elif mode == "offset":
@@ -291,9 +389,12 @@ def agent_main(
             else:
                 before = "".join(lines_keepends[:ls])
                 after = "".join(lines_keepends[le + 1:])
-                # 确保 rep 末尾换行符与原行一致，防止与下一行粘连
-                if after and not rep.endswith("\n"):
-                    rep = rep + "\n"
+                _validate_line_replace_trailing_newline(
+                    rep,
+                    has_following_lines=bool(after),
+                    line_start=int(line_start),
+                    line_end=int(line_end),
+                )
                 new_body = before + rep + after
                 counts_per_rule = [1 if new_body != original else 0]
         else:
@@ -347,6 +448,23 @@ def agent_main(
             )
         )
         diff_text = "\n".join(dl) if dl else ""
+        # 计算结构化警告
+        warnings: List[str] = []
+        if mode in ("linerange",) and new_text:
+            lines_kd = original.splitlines(keepends=True)
+            ls = int(line_start) - 1
+            le = int(line_end) - 1
+            w_before = "".join(lines_kd[:max(0, ls)])
+            w_after = "".join(lines_kd[min(len(lines_kd), le + 1):])
+            warnings = _detect_warnings(
+                mode=mode, rep=new_text or "", before=w_before, after=w_after,
+                original=original, new_body=new_body,
+            )
+        else:
+            warnings = _detect_warnings(
+                mode=mode, rep="", before="", after="",
+                original=original, new_body=new_body,
+            )
 
         if dry_run or new_body == original:
             return ac.ok(
@@ -360,16 +478,18 @@ def agent_main(
                     "dry_run": dry_run,
                     "written": False,
                     "backup_path": None,
+                    "mod_id": None,
+                    "warnings": warnings,
                     "diff_text": diff_text[:16000] + ("…" if len(diff_text) > 16000 else ""),
                 }
             )
 
-        bak_path_str: Optional[str] = None
+        # 版本化备份
+        mod_id: Optional[str] = None
         if backup and fp.is_file():
-            bak = fp.with_suffix(fp.suffix + ".bak")
-            ac.write_unicode_file(bak, original, encoding=encoding)
-            bak_path_str = str(bak)
-
+            mod_id = ac.create_replace_backup(
+                fp, original, encoding, mode, diff_text
+            )
         ac.write_unicode_file(fp, new_body, encoding=encoding)
         return ac.ok(
             {
@@ -381,7 +501,9 @@ def agent_main(
                 "changed": True,
                 "dry_run": False,
                 "written": True,
-                "backup_path": bak_path_str,
+                "backup_path": None,
+                "mod_id": mod_id,
+                "warnings": warnings,
                 "diff_text": diff_text[:16000] + ("…" if len(diff_text) > 16000 else ""),
             }
         )

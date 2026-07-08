@@ -15,6 +15,7 @@ WRITE_TOOL_SCRIPTS: frozenset = frozenset(
         "write_file.py",
         "read_write.py",
         "replace_in_file.py",
+        "replace_undo.py",
         "apply_patch.py",
         "run_command.py",
         "delete_file.py",

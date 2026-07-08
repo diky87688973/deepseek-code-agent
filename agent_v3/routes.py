@@ -410,9 +410,18 @@ def chat_user_confirm_submit(inp: ChatUserConfirmIn, request: Request) -> Dict[s
         core.PENDING_USER_CONFIRM.pop(cid, None)
         raise HTTPException(500, "invalid pending user_confirm state")
     script_name = str(pending.get("script", "user_confirm.py"))
-    if script_name == "kling_generate.py":
-        _first_opt = str(pending.get("confirms", [None])[0]) if isinstance(pending.get("confirms"), list) and len(pending.get("confirms")) > 0 else "确认生成"
+    if script_name in ("kling_generate.py", "skill_manage.py"):
+        _default_confirm = "确认覆盖" if script_name == "skill_manage.py" else "确认生成"
+        _first_opt = str(pending.get("confirms", [None])[0]) if isinstance(pending.get("confirms"), list) and len(pending.get("confirms")) > 0 else _default_confirm
         if conf == _first_opt:
+            if script_name == "skill_manage.py":
+                try:
+                    from agent_v3.live_state import mark_confirmed as _kmc
+                    _cid = str(exec_args0.get("confirm_id") or "")
+                    if _cid:
+                        _kmc(_cid)
+                except Exception:
+                    pass
             result = core.execute_tool_script(script_name, exec_args0, conversation_id=cid)
             exec_args1 = exec_args0
         else:
@@ -424,7 +433,10 @@ def chat_user_confirm_submit(inp: ChatUserConfirmIn, request: Request) -> Dict[s
                     _kcc(_cid)
             except Exception:
                 pass
-            result = {"ok": True, "data": {"confirm": str(conf) if conf else "取消", "cancelled": True, "message": "用户已取消操作，请立即停止当前任务，不要再调用任何生成工具！"}}
+            _message = "用户已取消操作，请立即停止当前任务，不要再调用任何生成工具！"
+            if script_name == "skill_manage.py":
+                _message = "用户已取消覆盖技能文件，请不要继续执行覆盖。"
+            result = {"ok": True, "data": {"confirm": str(conf) if conf else "取消", "cancelled": True, "message": _message}}
             exec_args1 = exec_args0
     else:
         exec_args1 = core._merge_confirm_into_user_confirm_args(exec_args0, conf)

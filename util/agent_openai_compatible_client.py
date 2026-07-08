@@ -59,9 +59,9 @@ def _upstream_error_body_message(body: str) -> str:
     return raw[:800]
 
 
-def _map_upstream_http_for_client(status_code: int, body: str, *, base_url: str, model: Optional[str]) -> Tuple[int, str]:
+def _map_upstream_http_for_client(status_code: int, body: str, *, base_url: str, model: Optional[str], request_url: str = "") -> Tuple[int, str]:
     """返回 (建议返回给前端的 HTTP 状态, detail 文案)。非 DeepSeek 表适用场景时保持原有拼接方式。"""
-    detail_plain = _http_error_message(status_code, body)
+    detail_plain = _http_error_message(status_code, body, url=request_url)
     if not _should_map_deepseek_http_errors(base_url=base_url, model=model):
         return 502, detail_plain
     hint = _DEEPSEEK_HTTP_HINTS.get(int(status_code))
@@ -110,34 +110,50 @@ def _extra_headers() -> Dict[str, str]:
         return {}
 
 
-def _http_error_message(code: int, body: str) -> str:
-    return f"HTTP {code}: {body[:8000]}"
+def _http_error_message(code: int, body: str, *, url: str = "") -> str:
+    prefix = f"HTTP {code}"
+    if url:
+        prefix = f"HTTP {code} ({url})"
+    return f"{prefix}: {body[:8000]}"
 
 
-def _raise_http_error_from_upstream(ex: urllib.error.HTTPError, payload: dict) -> None:
+def _raise_http_error_from_upstream(ex: urllib.error.HTTPError, payload: dict, *, base_url: str = "", request_url: str = "") -> None:
     text = ex.read().decode("utf-8", errors="replace") if ex.fp else ""
-    base = chat_api_base_url()
+    base = base_url or chat_api_base_url()
     model = payload.get("model") if isinstance(payload.get("model"), str) else None
-    st, detail = _map_upstream_http_for_client(ex.code, text, base_url=base, model=model)
+    st, detail = _map_upstream_http_for_client(
+        ex.code, text, base_url=base, model=model, request_url=request_url
+    )
     raise HTTPException(status_code=st, detail=detail) from ex
 
 
-def chat_completion_request(payload: dict) -> dict:
-    key = chat_api_key()
+def _chat_completions_url_from(base_url: str) -> str:
+    """base_url 可为 API 根或已含 /chat/completions 的完整地址（provider 路由）。"""
+    b = str(base_url or "").strip().rstrip("/")
+    if not b:
+        return b
+    if b.endswith("/chat/completions"):
+        return b
+    return f"{b}/chat/completions"
+
+
+def chat_completion_request(payload: dict, *, base_url: str = "", api_key: str = "") -> dict:
+    key = api_key or chat_api_key()
     if not key:
         raise HTTPException(status_code=500, detail="AGENT_MODEL_API_KEY 未配置")
+    url = _chat_completions_url_from(base_url) if base_url else chat_completions_url()
     headers = {
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json; charset=utf-8",
     }
     headers.update(_extra_headers())
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(chat_completions_url(), data=body, headers=headers, method="POST")
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=180) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as ex:
-        _raise_http_error_from_upstream(ex, payload)
+        _raise_http_error_from_upstream(ex, payload, base_url=base_url, request_url=url)
     except urllib.error.URLError as ex:
         raise HTTPException(status_code=502, detail=str(getattr(ex, "reason", ex))) from ex
     return json.loads(raw)
@@ -151,10 +167,11 @@ def _safe_json_loads(line: str) -> Optional[dict]:
         return None
 
 
-def chat_completion_stream(payload: dict) -> Iterator[dict]:
-    key = chat_api_key()
+def chat_completion_stream(payload: dict, *, base_url: str = "", api_key: str = "") -> Iterator[dict]:
+    key = api_key or chat_api_key()
     if not key:
         raise HTTPException(status_code=500, detail="AGENT_MODEL_API_KEY 未配置")
+    url = _chat_completions_url_from(base_url) if base_url else chat_completions_url()
     headers = {
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json; charset=utf-8",
@@ -164,7 +181,6 @@ def chat_completion_stream(payload: dict) -> Iterator[dict]:
     stream_body["stream"] = True
     if _stream_include_usage():
         stream_body["stream_options"] = {"include_usage": True}
-    url = chat_completions_url()
     attempt = 0
     stream = None
     while attempt < 2:
@@ -182,7 +198,7 @@ def chat_completion_stream(payload: dict) -> Iterator[dict]:
                 stream_body.pop("stream_options", None)
                 attempt = 1
                 continue
-            _raise_http_error_from_upstream(ex, stream_body)
+            _raise_http_error_from_upstream(ex, stream_body, base_url=base_url, request_url=url)
         except urllib.error.URLError as ex:
             raise HTTPException(status_code=502, detail=str(getattr(ex, "reason", ex))) from ex
     if stream is None:

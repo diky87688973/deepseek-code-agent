@@ -142,13 +142,17 @@ def agent_main(
         return _with_meta({
             "ok": False,
             "error": {
+                "code": "E_USER_CONFIRM_REQUIRED",
                 "type": "UserConfirmRequired",
                 "message": f"目标文件已存在: {result['conflict']}。确认覆盖后传入 confirm_id 重试。",
+                "hint": "前端弹窗显示 data.title/data.confirms；用户确认后宿主会携带 confirm_id 重新调用 skill_manage",
+                "retryable": False,
             },
             "data": {
                 "title": "确认覆盖技能文件",
                 "confirms": ["确认覆盖", "取消"],
                 "confirm_id": new_id,
+                "preview": {"action": "copy", "source": str(src_path), "target": result["conflict"]},
                 "conflict": result["conflict"],
             },
         })

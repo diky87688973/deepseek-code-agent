@@ -607,7 +607,7 @@ def run_agent_turn(
                         }
                         _te_tool_end["ok"] = True
                         _te_tool_end["preview"] = preview_tool_result(script, result)
-                    if script in ("user_confirm.py", "kling_generate.py") and _is_user_confirm_required(result) and isinstance(exec_args, dict):
+                    if script in ("user_confirm.py", "kling_generate.py", "skill_manage.py") and _is_user_confirm_required(result) and isinstance(exec_args, dict):
                         _te_tool_end["user_confirm_required"] = True
                         _ucd = result.get("data") or {}
                         _te_tool_end["user_confirm_title"] = str(_ucd.get("title") or "")
@@ -619,7 +619,7 @@ def run_agent_turn(
                         if isinstance(_cix, int):
                             _te_tool_end["user_confirm_custom_index"] = _cix
                         _pending_args = dict(exec_args)
-                        if script == "kling_generate.py":
+                        if script in ("kling_generate.py", "skill_manage.py"):
                             _cid = _ucd.get("confirm_id")
                             if _cid:
                                 _pending_args["confirm_id"] = str(_cid)

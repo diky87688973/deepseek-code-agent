@@ -53,6 +53,10 @@ def _run_shell_streaming(
     if os.name == "nt":
         creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
+    # 禁用子 Python 进程的 stdout 全缓冲，确保按行实时吐出，配合宿主流式推送
+    env = dict(os.environ)
+    env.setdefault("PYTHONUNBUFFERED", "1")
+
     proc = subprocess.Popen(
         command,
         shell=True,
@@ -62,6 +66,7 @@ def _run_shell_streaming(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         creationflags=creationflags,
+        env=env,
     )
     shell_scope = str((progress or {}).get("_shell_scope") or "").strip()
     from command_safety import _DEFAULT_SHELL_SCOPE
@@ -96,11 +101,9 @@ def _run_shell_streaming(
                 progress["_awaiting_since"] = time.monotonic()
 
     def _reader(pipe: Any, *, is_err: bool) -> None:
+        # 按行读取：readline 遇换行即返回，避免 read(4096) 在小输出时阻塞到进程结束
         try:
-            while True:
-                chunk = pipe.read(4096)
-                if not chunk:
-                    break
+            for chunk in iter(pipe.readline, b""):
                 with buf_lock:
                     if is_err:
                         stderr_parts.append(chunk)

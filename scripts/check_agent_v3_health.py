@@ -190,6 +190,7 @@ def check_catalog_param_policy() -> None:
             "delete_file.py",
             "file_ops.py",
             "replace_in_file.py",
+            "replace_undo.py",
             "apply_patch.py",
             "archive.py",
             "run_command.py",

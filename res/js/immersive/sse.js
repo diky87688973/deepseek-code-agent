@@ -37,6 +37,112 @@
     scrollMsgs(msgsEl);
   }
 
+  function isStreamOutputScript(script) {
+    var s = String(script || "").toLowerCase();
+    return s.indexOf("run_command") >= 0 || s.indexOf("python_inline") >= 0;
+  }
+
+  // 沉浸模式：在对话区创建/获取“执行命令脚本 + 执行结果”卡片（按 tool_call_id 索引）
+  function immEnsureRunCard(col, ev) {
+    var s = col.s;
+    var msgsEl = col.msgsEl;
+    if (!s.runCards) s.runCards = {};
+    var tid = String(ev.tool_call_id || "").trim() || ("rc_" + Math.random());
+    var rc = s.runCards[tid];
+    if (rc && rc.card && rc.card.parentNode) return rc;
+    var args = ev.args || {};
+    var title = String(ev.step_title || "").trim() || "执行命令脚本";
+    var cmdRaw = args.command || args.code || "";
+    var card = document.createElement("div");
+    card.className = "b a";
+    card.innerHTML =
+      '<div class="chat-diff-card"><div class="chat-diff-cap">' +
+      IMM.escapeHtml(title) +
+      '<span class="imm-run-status" style="margin-left:8px;font-size:12px;font-weight:normal;color:#e0a300"></span></div>' +
+      '<div class="diff-unified chat-run-wrap chat-run-cmd-block"><pre class="chat-run-pre chat-run-pre--cmd"><code></code></pre></div>' +
+      '<div class="chat-diff-cap chat-diff-cap--sect">执行结果</div>' +
+      '<pre class="chat-run-pre chat-run-pre--out"><code></code></pre></div>';
+    var cmdCode = card.querySelector(".chat-run-pre--cmd code");
+    if (cmdCode) cmdCode.textContent = cmdRaw;
+    msgsEl.appendChild(card);
+    rc = {
+      card: card,
+      outPre: card.querySelector(".chat-run-pre--out code"),
+      status: card.querySelector(".imm-run-status"),
+      script: ev.script || "",
+      timer: null,
+      start: Date.now(),
+      timeout: parseInt(args.timeout_sec || 0, 10) || 0,
+    };
+    s.runCards[tid] = rc;
+    immStartRunCountdown(rc);
+    scrollMsgs(msgsEl);
+    return rc;
+  }
+
+  function immStartRunCountdown(rc) {
+    if (!rc || rc.timer) return;
+    function tick() {
+      if (!rc.status || !rc.card || !rc.card.parentNode) {
+        immStopRunCountdown(rc);
+        return;
+      }
+      var elapsed = Math.floor((Date.now() - rc.start) / 1000);
+      if (rc.timeout > 0) {
+        var left = rc.timeout - elapsed;
+        if (left < 0) left = 0;
+        rc.status.textContent =
+          "⏳ 等待执行结果中…（剩余 " + left + "s / 超时 " + rc.timeout + "s）";
+      } else {
+        rc.status.textContent = "⏳ 等待执行结果中…（已用时 " + elapsed + "s）";
+      }
+    }
+    tick();
+    rc.timer = setInterval(tick, 1000);
+  }
+
+  function immStopRunCountdown(rc) {
+    if (rc && rc.timer) {
+      try {
+        clearInterval(rc.timer);
+      } catch (e) {}
+      rc.timer = null;
+    }
+  }
+
+  function immUpdateRunOutput(col, ev) {
+    var rc = immEnsureRunCard(col, ev);
+    if (!rc) return;
+    var tail = String(ev.stdout_tail != null ? ev.stdout_tail : "");
+    if (rc.outPre && tail) {
+      rc.outPre.textContent = tail;
+      scrollMsgs(col.msgsEl);
+    }
+  }
+
+  function immFinalizeRunCard(col, ev) {
+    var s = col.s;
+    if (!s.runCards) return;
+    var tid = String(ev.tool_call_id || "").trim();
+    var rc = s.runCards[tid];
+    if (!rc) return;
+    immStopRunCountdown(rc);
+    var ok = !!ev.ok;
+    try {
+      var pp = typeof ev.preview === "string" ? JSON.parse(ev.preview) : ev.preview;
+      var so = pp && pp.data && pp.data.stdout;
+      if (so && typeof so === "string" && so.trim() && rc.outPre) {
+        rc.outPre.textContent = so;
+      }
+    } catch (e) {}
+    if (rc.status) {
+      rc.status.textContent = ok ? "✓ 执行完成" : "✗ 执行结束（失败）";
+      rc.status.style.color = ok ? "#3fb950" : "#f85149";
+    }
+    scrollMsgs(col.msgsEl);
+    delete s.runCards[tid];
+  }
+
   function peerAvatarLetter(name) {
     var s = String(name || "A").trim();
     return s ? s.charAt(0).toUpperCase() : "A";
@@ -149,6 +255,14 @@
   function resetTurnState(col) {
     var s = col.s;
     hideChatLoading(s);
+    if (s.runCards) {
+      try {
+        Object.keys(s.runCards).forEach(function (k) {
+          immStopRunCountdown(s.runCards[k]);
+        });
+      } catch (e) {}
+      s.runCards = {};
+    }
     s.streamAssistantEl = null;
     s.streamAssistantText = "";
     s.roundReasoningText = "";
@@ -442,13 +556,15 @@
         IMM.updateImmersiveContextBar();
     } else if (ev.type === "llm_round") {
       col.s.roundReasoningText = "";
+    } else if (ev.type === "tool_start") {
+      if (isStreamOutputScript(ev.script)) immEnsureRunCard(col, ev);
+    } else if (ev.type === "tool_progress") {
+      if (isStreamOutputScript(ev.script)) immUpdateRunOutput(col, ev);
     } else if (
       ev.type === "dispatch_title" ||
       ev.type === "llm_request" ||
       ev.type === "llm_response" ||
       ev.type === "llm_done" ||
-      ev.type === "tool_start" ||
-      ev.type === "tool_progress" ||
       ev.type === "tool_preview_update" ||
       ev.type === "usage" ||
       ev.type === "heartbeat" ||
@@ -458,6 +574,7 @@
     } else if (ev.type === "tool_end") {
       s.pendingDeltaSeparator = true;
       s.anyToolThisTurn = true;
+      if (isStreamOutputScript(ev.script)) immFinalizeRunCard(col, ev);
       if (ev.user_confirm_required) openUserConfirm(ev, col, CM, drainChatSseFromResponse);
       if (ev.todo_list && ev.todo_list_data) {
         var td = ev.todo_list_data;
@@ -614,13 +731,15 @@
               IMM.updateImmersiveContextBar();
           } else if (ev.type === "llm_round") {
             col.s.roundReasoningText = "";
+          } else if (ev.type === "tool_start") {
+            if (isStreamOutputScript(ev.script)) immEnsureRunCard(col, ev);
+          } else if (ev.type === "tool_progress") {
+            if (isStreamOutputScript(ev.script)) immUpdateRunOutput(col, ev);
           } else if (
             ev.type === "dispatch_title" ||
             ev.type === "llm_request" ||
             ev.type === "llm_response" ||
             ev.type === "llm_done" ||
-            ev.type === "tool_start" ||
-            ev.type === "tool_progress" ||
             ev.type === "tool_preview_update"
           ) {
             
@@ -628,6 +747,7 @@
           } else if (ev.type === "tool_end") {
             s.pendingDeltaSeparator = true;
             s.anyToolThisTurn = true;
+            if (isStreamOutputScript(ev.script)) immFinalizeRunCard(col, ev);
             if (ev.user_confirm_required) openUserConfirm(ev, col, CM, drainChatSseFromResponse);
             if (ev.todo_list && ev.todo_list_data) {
               var td = ev.todo_list_data;

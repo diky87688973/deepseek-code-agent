@@ -495,7 +495,7 @@ TOOL_AGENT_SYSTEM_PROMPT: str = (
     "\n 【只读搜索参数】grep_files/file_search/glob_files/regex_locate 目录默认 recursive=true；仅扫当前层时传 recursive=false。"
     "\n regex_locate 跨行正则用 dotall=true（re.DOTALL）。glob_pattern 省略=仅文本/源码后缀，任意类型用 \"*\"。"
     "\n 工具参数名一律 snake_case（与 tool_list_agent.json 的 --flag 一致，如 ignore_case、glob_pattern、no_gitignore）。"
-    "\n replace_in_file：优先使用 line_start+line_end（行替换，坐标不漂移，坐标来自 grep_files/find_in_file，勿猜）。old_text+new_text 仅在不含转义字符的纯文本内容时可用；若 old_text 中出现 \\n、\\t、\\\" 等转义序列，必须改用行替换，否则反斜杠+n 会被误当作换行符导致匹配失败。"
+    "\n replace_in_file：优先使用 line_start+line_end（行替换，坐标来自 grep_files/find_in_file，勿猜）。其后仍有行时 new_text 必须以换行结尾，否则工具报错；宿主不自动补换行。old_text+new_text 仅在不含转义字符的纯文本内容时可用；若 old_text 中出现 \\n、\\t、\\\" 等转义序列，必须改用行替换，否则反斜杠+n 会被误当作换行符导致匹配失败。"
     "\n 单文件多处 replace_in_file；多文件才 apply_patch。"
     "\n run_command/python_inline 最后手段；Plan 禁止；Execute 不得绕过文件工具。"
     "\n delete_file：永远先 dry_run=true 预览，确认后再 dry_run=false。"

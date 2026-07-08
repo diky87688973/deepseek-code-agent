@@ -4,14 +4,34 @@
 from __future__ import annotations
 
 import fnmatch
+import hashlib
+import json
 import os
+import random
 import re
+import string
+import time
 from pathlib import Path
 from typing import List, Optional, Set, Tuple, Union
 
 from util.config_loader import load_config
 
 _AGENT_CONFIG = load_config(verbose=False)
+
+# ── 版本化备份配置 ──
+_REPLACE_BACKUP_ROOT: Optional[Path] = None
+
+
+def configure_replace_backup_root(root: Path) -> None:
+    global _REPLACE_BACKUP_ROOT
+    _REPLACE_BACKUP_ROOT = root
+
+
+def _ensure_backup_root() -> Path:
+    if _REPLACE_BACKUP_ROOT is None:
+        raise RuntimeError("replace_backup_root 未配置（请在 bootstrap 中调用 configure_replace_backup_root）")
+    _REPLACE_BACKUP_ROOT.mkdir(parents=True, exist_ok=True)
+    return _REPLACE_BACKUP_ROOT
 
 
 def ok(data: Optional[dict]) -> dict:
@@ -473,7 +493,7 @@ def offset_to_line_open_column_onebased(lines_keepends: List[str], abs_end: int)
             within = ae - s
             within_body = min(within, len(body))
             return i + 1, within_body + 1
-    return len(lines_keepends), 1
+
 
 
 def span_region_rowcols(
@@ -484,3 +504,88 @@ def span_region_rowcols(
     sl, sc = offset_to_line_column_onebased(lines_keepends, region_start)
     el, ec = offset_to_line_open_column_onebased(lines_keepends, region_end)
     return sl, sc, el, ec
+
+
+# ── 版本化备份辅助函数 ──
+
+def generate_mod_id(path: Path) -> str:
+    """生成全局唯一修改流水号：{文件名}_{时间戳}_{4位随机}"""
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', path.stem)
+    ts = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+    rand = ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
+    return f"{safe_name}_{ts}_{rand}"
+
+
+def compute_sha256(content: str) -> str:
+    """计算字符串的 SHA256 摘要"""
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def backup_dir_for_mod(mod_id: str) -> Path:
+    """返回指定 mod_id 的备份目录"""
+    return _ensure_backup_root() / mod_id
+
+
+def create_replace_backup(
+    fp: Path,
+    original: str,
+    encoding: str,
+    mode: str,
+    diff_text: str,
+) -> str:
+    """创建版本化备份，返回 mod_id。"""
+    mod_id = generate_mod_id(fp)
+    bak_dir = backup_dir_for_mod(mod_id)
+    bak_dir.mkdir(parents=True, exist_ok=True)
+
+    # 备份原文件内容
+    write_unicode_file(bak_dir / "original", original, encoding=encoding)
+
+    # 写入元数据
+    metadata = {
+        "mod_id": mod_id,
+        "path": str(fp.resolve()),
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime()),
+        "mode": mode,
+        "encoding": encoding,
+        "original_sha256": compute_sha256(original),
+        "diff_text": diff_text[:2000] + ("…" if len(diff_text) > 2000 else ""),
+    }
+    (bak_dir / "metadata.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return mod_id
+
+
+def list_backups(fp: Path) -> List[dict]:
+    """列出指定文件的所有备份记录，按时间降序。"""
+    root = _ensure_backup_root()
+    if not root.is_dir():
+        return []
+    target = str(fp.resolve())
+    records = []
+    for d in sorted(root.iterdir(), key=lambda p: p.name, reverse=True):
+        meta_file = d / "metadata.json"
+        if meta_file.is_file():
+            try:
+                meta = json.loads(meta_file.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if meta.get("path") == target:
+                meta["backup_dir"] = str(d)
+                records.append(meta)
+    return records
+
+
+def restore_backup(mod_id: str) -> Tuple[str, str, str]:
+    """回滚指定 mod_id 的备份。返回 (原文件路径, 备份文件内容, 备份编码)。"""
+    bak_dir = backup_dir_for_mod(mod_id)
+    meta_file = bak_dir / "metadata.json"
+    if not meta_file.is_file():
+        raise FileNotFoundError(f"备份 {mod_id} 不存在（metadata.json 未找到）")
+    meta = json.loads(meta_file.read_text(encoding="utf-8"))
+    original_path = meta["path"]
+    encoding = meta.get("encoding", "utf-8")
+    backup_content = (bak_dir / "original").read_text(encoding=encoding)
+    return original_path, backup_content, encoding
