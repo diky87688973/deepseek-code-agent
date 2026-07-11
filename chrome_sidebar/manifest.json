@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Code Web Agent Sidebar",
-  "version": "1.4",
+  "version": "1.5",
   "description": "在浏览器侧边栏中使用 Code Web Agent",
   "icons": {
     "16": "icon16.png",

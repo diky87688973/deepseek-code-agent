@@ -1,4 +1,4 @@
-# DeepSeek Code Agent v1.4
+# DeepSeek Code Agent v1.5
 
 <p align="center">
   <strong>🤖 基于 WEB 浏览器的 AI 桌面助手</strong>
@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="#"><img src="https://img.shields.io/badge/版本-v1.4-blue" alt="版本"></a>
+  <a href="#"><img src="https://img.shields.io/badge/版本-v1.5-blue" alt="版本"></a>
   <a href="#"><img src="https://img.shields.io/badge/Python-3.8+-brightgreen" alt="Python"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/许可证-Apache%202.0-green" alt="许可证"></a>
   <a href="#"><img src="https://img.shields.io/badge/模型-DeepSeek%20v4-orange" alt="模型"></a>
@@ -235,4 +235,4 @@ enabled = false        # 默认关闭，改为 true 开机自动语音
 
 > **⭐ 如果这个项目对你有帮助，欢迎给个 Star！**
 >
-> 文档版本：v1.4  |  更新于：2026-05-27  |  作者：Fan
+> 文档版本：v1.5  |  更新于：2026-07-11  |  作者：Fan
