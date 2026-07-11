@@ -154,13 +154,15 @@ def check_core_load_global_all() -> None:
         if mi.name.startswith("_"):
             continue
         mod = importlib.import_module(f"agent_v3.core.{mi.name}")
+        # 模块自身全局（含 _私有常量）对 LOAD_GLOBAL 合法，勿只认 agent_core/deps
+        known_mod = known | set(vars(mod).keys())
         for name, obj in vars(mod).items():
             if not callable(obj) or not hasattr(obj, "__code__"):
                 continue
             if getattr(obj, "__module__", "") != mod.__name__:
                 continue
             for ins in dis.get_instructions(obj):
-                if ins.opname == "LOAD_GLOBAL" and ins.argval not in known:
+                if ins.opname == "LOAD_GLOBAL" and ins.argval not in known_mod:
                     errors.append(f"{mod.__name__}.{name}: 未定义全局 {ins.argval!r}")
 
 

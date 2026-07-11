@@ -8,8 +8,8 @@
 <link rel="stylesheet" href="/assets/css/reset.css?v=20260516h"/>
 <link rel="stylesheet" href="/assets/css/sider/tokens.css?v=20260519a"/>
 <link rel="stylesheet" href="/assets/css/sider/layout.css?v=20260523peer11"/>
-<link rel="stylesheet" href="/assets/css/sider/columns.css?v=20260521peer10"/>
-<link rel="stylesheet" href="/assets/css/sider/composer.css?v=20260520c"/>
+<link rel="stylesheet" href="/assets/css/sider/columns.css?v=20260711b"/>
+<link rel="stylesheet" href="/assets/css/sider/composer.css?v=20260711b"/>
 <link rel="stylesheet" href="/assets/css/sider/kb-overlay.css?v=20260516h"/>
 <link rel="stylesheet" href="/assets/css/vendor/hljs-github-dark.min.css?v=20260516i"/>
 <link rel="stylesheet" href="/assets/css/vendor/hljs-github-scoped-light.min.css?v=20260516i"/>
@@ -42,9 +42,12 @@
   <div class="imm-composer-inner">
     <div class="imm-row">
       <div class="imm-composer">
-        <textarea id="immT" placeholder="请输入你的任务，&#10;/ 输入命令　·　@ 关联文件"></textarea>
+        <div id="immAttachStrip" class="attach-strip hidden"></div>
+        <textarea id="immT" placeholder="请输入你的任务，&#10;/ 输入命令　·　@ 关联文件　·　Ctrl+V 贴图"></textarea>
+        <input type="file" id="immAttachFile" accept="image/*" multiple hidden/>
         <div class="imm-composer-foot">
           <div class="imm-left-tools">
+            <button type="button" id="immAttachBtn" class="imm-mode-plus" title="添加截图">🖼</button>
             <button type="button" id="immNwCol" class="imm-mode-plus" title="新会话栏">新栏 +</button>
             <button type="button" id="immSessBtn" class="imm-mode-plus" title="会话列表">⋮</button>
             <div id="immSessMenu" class="imm-session-menu hidden"></div>
@@ -113,13 +116,14 @@
 <script defer src="/assets/js/theme-ui.js?v=20260520copy"></script>
 <script defer src="/assets/js/vendor/highlight.min.js?v=20260516i"></script>
 <script defer src="/assets/js/code-highlight.js?v=20260516i"></script>
+<script defer src="/assets/js/image-lightbox.js?v=20260711b"></script>
 <script defer src="/assets/js/sider/normalize.js"></script>
 <script defer src="/assets/js/sider/markdown.js?v=20260516i"></script>
 <script defer src="/assets/js/sider/context-bar.js"></script>
 <script defer src="/assets/js/sider/columns.js"></script>
-<script defer src="/assets/js/sider/sse.js?v=20260521peer9"></script>
+<script defer src="/assets/js/sider/sse.js?v=20260711b"></script>
 <script defer src="/assets/js/sider/tts.js"></script>
-<script defer src="/assets/js/sider/composer.js?v=20260521globalsse"></script>
+<script defer src="/assets/js/sider/composer.js?v=20260711b"></script>
 <script defer src="/assets/js/sider/kb.js"></script>
 <script defer src="/assets/js/sider/fullscreen.js"></script>
 <script defer src="/assets/js/sider/bootstrap.js?v=20260521globalsse"></script>

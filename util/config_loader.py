@@ -70,6 +70,8 @@ INI_TO_AGENT_MAP: Dict[str, str] = {
     "model.allowed_models": "AGENT_ALLOWED_MODELS",
     "model.default_model": "AGENT_DEFAULT_MODEL",
     "model.model_context_tokens_json": "AGENT_MODEL_CONTEXT_TOKENS_JSON",
+    "model.vision_model": "AGENT_VISION_MODEL",
+    "model.attachment_public_base_url": "AGENT_ATTACHMENT_PUBLIC_BASE_URL",
     "model_glm.api_base_url": "AGENT_MODEL_GLM_API_BASE_URL",
     "model_glm.api_key": "AGENT_MODEL_GLM_API_KEY",
     "model_local.base_url": "AGENT_LOCAL_MODEL_BASE_URL",

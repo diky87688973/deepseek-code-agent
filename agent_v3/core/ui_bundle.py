@@ -46,6 +46,8 @@ _INLINE_JS = (
     + "\n;"
     + CODE_HIGHLIGHT_JS_FILE.read_text(encoding="utf-8")
     + "\n;"
+    + (AGENT_ROOT / "res" / "js" / "image-lightbox.js").read_text(encoding="utf-8")
+    + "\n;"
     + UI_JS_FILE.read_text(encoding="utf-8")
 )
 

@@ -82,6 +82,10 @@
   background: var(--imm-msg-user-bg);
   border: 1px solid var(--imm-msg-user-border);
   color: var(--imm-msg-user-text);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }
 .imm-msgs .b.a {
   align-self: stretch;

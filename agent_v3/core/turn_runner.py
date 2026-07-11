@@ -141,6 +141,7 @@ def start_background_agent_turn(
     mode_hint: str = "",
     resume_after_user_confirm: bool = False,
     peer_triggered: bool = False,
+    attachments: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
     """后台运行一个会话 turn，所有事件发布到页面级全局 SSE。"""
     cid = str(conversation_id or "").strip()
@@ -176,6 +177,7 @@ def start_background_agent_turn(
         )
         return ""
     publish_conversation_event(cid, {"type": "run_started", "run_id": run_id})
+    _att_payload = list(attachments or [])
 
     def _run() -> None:
         try:
@@ -207,6 +209,7 @@ def start_background_agent_turn(
                 mode_hint=mode_hint,
                 resume_after_user_confirm=resume_after_user_confirm,
                 run_id=run_id,
+                attachments=_att_payload or None,
             ):
                 publish_conversation_event(cid, ev)
         except Exception as exc:
@@ -219,6 +222,12 @@ def start_background_agent_turn(
             )
             publish_conversation_event(cid, {"type": "error", "where": "server", "detail": str(exc)})
         finally:
+            try:
+                from agent_v3.core.attachments import clear_turn_attachments
+
+                clear_turn_attachments(cid)
+            except Exception:
+                pass
             _end_conversation_run(cid, run_id)
             try:
                 _drain_session_inbox_after_run(cid)

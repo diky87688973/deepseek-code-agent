@@ -924,6 +924,7 @@ _READONLY_NO_RUN_TYPE_SCRIPTS: frozenset = frozenset(
         "data_table.py",
         "text_diff.py",
         "image_ocr.py",
+        "look_screenshot.py",
         "session_send.py",
         "session_multisend.py",
         "session_broadcast.py",

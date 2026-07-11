@@ -87,6 +87,7 @@ def run_agent_turn(
     *,
     resume_after_user_confirm: bool = False,
     run_id: str = "",
+    attachments: Optional[List[Dict[str, Any]]] = None,
 ):
     """Yields SSE lines (without prefix) as dicts (caller wraps data:)."""
     catalog = load_catalog()
@@ -106,15 +107,51 @@ def run_agent_turn(
         if _m.get("role") == "user":
             active_round_id = str(_m.get("_agent_round_id") or "").strip() or None
             break
+    from agent_v3.core.attachments import (
+        ephemeral_attachment_tail,
+        format_user_attachment_footer,
+        get_turn_attachments,
+        set_turn_attachments,
+        should_force_look_screenshot,
+    )
+
+    _atts = list(attachments or [])
+    _looked_screenshot = False
+    _vision_nudge_used = False
     if not resume_after_user_confirm:
         clear_agent_wait(conversation_id)
+        set_turn_attachments(conversation_id, _atts)
+        _user_content = str(user_text or "")
+        if _atts:
+            _user_content = _user_content + format_user_attachment_footer(_atts)
+        _user_msg: Dict[str, Any] = {
+            "role": "user",
+            "content": _user_content,
+            "_sender": "boss",
+            "_sender_role": "boss",
+        }
+        if _atts:
+            _user_msg["_attachments"] = [
+                {"id": a.get("id"), "path": a.get("path"), "mime": a.get("mime"), "name": a.get("name")}
+                for a in _atts
+            ]
         active_round_id = _append_session_message_v2(
             conversation_id,
             messages,
-            {"role": "user", "content": user_text, "_sender": "boss", "_sender_role": "boss"},
+            _user_msg,
             new_round=True,
         )
         _host_quality.detect_and_update_intent(conversation_id, user_text)
+    else:
+        # resume：尽量从最近 user 消息恢复附件索引
+        for _m in reversed(messages):
+            if _m.get("role") != "user":
+                continue
+            _prev = _m.get("_attachments")
+            if isinstance(_prev, list) and _prev:
+                _atts = [dict(x) for x in _prev if isinstance(x, dict)]
+                set_turn_attachments(conversation_id, _atts)
+            break
     user_text_for_preview = user_text
     if resume_after_user_confirm:
         user_text_for_preview = ""
@@ -145,15 +182,44 @@ def run_agent_turn(
         "model": em,
         "reasoning_effort": _get_reasoning_effort(conversation_id),
     }
+    if _atts:
+        yield {
+            "type": "attachments",
+            "conversation_id": conversation_id,
+            "items": [{"id": a.get("id"), "name": a.get("name")} for a in _atts],
+        }
     turn_tool_records: List[Dict[str, Any]] = []
     turn_tool_invocations_used = 0
     _turn_rr_state: Dict[str, Optional[Dict[str, Any]]] = {"tail": None}
-    _pending_turn_rr = _find_pending_requires_reply_peer_message(messages)
-    if _pending_turn_rr is not None:
-        _turn_rr_state["tail"] = _ephemeral_requires_reply_priority(
-            str(_pending_turn_rr.get("_sender") or ""),
-            str(_pending_turn_rr.get("_thread_id") or ""),
-        )
+    _vision_nudge_text = ""
+
+    def _sync_ephemeral_tail() -> None:
+        """requires_reply 与截图提示可并存；应答 RR / 看图后按状态重建，避免互相覆盖清空。"""
+        parts: List[str] = []
+        _pending = _find_pending_requires_reply_peer_message(messages)
+        if _pending is not None:
+            _rr = _ephemeral_requires_reply_priority(
+                str(_pending.get("_sender") or ""),
+                str(_pending.get("_thread_id") or ""),
+            )
+            _c = str((_rr or {}).get("content") or "").strip()
+            if _c:
+                parts.append(_c)
+        _cur_atts = get_turn_attachments(conversation_id) or _atts
+        if _cur_atts and not _looked_screenshot:
+            if _vision_nudge_text:
+                parts.append(_vision_nudge_text)
+            else:
+                _att_tail = ephemeral_attachment_tail(_cur_atts)
+                _c2 = str((_att_tail or {}).get("content") or "").strip()
+                if _c2:
+                    parts.append(_c2)
+        if parts:
+            _turn_rr_state["tail"] = {"role": "system", "content": "\n\n".join(parts)}
+        else:
+            _turn_rr_state["tail"] = None
+
+    _sync_ephemeral_tail()
 
     api_messages = _build_api_messages_for_model(messages, conversation_id)
     for _round in range(MAX_TOOL_ROUNDS):
@@ -745,7 +811,11 @@ def run_agent_turn(
                                 _reply_tids,
                                 thread_id=str(exec_args.get("thread_id") or ""),
                             )
+                            _sync_ephemeral_tail()
                 turn_tool_records.append(_tool_rec)
+                if script == "look_screenshot.py" and isinstance(result, dict) and result.get("ok"):
+                    _looked_screenshot = True
+                    _sync_ephemeral_tail()
                 _append_session_message_v2(
                     conversation_id,
                     messages,
@@ -823,6 +893,20 @@ def run_agent_turn(
                     [_peer_cid],
                     thread_id=str(_pending_rr.get("_thread_id") or ""),
                 )
+                _sync_ephemeral_tail()
+        # 有截图却未 look_screenshot：轻量打回一轮（与 RR 提示合并，不互相覆盖）
+        if (
+            not _vision_nudge_used
+            and should_force_look_screenshot(user_text, get_turn_attachments(conversation_id) or _atts, _looked_screenshot)
+        ):
+            _vision_nudge_used = True
+            _vision_nudge_text = (
+                "【宿主提醒】本轮有截图但尚未成功调用 look_screenshot。"
+                "请先调用；prompt 表达用户意图并导向用户需要的答案，不要臆测画面。"
+            )
+            _sync_ephemeral_tail()
+            api_messages = _build_api_messages_for_model(messages, conversation_id)
+            continue
         break
     else:
         # LLM 轮次用尽：无 tools 收尾一轮；ephemeral user 提示拟人收尾（不落盘）；次数见各 tool 返回 budget

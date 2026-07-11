@@ -2,7 +2,7 @@
 """单轮用户消息内的工具调用预算（通过 tool 消息信封告知模型）。"""
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 
 def tool_call_budget_fields(*, used: int, limit: int) -> Dict[str, int]:
@@ -63,7 +63,7 @@ def apply_turn_tool_budget_to_result(
     turn_tool_invocations_used: int,
     limit: int,
     limit_blocked: bool,
-) -> tuple[Any, int]:
+) -> Tuple[Any, int]:
     if limit_blocked:
         used = max(0, min(int(turn_tool_invocations_used), int(limit)))
         return attach_tool_call_budget(result, used=used, limit=limit), turn_tool_invocations_used

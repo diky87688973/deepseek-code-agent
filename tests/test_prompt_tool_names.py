@@ -6,7 +6,7 @@ import json
 import re
 import unittest
 from pathlib import Path
-from typing import Any, Iterable, List
+from typing import Any, Dict, Iterable, List, Set, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -86,9 +86,9 @@ def _load_catalog() -> dict:
     return json.loads((ROOT / "tools" / "tool_list_agent.json").read_text(encoding="utf-8"))
 
 
-def _load_catalog_api_names() -> set[str]:
+def _load_catalog_api_names() -> Set[str]:
     data = _load_catalog()
-    out: set[str] = set()
+    out: Set[str] = set()
     for t in data.get("tools") or []:
         name = str(t.get("name") or "")
         if name.endswith(".py"):
@@ -158,7 +158,7 @@ def _shorthand_allowed_in_context(token: str, ctx: str) -> bool:
     return False
 
 
-def _iter_catalog_tool_text_fields(data: dict) -> Iterable[tuple[str, str, str]]:
+def _iter_catalog_tool_text_fields(data: dict) -> Iterable[Tuple[str, str, str]]:
     """(api_name, field_id, text) — 会进入 function schema 的文本。"""
     for t in data.get("tools") or []:
         fn = str(t.get("name") or "")
@@ -263,7 +263,7 @@ class TestPromptToolNames(unittest.TestCase):
         """tools 数组只能包含具名 Python 工具，且 function 名不能重复。"""
         data = _load_catalog()
         issues: List[str] = []
-        seen: set[str] = set()
+        seen: Set[str] = set()
         for idx, t in enumerate(data.get("tools") or []):
             if not isinstance(t, dict):
                 issues.append(f"tools[{idx}] 不是对象")

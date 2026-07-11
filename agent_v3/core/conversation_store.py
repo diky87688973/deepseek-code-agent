@@ -59,7 +59,34 @@ def _chat_history_from_messages(messages: List[Dict[str, Any]]) -> List[Dict[str
             continue
         content = m.get("content")
         if isinstance(content, str) and content.strip():
-            item: Dict[str, Any] = {"role": role, "content": content}
+            text = content
+            had_images = False
+            if role == "user":
+                try:
+                    from agent_v3.core.attachments import strip_attachment_footer_for_ui
+
+                    text, had_footer = strip_attachment_footer_for_ui(content)
+                    had_images = bool(had_footer) or bool(m.get("_attachments"))
+                except Exception:
+                    text = content
+                    had_images = bool(m.get("_attachments"))
+                if not had_images and ("[图片 ×" in text or "[图片 x" in text):
+                    had_images = True
+            item: Dict[str, Any] = {"role": role, "content": text}
+            if had_images:
+                item["had_images"] = True
+                raw_atts = m.get("_attachments")
+                if isinstance(raw_atts, list):
+                    pub: List[Dict[str, Any]] = []
+                    for a in raw_atts:
+                        if not isinstance(a, dict):
+                            continue
+                        aid = str(a.get("id") or "").strip()
+                        if not aid:
+                            continue
+                        pub.append({"id": aid, "name": str(a.get("name") or aid)})
+                    if pub:
+                        item["attachments"] = pub
             for k in ("_sender", "_sender_name", "_sender_role", "_priority", "_agent_peer_message"):
                 if k in m:
                     item[k] = m.get(k)

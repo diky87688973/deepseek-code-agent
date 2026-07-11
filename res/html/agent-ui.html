@@ -16,9 +16,12 @@
 <div id="chatConversationMount" class="chat-conversation-mount"></div>
 <div class="row">
 <div class="composer">
-<textarea id="t" placeholder="请输入你的任务，&#10;/ 输入命令　·　@ 关联文件"></textarea>
+<div id="attachStrip" class="attach-strip hidden"></div>
+<textarea id="t" placeholder="请输入你的任务，&#10;/ 输入命令　·　@ 关联文件　·　Ctrl+V 贴图"></textarea>
+<input type="file" id="attachFile" accept="image/*" multiple hidden/>
 <div class="composer-foot">
 <div class="left-tools">
+<button type="button" id="attachBtn" class="mode-plus" title="添加截图">🖼</button>
 <button id="modePlus" class="mode-plus" title="选择模式">Auto +</button>
 <button id="reasoningBtn" class="mode-plus reasoning-btn" title="推理强度">思考 · <span id="reasoningLabel">High</span></button>
 <button id="kbBtn" class="mode-plus" title="知识库">📚 知识库</button>

@@ -193,9 +193,22 @@
       for (var i = 0; i < items.length; i++) {
         var it = items[i] || {};
         if (it.role === "user") {
+          var bubble = null;
           if (it._sender && it._sender !== "boss" && typeof IMM.immAddPeerUser === "function")
             IMM.immAddPeerUser(msgsEl, String(it.content || ""), String(it._sender_name || ""), String(it._sender || ""));
-          else IMM.immAddUser(msgsEl, String(it.content || ""));
+          else bubble = IMM.immAddUser(msgsEl, String(it.content || ""));
+          var atts = Array.isArray(it.attachments) ? it.attachments : [];
+          if (atts.length && window.CWA && CWA.buildMsgAttachStrip && bubble) {
+            bubble.appendChild(CWA.buildMsgAttachStrip(col.id, atts, null));
+          } else if (it.had_images && bubble) {
+            if (window.CWA && CWA.appendHadImagesLostTip) CWA.appendHadImagesLostTip(bubble);
+            else {
+              var tip = document.createElement("div");
+              tip.className = "attach-lost-tip";
+              tip.textContent = "图片预览已失效；若需再看请重新粘贴后发送。";
+              bubble.appendChild(tip);
+            }
+          }
         }
         else if (it.role === "assistant") {
           var ac = String(it.content || "").trim();
@@ -234,7 +247,8 @@
   async function sendChatMessage() {
     if (!ta || !CM) return;
     var text = String(ta.value || "").trim();
-    if (!text) return;
+    var imgs = pendingImmImages.slice();
+    if (!text && !imgs.length) return;
     if (isConversationBusy()) {
       alert("当前栏仍在执行中，请等待完成后再发送。");
       return;
@@ -242,23 +256,37 @@
     var col = getActiveCol();
     if (!col) return;
     var sendCid = col.id;
-    IMM.immAddUser(col.msgsEl, text);
+    var display = text || "（截图）";
+    if (imgs.length) display += (text ? "\n" : "") + "[图片 ×" + imgs.length + "]";
+    var bubble = IMM.immAddUser(col.msgsEl, display);
+    var stripEl = null;
+    if (imgs.length && window.CWA && CWA.buildMsgAttachStrip && bubble) {
+      stripEl = CWA.buildMsgAttachStrip(sendCid, null, imgs);
+      bubble.appendChild(stripEl);
+    }
     ta.value = "";
+    clearPendingImmImages();
     autoResize();
     IMM.immShowChatLoading(col.msgsEl, col.s);
     col.s.abortController = { global: true };
     col.s.activeRunId = "";
     IMM.updateComposerBusy();
     try {
+      var body = {
+        message: text,
+        conversation_id: sendCid,
+        mode: col.s.selectedMode || IMM.selectedMode,
+        model: col.s.selectedModel || IMM.selectedModel,
+      };
+      if (imgs.length) {
+        body.images = imgs.map(function (it) {
+          return { mime: it.mime, data_base64: it.data_base64 };
+        });
+      }
       var r = await fetch("/api/chat/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          conversation_id: sendCid,
-          mode: col.s.selectedMode || IMM.selectedMode,
-          model: col.s.selectedModel || IMM.selectedModel,
-        }),
+        body: JSON.stringify(body),
       });
       if (!r.ok) {
         var bt = "";
@@ -273,6 +301,17 @@
       }
       var j = await r.json();
       if (j && j.run_id) col.s.activeRunId = String(j.run_id || "");
+      if (
+        stripEl &&
+        j &&
+        Array.isArray(j.attachments) &&
+        j.attachments.length &&
+        window.CWA &&
+        CWA.buildMsgAttachStrip
+      ) {
+        var neu = CWA.buildMsgAttachStrip(sendCid, j.attachments, null);
+        if (neu && stripEl.parentNode) stripEl.parentNode.replaceChild(neu, stripEl);
+      }
     } catch (err) {
       if (!(err && err.name === "AbortError")) {
         IMM.immHideChatLoading(col.s);
@@ -287,6 +326,80 @@
       IMM.updateComposerBusy();
       persistUiState();
     }
+  }
+
+  var pendingImmImages = [];
+  function renderImmAttachStrip() {
+    var strip = document.getElementById("immAttachStrip");
+    if (!strip) return;
+    strip.innerHTML = "";
+    if (!pendingImmImages.length) {
+      strip.classList.add("hidden");
+      return;
+    }
+    strip.classList.remove("hidden");
+    pendingImmImages.forEach(function (it, idx) {
+      var d = document.createElement("div");
+      d.className = "attach-thumb";
+      var img = document.createElement("img");
+      img.src = it.previewUrl;
+      if (window.CWA && CWA.bindThumbClick) CWA.bindThumbClick(img);
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "×";
+      btn.onclick = function (ev) {
+        if (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+        }
+        pendingImmImages.splice(idx, 1);
+        renderImmAttachStrip();
+      };
+      d.appendChild(img);
+      d.appendChild(btn);
+      strip.appendChild(d);
+    });
+  }
+  function clearPendingImmImages() {
+    pendingImmImages.forEach(function (it) {
+      try {
+        URL.revokeObjectURL(it.previewUrl);
+      } catch (e) {}
+    });
+    pendingImmImages = [];
+    renderImmAttachStrip();
+  }
+  function immFileToPending(file) {
+    return new Promise(function (resolve, reject) {
+      if (!file || !String(file.type || "").startsWith("image/")) {
+        reject(new Error("not image"));
+        return;
+      }
+      var reader = new FileReader();
+      reader.onload = function () {
+        var dataUrl = String(reader.result || "");
+        var b64 = dataUrl.indexOf(",") >= 0 ? dataUrl.split(",")[1] : dataUrl;
+        resolve({
+          mime: file.type || "image/png",
+          data_base64: b64,
+          previewUrl: URL.createObjectURL(file),
+        });
+      };
+      reader.onerror = function () {
+        reject(reader.error || new Error("read fail"));
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  async function addPendingImmFiles(fileList) {
+    var files = Array.prototype.slice.call(fileList || []);
+    for (var i = 0; i < files.length; i++) {
+      if (pendingImmImages.length >= 4) break;
+      try {
+        pendingImmImages.push(await immFileToPending(files[i]));
+      } catch (e) {}
+    }
+    renderImmAttachStrip();
   }
 
   function stopCurrent() {
@@ -783,6 +896,35 @@
       void sendChatMessage();
     });
     stopBtn.addEventListener("click", stopCurrent);
+    (function initImmAttach() {
+      var attachBtn = document.getElementById("immAttachBtn");
+      var attachFile = document.getElementById("immAttachFile");
+      if (attachBtn && attachFile) {
+        attachBtn.addEventListener("click", function () {
+          attachFile.click();
+        });
+        attachFile.addEventListener("change", function () {
+          void addPendingImmFiles(attachFile.files);
+          attachFile.value = "";
+        });
+      }
+      if (ta) {
+        ta.addEventListener("paste", function (ev) {
+          var items = ev.clipboardData && ev.clipboardData.items;
+          if (!items) return;
+          var files = [];
+          for (var i = 0; i < items.length; i++) {
+            if (items[i].type && items[i].type.indexOf("image/") === 0) {
+              var f = items[i].getAsFile();
+              if (f) files.push(f);
+            }
+          }
+          if (!files.length) return;
+          ev.preventDefault();
+          void addPendingImmFiles(files);
+        });
+      }
+    })();
     ta.addEventListener("keydown", function (e) {
       if (e.isComposing) return;
       var sh = slashPop && !slashPop.classList.contains("hidden");

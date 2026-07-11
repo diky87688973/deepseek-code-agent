@@ -6,6 +6,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from typing import Any, Dict, List
+
 ROOT = Path(__file__).resolve().parent
 MONO = ROOT / "agent_core_monolith.py.bak"
 CORE = ROOT / "core"
@@ -31,7 +33,7 @@ def main() -> None:
     tree = ast.parse(source)
 
     # deps: from __future__ through sse_events import block
-    deps_lines: list[str] = []
+    deps_lines: List[str] = []
     for i, line in enumerate(lines):
         if line.startswith("def ") or line.strip().startswith("USER_STOPPED_TOOL_MESSAGE"):
             break
@@ -42,18 +44,18 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    func_src: dict[str, str] = {}
+    func_src: Dict[str, str] = {}
     for node in tree.body:
         if isinstance(node, ast.FunctionDef):
             seg = ast.get_source_segment(source, node) or ""
             func_src[node.name] = seg
 
-    mod_funcs: dict[str, list[str]] = {}
+    mod_funcs: Dict[str, List[str]] = {}
     for name in func_src:
         mod = FN_MODULE.get(name, "misc")
         mod_funcs.setdefault(mod, []).append(name)
 
-    assigns_mod: dict[str, list[str]] = {"shared_state": [], "ui_bundle": []}
+    assigns_mod: Dict[str, List[str]] = {"shared_state": [], "ui_bundle": []}
     ui_keys = {
         "UI_HTML_FILE", "RESET_CSS_FILE", "UI_CSS_FILE", "UI_JS_FILE", "THEME_UI_JS_FILE",
         "HLJS_JS_FILE", "CODE_HIGHLIGHT_JS_FILE", "HLJS_CSS_DARK_FILE", "HLJS_CSS_LIGHT_FILE",

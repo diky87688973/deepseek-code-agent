@@ -322,9 +322,14 @@ def global_events_stream() -> StreamingResponse:
 
 @router.post("/api/chat/send")
 def chat_send(inp: ChatIn, request: Request) -> Dict[str, Any]:
-    text = inp.message.strip()
-    if not text:
+    text = str(inp.message or "").strip()
+    raw_images = list(inp.images or [])
+    if not text and not raw_images:
         raise HTTPException(400, "empty message")
+    if not text and raw_images:
+        text = "请查看图片"
+    if len(raw_images) > 4:
+        raise HTTPException(400, "images 最多 4 张")
     if core.AT_MESSAGE_FILE_PREFETCH:
         import re as _re
 
@@ -365,16 +370,56 @@ def chat_send(inp: ChatIn, request: Request) -> Dict[str, Any]:
         if not okm:
             raise HTTPException(400, "invalid model")
     rh.apply_conversation_request_options(cid, mode, mod)
+    attachments: list = []
+    if raw_images:
+        try:
+            from agent_v3.core.attachments import save_chat_images
+
+            attachments = save_chat_images(
+                cid,
+                [im.model_dump() if hasattr(im, "model_dump") else dict(im) for im in raw_images],
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(400, f"图片处理失败: {exc}") from exc
+        if not attachments:
+            raise HTTPException(400, "images 无法解码或为空")
     with get_conversation_run_lock(cid):
         if cid not in core.CONVERSATIONS or not core.CONVERSATIONS.get(cid):
             loaded = core._load_conversation(cid)
             if loaded:
                 core.CONVERSATIONS[cid] = loaded
     client_ip = resolve_client_ip_from_request(request, core._normalize_client_ip_for_tools)
-    run_id = core.start_background_agent_turn(cid, text, client_ip=client_ip, mode_hint=mode)
+    run_id = core.start_background_agent_turn(
+        cid, text, client_ip=client_ip, mode_hint=mode, attachments=attachments or None
+    )
     if not run_id:
         raise HTTPException(409, "当前会话仍在执行中，请等待完成或先停止。")
-    return {"ok": True, "conversation_id": cid, "run_id": run_id, "queued": False}
+    return {
+        "ok": True,
+        "conversation_id": cid,
+        "run_id": run_id,
+        "queued": False,
+        "attachments": [{"id": a.get("id"), "name": a.get("name")} for a in attachments],
+    }
+
+
+@router.get("/api/chat/attachment")
+def chat_attachment_get(conversation_id: str = "", id: str = ""):
+    """本机会话截图缩略图（非公网）。"""
+    from agent_v3.core.attachments import read_attachment_file
+
+    path, err = read_attachment_file(conversation_id, id)
+    if err or path is None:
+        raise HTTPException(404, err or "not found")
+    media = "image/jpeg"
+    suf = path.suffix.lower()
+    if suf == ".png":
+        media = "image/png"
+    elif suf == ".webp":
+        media = "image/webp"
+    return FileResponse(path, media_type=media)
 
 
 @router.post("/api/chat/command-input")

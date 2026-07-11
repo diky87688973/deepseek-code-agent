@@ -15,13 +15,22 @@ class UsageAccumIn(BaseModel):
     total_cache_miss_tokens: int = Field(default=0, ge=0)
 
 
+class ChatImageIn(BaseModel):
+    mime: Optional[str] = Field(default="image/png", description="image/png|image/jpeg|...")
+    data_base64: str = Field(..., description="纯 base64，可无 data: 前缀")
+
+
 class ChatIn(BaseModel):
-    message: str = Field(..., description="User message")
+    message: str = Field(default="", description="User message；可与 images 同时为空以外至少一项")
     conversation_id: Optional[str] = Field(default=None, description="Thread id; omit to start new")
     mode: Optional[str] = Field(default=None, description="Mode override: auto/plan/execute")
     model: Optional[str] = Field(
         default=None,
         description="Session model id (must match ALLOWED_MODELS / CHAT_API_MODELS)",
+    )
+    images: Optional[List[ChatImageIn]] = Field(
+        default=None,
+        description="可选截图附件（运输用 base64）；落盘后主模型经 look_screenshot 查看",
     )
 
 

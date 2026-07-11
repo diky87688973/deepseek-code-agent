@@ -27,6 +27,7 @@ def _apply_inbound_requires_reply_answered(
         return False
     CONVERSATIONS[conversation_id] = messages
     _save_conversation(conversation_id, messages)
+    # 仅清除 requires_reply 优先级；截图等其它 ephemeral 由调用方 _sync_ephemeral_tail 重建
     turn_rr_state["tail"] = None
     return True
 

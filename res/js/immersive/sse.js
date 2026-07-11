@@ -29,12 +29,13 @@
   }
 
   function addUser(msgsEl, text) {
-    if (!msgsEl) return;
+    if (!msgsEl) return null;
     var e = document.createElement("div");
     e.className = "b u";
     e.textContent = text;
     msgsEl.appendChild(e);
     scrollMsgs(msgsEl);
+    return e;
   }
 
   function isStreamOutputScript(script) {
