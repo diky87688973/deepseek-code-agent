@@ -637,10 +637,14 @@ def _truncate_large_values(d: dict, budget: int, level: int = 0) -> None:
 
     level=0 时单段 extract.text 优先占满 budget（预留 JSON 开销），避免数千字全文被误标「截断」；
     level>=1 强截断（200 字封顶）。
+    host_quality 为宿主回灌关键字段：保留结构，仅压缩 detail/results 长文本。
     """
     limit = 200 if level >= 1 else max(budget // 4, 200)
     extract_text = level == 0 and str(d.get("type")) == "extract"
     for k, v in list(d.items()):
+        if k == "host_quality" and isinstance(v, dict):
+            _slim_host_quality_inplace(v, budget)
+            continue
         if isinstance(v, str):
             eff = limit
             if level == 0 and k == "diff_markdown":
@@ -661,8 +665,66 @@ def _truncate_large_values(d: dict, budget: int, level: int = 0) -> None:
         elif isinstance(v, dict):
             _truncate_large_values(v, budget, level)
 
+
+def _slim_host_quality_inplace(hq: dict, budget: int) -> None:
+    """压缩 host_quality，但保留 overall/checks 摘要/actions，避免回灌被截没。"""
+    checks = hq.get("checks")
+    if isinstance(checks, list):
+        slim_checks = []
+        for c in checks[:12]:
+            if not isinstance(c, dict):
+                continue
+            item = {
+                "id": c.get("id"),
+                "status": c.get("status"),
+                "summary": str(c.get("summary") or "")[:400],
+            }
+            if c.get("host_instruction"):
+                item["host_instruction"] = str(c.get("host_instruction"))[:300]
+            # detail/results 可能很大，只留短错误
+            detail = c.get("detail")
+            if isinstance(detail, dict):
+                item["detail_summary"] = str((detail.get("data") or {}).get("summary") or detail.get("ok"))[:200]
+            results = c.get("results")
+            if isinstance(results, list):
+                item["results"] = [
+                    {
+                        "path": r.get("path"),
+                        "ok": r.get("ok"),
+                        "check": r.get("check"),
+                        "error": str(r.get("error") or "")[:300],
+                    }
+                    for r in results[:6]
+                    if isinstance(r, dict)
+                ]
+            slim_checks.append(item)
+        hq["checks"] = slim_checks
+    actions = hq.get("required_next_actions")
+    if isinstance(actions, list):
+        hq["required_next_actions"] = [str(a)[:200] for a in actions[:10]]
+    mi = hq.get("model_instruction")
+    if isinstance(mi, str) and len(mi) > 500:
+        hq["model_instruction"] = mi[:500] + "…"
+    # 控制整体体积
+    raw = json.dumps(hq, ensure_ascii=False)
+    if len(raw) > max(4000, budget // 3):
+        hq.pop("model_instruction", None)
+        for c in hq.get("checks") or []:
+            if isinstance(c, dict):
+                c.pop("detail_summary", None)
+                if isinstance(c.get("results"), list) and len(c["results"]) > 2:
+                    c["results"] = c["results"][:2]
+
+
 def _truncate_tool_result(result: dict, max_chars: int = MAX_TOOL_RESULT_CHARS) -> str:
-    """安全截断工具 result：在 dict 值级别截断大字符串/列表，始终输出合法 JSON。"""
+    """截断工具 result，最终以 JSON 字符串作为 tool message content（接口要求 string）。
+
+    流程：先在 dict 上完成 host_quality 等字段挂载与截断，再 dumps 一次。
+    禁止对已是字符串的 content 再拼接后再 dumps（双重转义）。
+    """
+    if not isinstance(result, dict):
+        result = {"ok": False, "data": None, "error": {"type": "InvalidResult", "message": repr(result)}}
+
     raw = json.dumps(result, ensure_ascii=False)
     if len(raw) <= max_chars:
         return raw
@@ -676,13 +738,31 @@ def _truncate_tool_result(result: dict, max_chars: int = MAX_TOOL_RESULT_CHARS) 
     if len(rebuilt) <= max_chars:
         return rebuilt
 
-    # 兜底：值级截断后仍超限 → 全量硬截断后以摘要 JSON 形式返回
+    # 兜底：仍超限时至少保留宿主质量短摘要，避免回灌完全丢失
+    hq = None
+    if isinstance(result.get("data"), dict):
+        hq = result["data"].get("host_quality")
+    hq_brief = None
+    if isinstance(hq, dict):
+        hq_brief = {
+            "overall": hq.get("overall"),
+            "required_next_actions": (hq.get("required_next_actions") or [])[:6],
+            "must_include_in_reply": hq.get("must_include_in_reply"),
+            "checks": [
+                {"id": c.get("id"), "status": c.get("status"), "summary": str(c.get("summary") or "")[:160]}
+                for c in (hq.get("checks") or [])[:8]
+                if isinstance(c, dict)
+            ],
+        }
     return json.dumps(
         {
             "ok": bool(result.get("ok")),
             "_truncated": True,
             "_notice": f"工具返回超出限额({max_chars}字符)，已截断。需完整内容请自行调用工具分批读取。",
             "result_len": len(raw),
+            "host_quality_overall": result.get("host_quality_overall")
+            or (hq.get("overall") if isinstance(hq, dict) else None),
+            "host_quality": hq_brief,
         },
         ensure_ascii=False,
     )

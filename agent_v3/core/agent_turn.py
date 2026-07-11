@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 
 from agent_v3.core import base as _core_base
+from agent_v3.core import host_quality as _host_quality
 
 for _k, _v in vars(_core_base).items():
     if not _k.startswith("__"):
@@ -29,19 +30,19 @@ def _check_write_preview(
 ):
     """强制 dry_run=true 预览后才允许 dry_run=false 写入。
     返回 None 表示通过检查；返回 dict 表示被拦截。
+    注意：不在此处写入 written_files（须等真写成功后再记）。
     """
     sn = str(script or "")
     if sn not in _PREVIEW_PATH_SCRIPTS:
         return None
-    path = str(exec_args.get("path") or "").strip()
+    path = _host_quality._resolve_write_path(exec_args, None)
     if not path:
         return None
     dr = exec_args.get("dry_run", True)
-    if dr is True or dr == 1 or str(dr).strip() in ("1", "true", "True"):
+    if dr is True or dr == 1 or str(dr).strip().lower() in ("1", "true"):
         previewed_files[path] = step_title or sn
         return None
     if path in previewed_files:
-        written_files[path] = step_title or sn
         return None
     return {
         "ok": False, "data": None,
@@ -53,52 +54,27 @@ def _build_post_write_diagnostic(
     written_files: dict,
     conversation_id: str,
 ):
-    """写盘后自动诊断 + 多文件自查提示。
-    返回要注入的 tool 消息列表（作为额外消息追加到对话）。
-    """
-    msgs = []
-    paths = [p for p in written_files if p.strip()]
+    """兼容旧名：质量报告已改挂写工具返回，不再生成独立 system 消息。"""
+    return []
 
-    # 自动触发 unified_diagnose
-    if paths:
-        try:
-            import unified_diagnose as _udiag
-            diag_path = os.path.dirname(paths[0]) if len(paths) == 1 else os.path.commonpath(paths)
-            diag_result = _udiag.agent_main(path=diag_path, no_ruff=False, limit=50)
-            diag_str = json.dumps(diag_result, ensure_ascii=False, indent=2)
-            if len(diag_str) > 4000:
-                diag_str = diag_str[:4000] + "\n...（截断）"
-            msgs.append({
-                "role": "tool",
-                "tool_call_id": f"_host_diag_{conversation_id[-8:]}",
-                "content": json.dumps({
-                    "host_check": "auto_diagnose",
-                    "files_checked": paths[:10],
-                    "diagnostic": diag_str,
-                }, ensure_ascii=False),
-            })
-        except Exception:
-            pass  # 诊断失败不阻断流程
 
-    # 多文件自查提示
-    if len(paths) > 1:
-        file_list = "\n".join(f"  - {p}" for p in paths[:10])
-        msgs.append({
-            "role": "tool",
-            "tool_call_id": f"_host_review_{conversation_id[-8:]}",
-            "content": json.dumps({
-                "host_check": "cross_file_review",
-                "modified_files": paths,
-                "message": (
-                    f"本轮修改了 {len(paths)} 个文件，请逐一自检：\n"
-                    f"{file_list}\n\n"
-                    "每项确认：① 是否遗漏了引用该文件的符号？② 风格与周围代码一致？\n"
-                    "③ 是否无意中引入了新依赖或调试代码？④ 变量/函数命名合理？"
-                ),
-            }, ensure_ascii=False),
-        })
-
-    return msgs
+def _apply_host_quality_write_gate(
+    conversation_id: str,
+    script: str,
+    exec_args: dict,
+    step_title: str,
+    previewed_files: dict,
+    written_files: dict,
+):
+    """预览门 + 宿主质量门；返回 None 表示通过，否则返回拒绝 result。"""
+    block = _check_write_preview(
+        script, exec_args, step_title or "", previewed_files, written_files
+    )
+    if block:
+        return block
+    return _host_quality.check_pre_write_quality(
+        conversation_id, script, exec_args, step_title=step_title or ""
+    )
 
 # ── 会话级预览追踪（跨回合持久化）──
 _CONVERSATION_PREVIEWED: Dict[str, Dict[str, str]] = {}
@@ -138,6 +114,7 @@ def run_agent_turn(
             {"role": "user", "content": user_text, "_sender": "boss", "_sender_role": "boss"},
             new_round=True,
         )
+        _host_quality.detect_and_update_intent(conversation_id, user_text)
     user_text_for_preview = user_text
     if resume_after_user_confirm:
         user_text_for_preview = ""
@@ -145,6 +122,9 @@ def run_agent_turn(
             if _m.get("role") == "user":
                 user_text_for_preview = str(_m.get("content") or "")
                 break
+        if user_text_for_preview:
+            _host_quality.detect_and_update_intent(conversation_id, user_text_for_preview)
+    _host_quality.reset_quality_turn_flags(conversation_id)
     active_sender = ""
     active_sender_is_peer = False
     for _m in reversed(messages):
@@ -185,6 +165,8 @@ def run_agent_turn(
         yield {"type": "llm_round", "round": _round + 1}
         reff = _get_reasoning_effort(conversation_id)
         messages_for_llm = _api_messages_with_ephemeral_tail(api_messages, _turn_rr_state.get("tail"))
+        # 宿主质量禁止以独立消息灌入上下文（会干扰摘要连续性）；
+        # 质量信息只挂在写工具返回 data.host_quality，硬约束靠写前门控。
         body: Dict[str, Any] = {
             "model": em,
             "messages": messages_for_llm,
@@ -431,9 +413,15 @@ def run_agent_turn(
                                     result = {"ok": False, "data": None, "error": {"type": "ModeConflict", "message": "当前为 Execute 模式，但未找到执行清单(Todo-List)。请先用 todo_list（action=create）创建执行清单后再执行写操作。"}}
                                     result = attach_tool_help_on_failure(script, None, result)
                                 else:
-                                    # 执行前强制预览检查
-                                    _block = _check_write_preview(
-                                        script, exec_args, step_title or "", _previewed_files, _written_files)
+                                    # 执行前强制预览 + 宿主质量门控
+                                    _block = _apply_host_quality_write_gate(
+                                        conversation_id,
+                                        script,
+                                        exec_args,
+                                        step_title or "",
+                                        _previewed_files,
+                                        _written_files,
+                                    )
                                     if _block:
                                         result = _block
                                         result = attach_tool_help_on_failure(script, None, result)
@@ -442,9 +430,15 @@ def run_agent_turn(
                                             conversation_id, run_id, script, exec_args
                                         )
                             else:
-                                # Auto 模式：不拦截，但强制预览检查
-                                _block = _check_write_preview(
-                                    script, exec_args, step_title or "", _previewed_files, _written_files)
+                                # Auto 模式：不拦截模式，但强制预览 + 宿主质量门控
+                                _block = _apply_host_quality_write_gate(
+                                    conversation_id,
+                                    script,
+                                    exec_args,
+                                    step_title or "",
+                                    _previewed_files,
+                                    _written_files,
+                                )
                                 if _block:
                                     result = _block
                                     result = attach_tool_help_on_failure(script, None, result)
@@ -564,6 +558,46 @@ def run_agent_turn(
                         result,
                         CONVERSATION_MODES.get(conversation_id, ""),
                     )
+                    if isinstance(result, dict) and script:
+                        _host_quality.note_evidence_tool(
+                            conversation_id, script, exec_args, result
+                        )
+                        _host_quality.note_write_tool_result(
+                            conversation_id, script, exec_args, result
+                        )
+                        # Plan 模式 dry_run 不走预览门：成功预览也要记入会话级 previewed，
+                        # 否则切 Execute 真写会被 PreviewRequired 误拦。
+                        if (
+                            result.get("ok")
+                            and script in _PREVIEW_PATH_SCRIPTS
+                            and (
+                                exec_args.get("dry_run", True) is True
+                                or exec_args.get("dry_run") == 1
+                                or str(exec_args.get("dry_run", True)).strip().lower()
+                                in ("1", "true")
+                            )
+                        ):
+                            _pp = _host_quality._resolve_write_path(exec_args, result)
+                            if _pp:
+                                _previewed_files[_pp] = step_title or script
+                        # 真写成功后再记入本轮 _written_files，并把质量报告挂到工具返回
+                        if (
+                            result.get("ok")
+                            and script in _PREVIEW_PATH_SCRIPTS
+                            and not (
+                                exec_args.get("dry_run", True) is True
+                                or exec_args.get("dry_run") == 1
+                                or str(exec_args.get("dry_run", True)).strip().lower()
+                                in ("1", "true")
+                            )
+                        ):
+                            _wp = _host_quality._resolve_write_path(exec_args, result)
+                            _data = result.get("data") if isinstance(result.get("data"), dict) else {}
+                            if _wp and _data.get("written") is not False:
+                                _written_files[_wp] = step_title or script
+                                result = _host_quality.attach_host_quality_to_write_result(
+                                    conversation_id, _wp, result
+                                )
                     # 预览记录持久到会话结束，允许同文件多次写入无需反复预览
                     if not (isinstance(result, dict) and result.get("ok") is True):
                         _record_tool_debug_failure(
@@ -751,11 +785,13 @@ def run_agent_turn(
                     conversation_id, messages, round_id=active_round_id, run_id=run_id
                 )
                 return
-            # ── 写盘后自动诊断 + 多文件自查 ──
+            # ── 写盘后质量：已挂在各写工具返回的 data.host_quality，不再独占 system 消息 ──
             if _written_files:
-                _post_msgs = _build_post_write_diagnostic(_written_files, conversation_id)
-                for _pm in _post_msgs:
-                    messages.append(_pm)
+                yield {
+                    "type": "host_quality",
+                    "mode": "attached_to_tool_result",
+                    "files": list(_written_files.keys())[:12],
+                }
             api_messages = _build_api_messages_for_model(messages, conversation_id)
             continue
 
@@ -763,9 +799,16 @@ def run_agent_turn(
         _append_session_message_v2(
             conversation_id, messages, assistant_msg, round_id=active_round_id
         )
+        display_content = str(assistant_msg.get("content") or "").strip()
+        if display_content:
+            _host_quality.note_assistant_may_complete_review(
+                conversation_id, display_content
+            )
+            _host_quality.note_assistant_claim_fixed(
+                conversation_id, display_content
+            )
         CONVERSATIONS[conversation_id] = messages
         _save_conversation(conversation_id, messages)
-        display_content = str(assistant_msg.get("content") or "").strip()
         if display_content and not content_parts:
             yield {"type": "assistant", "content": display_content}
         # requires_reply：仅入站 requires_reply=true 会挂 ephemeral；工具回复 peer 即可标记（出站 requires_reply 可为 false）

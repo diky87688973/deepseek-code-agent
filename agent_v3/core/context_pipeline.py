@@ -6,7 +6,14 @@ from agent_v3.core.deps import *  # noqa: F403
 from agent_v3.core.shared_state import *  # noqa: F403
 
 def _approx_tokens_message(m: Dict[str, Any]) -> int:
-    c = str(m.get("content") or "").strip()
+    content = m.get("content")
+    if isinstance(content, (dict, list)):
+        try:
+            c = json.dumps(content, ensure_ascii=False)
+        except (TypeError, ValueError):
+            c = str(content)
+    else:
+        c = str(content or "").strip()
     rc = m.get("reasoning_content")
     rs = str(rc).strip() if isinstance(rc, str) else ""
     n = _approx_tokens_text(c)
@@ -820,6 +827,14 @@ def _strip_internal_message_for_api(msg: Dict[str, Any]) -> Dict[str, Any]:
     for k in list(out.keys()):
         if str(k).startswith("_agent_"):
             out.pop(k, None)
+    # 上游接口要求 tool/user/assistant 的 content 为 string 或 list；
+    # 若历史里误存了 dict，送模型前单次 dumps，禁止嵌套对象直接入请求体。
+    content = out.get("content")
+    if isinstance(content, (dict, list)) and out.get("role") == "tool":
+        try:
+            out["content"] = json.dumps(content, ensure_ascii=False)
+        except (TypeError, ValueError):
+            out["content"] = str(content)
     # thinking 模式：历史 assistant 必须原样回传 reasoning_content，不可因 content 非空而剥离
     return out
 
