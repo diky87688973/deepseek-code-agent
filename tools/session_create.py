@@ -104,7 +104,7 @@ def agent_main(
 
     from agent_v3.live_state import CONVERSATIONS, upsert_agent_session
     from agent_v3.agent_core import _save_conversation as _svc, _save_title_file
-    from util.agent_prompt_constants import TOOL_AGENT_SYSTEM_PROMPT as _sys_prompt
+    from util.agent_prompt_constants_v2 import TOOL_AGENT_SYSTEM_PROMPT as _sys_prompt
     agents = []
     now = int(time.time())
     for i in range(n):
