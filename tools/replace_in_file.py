@@ -286,7 +286,8 @@ def agent_main(
                     raise ValueError(
                         "old_text 含反斜杠字符，禁止字面替换。\n"
                         "  原因：JSON 的 \\n、\\t、\\\\ 等经 JSON 解码后歧义大，极易匹配失败。\n"
-                        "  请改用 line_start+line_end（行替换，坐标来自 grep_files/read_file）。\n"
+                        "  方案一：若反斜杠是字面字符（非 JSON 转义），传 raw=true。\n"
+                        "  方案二：改用 line_start+line_end（行替换，坐标来自 grep_files/read_file）。\n"
                         f"  内容：{old_s!r}"
                     )
             new_body, counts_per_rule = _apply_rules_sequential(

@@ -55,7 +55,7 @@ class QualityState:
     lenses_injected: bool = False
     stack_targets: List[Tuple[str, int]] = field(default_factory=list)
     stack_addressed: bool = False
-    preview_fp: Dict[str, str] = field(default_factory=dict)  # path -> args fingerprint
+    preview_fp: Dict[str, List[str]] = field(default_factory=dict)  # path -> list of fingerprints
     post_write_hash: Dict[str, str] = field(default_factory=dict)  # path -> mtime/size token
     needs_reread: Set[str] = field(default_factory=set)
     pending_review_paths: List[str] = field(default_factory=list)
@@ -310,8 +310,8 @@ def check_pre_write_quality(
     # P1: 预览指纹绑定（真写参数须与最近成功 dry_run 一致）
     if real and path and script in ("replace_in_file.py", "write_file.py", "read_write.py"):
         fp_now = _args_fingerprint(script, args)
-        prev = st.preview_fp.get(path)
-        if prev and prev != fp_now:
+        prev_list = st.preview_fp.get(path, [])
+        if prev_list and fp_now not in prev_list:
             return _reject(
                 "HostQualityPreviewMismatch",
                 "真写内容与该文件最近一次成功 dry_run 预览不一致：请重新 dry_run=true 预览后再提交。",
@@ -353,7 +353,10 @@ def note_write_tool_result(
     if not path:
         return
     if _is_dry_run(args):
-        st.preview_fp[path] = _args_fingerprint(script, args)
+        fps = st.preview_fp.setdefault(path, [])
+        fp_new = _args_fingerprint(script, args)
+        if fp_new not in fps:
+            fps.append(fp_new)
         return
     if not _is_real_write(script, args):
         return
