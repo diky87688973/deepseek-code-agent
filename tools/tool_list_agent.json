@@ -3920,41 +3920,57 @@
     {
       "name": "look_screenshot.py",
       "path": "tools/look_screenshot.py",
-      "purpose": "look_screenshot：用独立视觉模型查看本轮用户截图。主模型看不到像素。prompt 须表达用户本轮意图（可改写，非必须原话），并导向用户需要的答案；勿用与意图无关的通用看图套话取代用户问题。可换短 prompt 再看。",
-      "stdout_output": "{ok,data:{description,vision_model,prompt,paths}}",
+      "purpose": "look_screenshot：用独立视觉模型查看本轮用户截图。主模型看不到像素。prompt 必填（≤4000字）；path / paths / attachment_ids 三个参数可同时使用，但必须至少传一个（见系统提示）；三个参数合计图片总数不超过 4 张（如 path 传 1 张 + paths 传 2 张 = 共 3 张）；超出或任一条定位失败均直接报错。单文件≤8MB；仅本会话 attachments 下的 jpg/png/webp/gif。prompt 须表达用户意图并导向答案。",
+      "stdout_output": "{ok,data:{description,vision_model,prompt,paths,attachment_ids}}",
       "args": [
         {
           "flag": "--prompt",
           "type": "string",
           "required": true,
-          "description": "表达用户意图并导向所需答案；可改写，勿用无关套话取代意图。"
-        },
-        {
-          "flag": "--attachment_ids",
-          "type": "string",
-          "required": false,
-          "description": "附件 id，逗号分隔；省略则查看本轮全部截图。"
+          "description": "表达用户意图并导向所需答案；≤4000 字符；勿用无关套话取代意图。"
         },
         {
           "flag": "--path",
           "type": "string",
           "required": false,
-          "description": "可选：直接指定本地图片路径（通常用附件 id 即可）。"
+          "description": "单张本地绝对路径（仅本会话 attachments）。多张用 paths。与 paths、attachment_ids 三者必传其一。合计最多 4 张。"
+        },
+        {
+          "flag": "--paths",
+          "type": "string",
+          "required": false,
+          "description": "多张本地路径，逗号分隔或 JSON 字符串数组。与 path、attachment_ids 三者必传其一。合计最多 4 张；任一条无效则整次失败。"
+        },
+        {
+          "flag": "--attachment_ids",
+          "type": "string",
+          "required": false,
+          "description": "附件 id（att_…），逗号分隔或 JSON 字符串数组。与 path、paths 三者必传其一。合计最多 4 张；非法 id 或找不到文件则整次失败。"
         }
       ],
       "examples": [
         {
-          "title": "识别游戏",
-          "note": "意图是认出游戏名；prompt 对准这个意图即可。",
+          "title": "用 path",
+          "note": "从系统提示复制 path。",
           "args": {
-            "prompt": "这是什么游戏？至少给出游戏名称。"
+            "prompt": "这是什么游戏？至少给出游戏名称。",
+            "path": "D:/AI_DATA_ROOT/cache/sessions/attachments/<cid>/att_xxxxxxxxxxxx.png"
           }
         },
         {
-          "title": "分析画面",
-          "note": "意图是理解图里有什么；按用户要的粒度问。",
+          "title": "用 paths",
+          "note": "一次看多张。",
           "args": {
-            "prompt": "简要说明这张图在表现什么。"
+            "prompt": "对比这两张图的差异。",
+            "paths": "D:/AI_DATA_ROOT/cache/sessions/attachments/<cid>/att_aaa.png,D:/AI_DATA_ROOT/cache/sessions/attachments/<cid>/att_bbb.png"
+          }
+        },
+        {
+          "title": "用 attachment_ids",
+          "note": "用附件 id 代替路径。",
+          "args": {
+            "prompt": "这张图底部工具栏有哪些按钮？",
+            "attachment_ids": "att_xxxxxxxxxxxx"
           }
         }
       ]

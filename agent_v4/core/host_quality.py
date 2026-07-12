@@ -160,9 +160,14 @@ def note_evidence_tool(cid: str, script: str, args: dict, result: dict) -> None:
             if _path_match(sp, path):
                 st.stack_addressed = True
                 break
-    # 读过则清除该 path 的 needs_reread
-    if path and sn.startswith("read_file"):
-        st.needs_reread.discard(_norm_path(path))
+
+    # 读过则清除该 path 的 needs_reread（read_file / grep_files 等精确搜索也算）
+    if path:
+        _p = _norm_path(path)
+        if sn.startswith("read_file"):
+            st.needs_reread.discard(_p)
+        elif sn in ("grep_files", "regex_locate", "find_in_file") and Path(path).is_file():
+            st.needs_reread.discard(_p)
         try:
             fp = Path(path)
             if fp.is_file():

@@ -59,5 +59,5 @@ class ScenarioInjection:
     def vision_nudge_content(self) -> str:
         return (
             "【宿主提醒】本轮有截图但尚未成功调用 look_screenshot。"
-            "请先调用；prompt 表达用户意图并导向用户需要的答案，不要臆测画面。"
+            "请先调用；prompt 表达用户意图并导向用户需要的答案，不要臆测画面。path / paths / attachment_ids 必须至少传其一。"
         )

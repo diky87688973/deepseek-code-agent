@@ -910,18 +910,25 @@
       }
       if (ta) {
         ta.addEventListener("paste", function (ev) {
-          var items = ev.clipboardData && ev.clipboardData.items;
-          if (!items) return;
-          var files = [];
-          for (var i = 0; i < items.length; i++) {
-            if (items[i].type && items[i].type.indexOf("image/") === 0) {
-              var f = items[i].getAsFile();
-              if (f) files.push(f);
+          var cd = ev.clipboardData;
+          var hasImg = false;
+          if (cd && cd.items) {
+            for (var i = 0; i < cd.items.length; i++) {
+              if (cd.items[i].type && cd.items[i].type.indexOf("image/") === 0) {
+                hasImg = true;
+                break;
+              }
             }
           }
-          if (!files.length) return;
+          if (!hasImg) return;
           ev.preventDefault();
-          void addPendingImmFiles(files);
+          var collect =
+            window.CWA && CWA.collectPasteImageFiles
+              ? CWA.collectPasteImageFiles(cd)
+              : Promise.resolve([]);
+          void collect.then(function (files) {
+            if (files && files.length) void addPendingImmFiles(files);
+          });
         });
       }
     })();

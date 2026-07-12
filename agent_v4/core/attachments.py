@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import io
 import re
 import uuid
 from pathlib import Path
@@ -15,8 +14,7 @@ _TURN_ATTACHMENTS: Dict[str, List[Dict[str, Any]]] = {}
 
 _MAX_IMAGES = 4
 _MAX_RAW_BYTES = 8 * 1024 * 1024
-_JPEG_MAX_SIDE = 1560
-_JPEG_QUALITY = 85
+
 
 _LOOK_HINT_RE = re.compile(
     r"(图|截图|屏幕|界面|报错|看下|看看|这张|图片|screenshot|image|ui)",
@@ -57,35 +55,8 @@ def _sniff_image(raw: bytes) -> Tuple[bytes, str, str]:
     raise ValueError("无法识别的图片格式")
 
 
-def _compress_to_jpeg(raw: bytes) -> Tuple[bytes, str, str]:
-    """返回 (bytes, mime, ext)。优先压成 JPEG；失败则保留原格式。"""
-    try:
-        from PIL import Image
-    except ImportError:
-        return _sniff_image(raw)
-    try:
-        img = Image.open(io.BytesIO(raw))
-        if img.mode not in ("RGB", "L"):
-            img = img.convert("RGB")
-        elif img.mode == "L":
-            img = img.convert("RGB")
-        w, h = img.size
-        scale = min(1.0, float(_JPEG_MAX_SIDE) / float(max(w, h, 1)))
-        if scale < 1.0:
-            try:
-                resample = Image.Resampling.LANCZOS
-            except AttributeError:
-                resample = Image.LANCZOS
-            img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), resample)
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=_JPEG_QUALITY, optimize=True)
-        return buf.getvalue(), "image/jpeg", ".jpg"
-    except Exception:
-        return _sniff_image(raw)
-
-
 def save_chat_images(cid: str, images: List[Any]) -> List[Dict[str, Any]]:
-    """将 ChatIn.images 落盘，返回 [{id, path, mime, name}]。"""
+    """将 ChatIn.images 按原图像素落盘（UI 预览与 look_screenshot 共用）。返回 [{id, path, mime, name}]。"""
     cid = str(cid or "").strip()
     if not cid or not images:
         return []
@@ -108,7 +79,7 @@ def save_chat_images(cid: str, images: List[Any]) -> List[Dict[str, Any]]:
         if not raw:
             continue
         try:
-            blob, mime, ext = _compress_to_jpeg(raw)
+            blob, mime, ext = _sniff_image(raw)
         except ValueError as exc:
             raise ValueError(f"images[{i}] {exc}") from exc
         att_id = f"att_{uuid.uuid4().hex[:12]}"
@@ -154,10 +125,11 @@ def ephemeral_attachment_tail(atts: List[Dict[str, Any]]) -> Dict[str, Any]:
         f"附件 id：{ids}\n"
         f"{paths}\n"
         "你无法直接看见图片。须调用 look_screenshot。\n"
+        "必填：prompt；以及 path / paths / attachment_ids 三者至少其一（从上列复制）。\n"
         "prompt：表达用户本轮意图即可（可改写，不必逐字照抄用户原话），"
         "并让视觉模型直接给出用户需要的那种答案；"
         "不要改成与用户意图无关的通用看图套话（例如只顾抄布局/抄控件而丢掉「这是什么」这类问题）。\n"
-        "attachment_ids 可省略（默认本轮全部）。细节不够可换一句短 prompt 再看。"
+        "细节不够可换一句短 prompt 再看。"
     )
     return {"role": "system", "content": content}
 
@@ -185,7 +157,7 @@ def resolve_attachment_paths(
     attachment_ids: Optional[List[str]] = None,
     paths: Optional[List[str]] = None,
 ) -> List[Path]:
-    """解析 look_screenshot 要用的本地文件（仅本会话 attachments 目录）。"""
+    """解析附件路径（仅本会话 attachments 目录）。显式参数未命中时不静默回退。"""
     cid = str(cid or "").strip()
     if not cid:
         return []
@@ -216,7 +188,6 @@ def resolve_attachment_paths(
                 if pp.is_file():
                     found.append(pp)
                     continue
-            # 内存索引没有时，按 id 在本会话 attachments 目录试常见扩展名
             for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
                 cand = attachments_dir(cid) / f"{aid}{ext}"
                 if cand.is_file():
