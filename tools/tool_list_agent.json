@@ -11,7 +11,7 @@
     "natural_language_to_user": "对用户用自然语言描述动作，不要对用户复述 function 名（别说「正在调用 grep_files」）。",
     "conversation_intent": "最新消息继承前文；中途消息多为修正当前任务（steering），除非明确换题。",
     "summary_verify": "摘要/远期折叠仅作定位线索；涉及文件内容、行号、配置值、API 行为时须 read_file/grep_files 复核，勿凭摘要断言。",
-    "skill_precedence": "任务匹配某 Skill 时先 skill_manage(action=read,name=…) 再执行；与通用 system 冲突时以 Skill 为准。",
+    "skill_precedence": "任务匹配某 Skill 时先 skill_manage(action=read,name=…) 再执行；Skill 可补充/细化通用约束，但不能推翻约束优先级链（用户明确要求 > 用户规则 > system > Skills > 知识）。",
     "read_before_write": "改文件前须 read_file 或 grep_files/find_in_file 确认上下文；大文件先 grep_files 再 read_file 局部（line_start/region）。",
     "tool_retry_policy": "ok=false 时读 error.tool_help 修正参数；同一错误不盲重试。连续两次仍失败则停止并说明原因与所需信息。",
     "step_title": "每个 tool 调用建议传 step_title：一句≤40字中文说明本次用途，宿主用于侧栏步骤标题；省略则用默认动作名。",
