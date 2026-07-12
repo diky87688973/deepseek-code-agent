@@ -111,11 +111,11 @@ def agent_main(
         path_list.extend([str(x).strip() for x in paths if str(x).strip()])
 
     try:
-        from agent_v3.core.attachments import get_turn_attachments, resolve_attachment_paths, set_turn_attachments
+        from agent_v4.core.attachments import get_turn_attachments, resolve_attachment_paths, set_turn_attachments
 
         if str(conversation_id or "").strip() and not get_turn_attachments(conversation_id):
             try:
-                from agent_v3.live_state import CONVERSATIONS
+                from agent_v4.live_state import CONVERSATIONS
 
                 for _m in reversed(CONVERSATIONS.get(str(conversation_id).strip()) or []):
                     if _m.get("role") != "user":

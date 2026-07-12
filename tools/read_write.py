@@ -88,53 +88,5 @@ def agent_main(
     )
 
 
-def main() -> None:
-    import argparse
-    import json
-
-    p = argparse.ArgumentParser(description="read_write：管道对接 read→write")
-    p.set_defaults(dry_run=True)
-    p.add_argument("--source_path", required=True)
-    p.add_argument("--dest_path", required=True)
-    p.add_argument("--encoding", default="utf-8")
-    p.add_argument("--encoding_write", default=None)
-    p.add_argument("--line_start", type=int, default=None)
-    p.add_argument("--line_end", type=int, default=None)
-    p.add_argument("--start_column", type=int, default=None)
-    p.add_argument("--end_column", type=int, default=None)
-    p.add_argument("--char_start", type=int, default=None)
-    p.add_argument("--char_end", type=int, default=None)
-    p.add_argument("--max_chars", type=int, default=0)
-    p.add_argument("--dry_run", dest="dry_run", action="store_true")
-    p.add_argument("--commit", dest="dry_run", action="store_false")
-    p.add_argument("--create_only", action="store_true")
-    p.add_argument(
-        "--restrict_to_workspace",
-        action="store_true",
-        help="读写两侧路径均限定在 WORKSPACE_DIR 内（默认不限制）。",
-    )
-    p.add_argument("--run_type", default="")
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(
-        source_path=args.source_path,
-        dest_path=args.dest_path,
-        encoding=args.encoding,
-        encoding_write=args.encoding_write,
-        line_start=args.line_start,
-        line_end=args.line_end,
-        start_column=args.start_column,
-        end_column=args.end_column,
-        char_start=args.char_start,
-        char_end=args.char_end,
-        max_chars=int(args.max_chars),
-        dry_run=bool(args.dry_run),
-        create_only=bool(args.create_only),
-        restrict_to_workspace=bool(args.restrict_to_workspace),
-        run_type=str(args.run_type or ""),
-    )
-    print(json.dumps(r, ensure_ascii=False))
 
 
-if __name__ == "__main__":
-    main()

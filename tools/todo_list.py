@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """会话 Todo-List：仅由 Agent 宿主按 conversation_id 调用 `execute`（扁平 Python 类型）。
 
-`agent_main` 仅作占位；真实逻辑在 `execute`。`build_parser` 供失败时输出等效 --help（与 tool_list 字段对齐）。
+`agent_main` 仅作占位；真实逻辑在 `execute`。失败帮助由宿主 catalog 提供。
 """
 
 from __future__ import annotations
@@ -240,65 +240,7 @@ def agent_main(
     return execute(cid, exec_args)
 
 
-def build_parser() -> argparse.ArgumentParser:
-    import argparse
-
-    p = argparse.ArgumentParser(description="todo_list：由宿主调用 execute；本 CLI 仅供调试")
-    p.add_argument(
-        "--action",
-        required=True,
-        choices=[
-            "create",
-            "check",
-            "uncheck",
-            "collapse",
-            "close",
-            "query",
-            "add_item",
-            "remove_item",
-            "replace_item",
-        ],
-    )
-    p.add_argument("--items", default=None, help="create：JSON 数组字符串，元素为 string 或 {text,done}")
-    p.add_argument("--indices", default=None, help="check/uncheck：JSON 整数数组，如 [0,1]")
-    p.add_argument("--item_index", type=int, default=None)
-    p.add_argument("--text", default=None)
-    p.add_argument("--conversation_id", required=True, help="会话 ID（与宿主 conversation_id 一致）")
-    p.add_argument("--json_out", action="store_true")
-    return p
 
 
-def main() -> None:
-    import json as _j
-    import sys
-
-    p = build_parser()
-    args = p.parse_args()
-    exec_args: Dict[str, Any] = {"action": args.action}
-    if args.items is not None:
-        raw = args.items
-        exec_args["items"] = _j.loads(raw) if isinstance(raw, str) and raw.strip().startswith("[") else raw
-    if args.indices is not None:
-        raw = args.indices
-        exec_args["indices"] = _j.loads(raw) if isinstance(raw, str) and raw.strip().startswith("[") else raw
-    if args.item_index is not None:
-        exec_args["item_index"] = args.item_index
-    if args.text is not None:
-        exec_args["text"] = args.text
-    cid = str(getattr(args, "conversation_id", "") or "").strip()
-    if not cid:
-        print("CLI 调试须传 --conversation_id", file=sys.stderr)
-        sys.exit(2)
-    r = agent_main(conversation_id=cid, json_out=args.json_out, **exec_args)
-    if args.json_out:
-        print(_j.dumps(r, ensure_ascii=False))
-    else:
-        if r.get("ok"):
-            print(_j.dumps(r.get("data"), ensure_ascii=False, indent=2))
-        else:
-            print((r.get("error") or {}).get("message", ""), file=sys.stderr)
-            sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

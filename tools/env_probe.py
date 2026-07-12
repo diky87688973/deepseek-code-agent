@@ -10,13 +10,8 @@ import sys
 from pathlib import Path
 
 import agent_common as ac
-from tool_help_share import HelpfulParser
 
 
-def build_parser() -> argparse.ArgumentParser:
-    p = HelpfulParser(description="探测本机可用命令行模式（cmd/powershell/bash/python 等）")
-    p.add_argument("--json_out", action="store_true", help="向 stdout 输出统一 JSON {ok,data,error}")
-    return p
 
 
 def agent_main(*, run_type: str = "", json_out: bool = False, **_kwargs: object) -> dict:
@@ -56,20 +51,5 @@ def agent_main(*, run_type: str = "", json_out: bool = False, **_kwargs: object)
     return ac.ok(data)
 
 
-def main() -> None:
-    parser = build_parser()
-    args = parser.parse_args()
-    env = agent_main()
-    if args.json_out:
-        print(json.dumps(env, ensure_ascii=False))
-    else:
-        if env.get("ok") and isinstance(env.get("data"), dict):
-            d = env["data"]
-            print(json.dumps(d, ensure_ascii=False, indent=2))
-        else:
-            print((env.get("error") or {}).get("message", ""), file=sys.stderr)
-            sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

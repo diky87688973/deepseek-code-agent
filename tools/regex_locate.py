@@ -109,58 +109,5 @@ def agent_main(
         return ac.err(e)
 
 
-def main() -> None:
-    import argparse
-    import json
-    import sys
-
-    p = argparse.ArgumentParser(description="regex_locate")
-    p.add_argument("--path", required=True, help="文件或目录（相对工作区或绝对路径）")
-    p.add_argument("--pattern", required=True, help="正则表达式")
-    p.add_argument("--ignore_case", action="store_true")
-    p.add_argument(
-        "--dotall",
-        action="store_true",
-        help="等价 re.DOTALL：. 可匹配换行（跨行模式）。",
-    )
-    p.add_argument("--recursive", action="store_true", default=True)
-    p.add_argument("--no_recursive", action="store_false", dest="recursive")
-    p.add_argument("--glob_pattern", default="", help="省略=仅常见文本/源码后缀；* 表示全部文件（含各类非文本/二进制）")
-    p.add_argument("--encoding", default="utf-8")
-    p.add_argument("--limit", type=int, default=200)
-    p.add_argument(
-        "--restrict_to_workspace",
-        action="store_true",
-        help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
-    )
-    p.add_argument("--run_type", default="")
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(
-        path=args.path,
-        pattern=args.pattern,
-        ignore_case=bool(args.ignore_case),
-        dotall=bool(args.dotall),
-        recursive=bool(args.recursive),
-        glob_pattern=str(args.glob_pattern if args.glob_pattern is not None else ""),
-        encoding=args.encoding,
-        limit=args.limit,
-        restrict_to_workspace=bool(args.restrict_to_workspace),
-        run_type=str(args.run_type or ""),
-    )
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    else:
-        if r.get("ok") and isinstance(r.get("data"), dict):
-            for it in r["data"].get("items") or []:
-                print(
-                    f"{it['file']}:{it['line']}:{it['column']} "
-                    f"[{it['region_start']},{it['region_end']}) {it['match']}"
-                )
-        else:
-            print((r.get("error") or {}).get("message", ""), file=sys.stderr)
-            sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_v3.agent_core import (
+from agent_v4.agent_core import (
     _is_placeholder_conversation_title,
     _merge_stream_tool_calls_with_snapshot,
 )
@@ -113,8 +113,8 @@ class TestToolCallsSnapshotFallback(unittest.TestCase):
 
 class TestMaxToolRoundsHint(unittest.TestCase):
     def test_wrap_ephemeral_user_hint(self) -> None:
-        from agent_v3.agent_core import _max_tool_rounds_user_hint
-        from agent_v3.bootstrap import MAX_TOOL_ROUNDS
+        from agent_v4.agent_core import _max_tool_rounds_user_hint
+        from agent_v4.bootstrap import MAX_TOOL_ROUNDS
 
         h = _max_tool_rounds_user_hint()
         self.assertTrue(h.strip())
@@ -124,7 +124,7 @@ class TestMaxToolRoundsHint(unittest.TestCase):
 
     def test_tool_budget_in_error_envelope(self) -> None:
         from util.agent_tool_budget import tool_call_limit_reached_result
-        from agent_v3.bootstrap import MAX_TOOL_ROUNDS
+        from agent_v4.bootstrap import MAX_TOOL_ROUNDS
 
         env = tool_call_limit_reached_result(used=MAX_TOOL_ROUNDS, limit=MAX_TOOL_ROUNDS)
         self.assertFalse(env["ok"])
@@ -175,7 +175,7 @@ class TestFileSearchHostGate(unittest.TestCase):
     """file_search 仅 _RESTRICTED_TOOLS；须会话门控 + conversation_id 一致。"""
 
     def test_blocked_without_gate(self) -> None:
-        from agent_v3.agent_core import execute_tool_script
+        from agent_v4.agent_core import execute_tool_script
 
         r = execute_tool_script(
             "file_search.py",
@@ -186,11 +186,11 @@ class TestFileSearchHostGate(unittest.TestCase):
         self.assertEqual((r.get("error") or {}).get("type"), "Restricted")
 
     def test_allowed_when_gate_matches_cid(self) -> None:
-        from agent_v3.agent_core import execute_tool_script
-        from agent_v3.live_state import set_file_search_allowed
+        from agent_v4.agent_core import execute_tool_script
+        from agent_v4.live_state import set_file_search_allowed
 
         cid = "gate-test-cid-open"
-        vf = Path(__file__).resolve().parents[1] / "agent_v3" / "version.py"
+        vf = Path(__file__).resolve().parents[1] / "agent_v4" / "version.py"
         set_file_search_allowed(cid, True)
         try:
             r = execute_tool_script(
@@ -204,8 +204,8 @@ class TestFileSearchHostGate(unittest.TestCase):
         self.assertTrue(r.get("ok"), r.get("error"))
 
     def test_gate_cid_mismatch_still_restricted(self) -> None:
-        from agent_v3.agent_core import execute_tool_script
-        from agent_v3.live_state import set_file_search_allowed
+        from agent_v4.agent_core import execute_tool_script
+        from agent_v4.live_state import set_file_search_allowed
 
         set_file_search_allowed("cid-a", True)
         try:

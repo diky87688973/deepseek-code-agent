@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import html
 import json
 import re
@@ -247,38 +246,5 @@ def agent_main(
         return {"ok": False, "data": None, "error": err}
 
 
-def main() -> None:
-    p = argparse.ArgumentParser(description="抓取 URL → 提取纯文本")
-    p.add_argument("--url", required=True)
-    p.add_argument("--timeout_sec", type=int, default=BUILTIN_TIMEOUT_SEC)
-    p.add_argument("--max_chars", type=int, default=BUILTIN_MAX_CHARS)
-    p.add_argument("--user_agent", default=BUILTIN_USER_AGENT)
-    p.add_argument("--out_file", default=None)
-    p.add_argument("--min_chars", type=int, default=None)
-    p.add_argument("--require_keywords", default=None)
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(
-        url=args.url,
-        timeout_sec=args.timeout_sec,
-        max_chars=args.max_chars,
-        user_agent=args.user_agent,
-        out_file=args.out_file,
-        min_chars=args.min_chars,
-        require_keywords=args.require_keywords,
-    )
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    elif r.get("ok") and r.get("data"):
-        d = r["data"]
-        if args.out_file:
-            print("ok")
-        else:
-            print(d.get("text", ""), end="")
-    else:
-        print(str((r.get("error") or {}).get("message", "")), file=sys.stderr)
-        sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

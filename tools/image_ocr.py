@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import sys
 from pathlib import Path
@@ -232,29 +231,5 @@ def agent_main(
         return ac.err(e)
 
 
-def main() -> None:
-    p = argparse.ArgumentParser(description="image_ocr")
-    p.add_argument("--path", required=True, help="图片文件路径")
-    p.add_argument("--lang", default="chi_sim+eng")
-    p.add_argument("--region", default=None)
-    p.add_argument("--engine", default="auto")
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(
-        path=args.path,
-        lang=args.lang,
-        region=args.region,
-        engine=args.engine,
-    )
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    else:
-        if r.get("ok"):
-            print(json.dumps(r.get("data"), ensure_ascii=False, indent=2))
-        else:
-            print((r.get("error") or {}).get("message", ""), file=sys.stderr)
-            sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

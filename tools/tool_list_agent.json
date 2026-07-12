@@ -25,13 +25,13 @@
     "read_write_encoding": "read_write：encoding 为读源编码（默认 utf-8，可 auto）；encoding_write 为写入 dest 的编码（OpenAPI 参数名 encoding_write，省略则与读侧相同）。",
     "archive_plan": "archive：action=list 可读；extract/create 在 Plan 模式会被工具拒绝；传 run_type 与当前执行模式一致。",
     "run_command_safe_mode": "run_command 默认 safe_mode=true：command 为单条命令，禁止 shell 链式/重定向/子命令符号 — 字符 ; & | ` $ > < 任一出现即拒（勿用 cd X && python …、勿用 cmd 的 &）。多条命令须多次 run_command，或用 cwd 指定目录后只跑 python/npm/git 等一条。禁止黑名单动词：del/rm/rmdir/remove-item/format/dd 等（用 delete_file）。管道/重定向须 safe_mode=false 且用户授权。Layer0 示例：cwd=项目根 + command=python -m unittest discover -s tests -v，不要拼 Set-Location/&&。",
-    "delete_safe": "delete_file 不落盘 unlink，而是将文件移到 DATA_ROOT/safe_delete 下按日期分桶；默认 dry_run。",
+    "delete_safe": "delete_file 不落盘 unlink，而是移到 AGENT_RECYCLE_ROOT（默认 DATA_ROOT/AI_安全删除回收站）下按日期分桶；与 file_ops(action=delete) 共用同一回收站；默认 dry_run。",
     "catalog_examples": "各工具的 examples 会并入宿主下发给模型的 function.description（及失败时的 tool_help）；示例键名与 function schema 完全一致，布尔为 JSON true/false。宿主默认最多并入 2 条示例以节省 context。",
     "search_tool_choice": "【内容搜索三选一，勿混用】① grep_files：默认首选。目录/单文件、字面或简单正则（pattern 中 | 为 OR）、要快、要 region 给 replace_in_file。② regex_locate：需 Python 正则特性（lookahead、dotall 跨行、复杂分组）时用。③ file_search：仅当 path 很大（数千文件）、或需要侧栏 tool_progress 时用；勿用 run_command 旁路调用。三者 path/glob_pattern/recursive 语义一致。",
     "session_collab": "session_send/session_multisend/session_broadcast/session_list/session_create 均无 action 参数（勿传 action）。requires_reply 在 session_send/session_multisend/session_broadcast 必填。session_wait：pending 时 suspend=true（或省略）挂起当前 Agent；suspend=false 仅查询、宿主不挂起。同一会话内 session_send 与 session_wait 须同一发送方 conversation_id 且 thread_id 一致；若 wait 在另一会话 Tab 执行，须传 sender_cid=发出 session_send 的 conversation_id（哨兵与回复记录在该会话）。",
     "replace_in_file_raw": "字面 old_text/new_text 时：JSON 参数里若含真实换行/制表符、而要写入源码中的字面 \\n、\\t（两字符），传 raw=true；行号/region 替换勿用 raw。与 agent_hints.string_escape 配合：不确定转义时优先 line_start+line_end 或 region。",
     "run_command_vs_python_inline": "run_command：单条 shell 命令，safe_mode 默认 true（禁止 ; & | 等）。python -c 含分号会被拒→改用 python_inline 多行脚本，或拆成多次 run_command。python_inline：最后手段，禁止内嵌 file_search/grep_files。",
-    "tool_help_on_failure": "ok=false 时读 error.tool_help。路径/参数/门控类错误为简短说明；复杂未知错误才附 argparse --help 与 catalog 摘要。",
+    "tool_help_on_failure": "ok=false 时读 error.tool_help。路径/参数/门控类错误为简短说明；复杂未知错误附 catalog 摘要。",
     "region_replace_safety": "replace_in_file 提供四种替换方式：① line_start+line_end（行替换，推荐）：按行号替换；其后仍有行时 new_text 必须以换行符结尾，否则工具报错（避免与下一行黏连）。② regions 数组：一次传入 [{region_start,region_end,new_text},...]，工具自动降序防漂移。③ 单次 region_start+region_end：精确替换。④ rules 数组：字面 old_text→new_text 批量替换。",
     "literal_replace_ambiguity": "⚠️ old_text+new_text 字面替换默认 replace_all=true。若某文件中有多处相同匹配会全部误伤。安全建议：① 建议设 expected_replacements=n 校验替换次数；② old_text 包含足够长的唯一上下文；③ 可改用 line_start+line_end 或 region_start/region_end；④ 不确定匹配数时先用 find_in_file 看匹配位置。",
     "string_escape": "⚠️ 字符串参数（old_text、new_text、pattern、patch_text、code 等）中的反斜杠 \\ 按 JSON 标准转义。例如：arguments 中 \\n 表示字面反斜杠+n（而非换行符），\\\\ 表示单个反斜杠。若 replace_in_file 的 old_text/new_text 在 JSON 里已是真实换行/制表符、却要改写成源码字面量 \\n、\\t，传 raw=true（见 agent_hints.replace_in_file_raw）。不确定时优先 line_start+line_end 或 region 替换。",
@@ -60,7 +60,7 @@
           "flag": "--json_out",
           "type": "boolean",
           "required": false,
-          "description": "CLI 调试：为 true 时 stdout 为统一 JSON 信封；宿主进程内调用通常忽略。"
+          "description": "为 true 时 stdout 为统一 JSON 信封；宿主进程内调用通常忽略。"
         }
       ],
       "examples": [
@@ -2275,7 +2275,7 @@
           "flag": "--json_out",
           "type": "boolean",
           "required": false,
-          "description": "CLI 下 true 输出 JSON 信封。"
+          "description": "为 true 时 stdout 输出 JSON 信封；宿主进程内调用通常忽略。"
         }
       ],
       "examples": [
@@ -2292,8 +2292,8 @@
           }
         },
         {
-          "title": "JSON CLI",
-          "note": "调试脚本用。",
+          "title": "JSON 信封",
+          "note": "需要统一 JSON stdout 时使用。",
           "args": {
             "json_out": true
           }

@@ -9,7 +9,6 @@
 """
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import sys
@@ -300,39 +299,5 @@ def agent_main(
     return _gh_err(f"未知 action: {action}", "ValueError")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="GitHub API 工具")
-    parser.add_argument(
-        "--action",
-        required=True,
-        choices=["login", "get_repo", "list_issues", "create_issue",
-                 "list_releases", "set_topics",
-                 "list_prs", "get_pr", "create_pr", "close_pr", "update_pr"],
-        help="操作类型",
-    )
-    parser.add_argument("--repo", default="", help="仓库名 owner/repo（login 可省略）")
-    parser.add_argument("--title", default="", help="create_issue/create_pr 时的标题；update_pr 时可选更新标题")
-    parser.add_argument("--body", default="", help="create_issue/create_pr 时的描述；update_pr 时可选更新描述")
-    parser.add_argument("--state", default="open", help="list_issues/list_prs 时状态筛选(open/closed)；update_pr 时设为 closed 可关闭 PR，默认 open")
-    parser.add_argument("--topics", default="", help="Topics 逗号分隔")
-    parser.add_argument("--pr-number", type=int, default=0, help="PR 编号（get_pr/close_pr/update_pr 时使用）")
-    parser.add_argument("--head", default="", help="源分支（create_pr 时使用，如 fork:branch）")
-    parser.add_argument("--base", default="", help="目标分支（create_pr 时使用，如 main）")
-    args = parser.parse_args()
-
-    result = agent_main(
-        action=args.action,
-        repo=args.repo,
-        title=args.title,
-        body=args.body,
-        state=args.state,
-        topics=args.topics,
-        pr_number=args.pr_number,
-        head=args.head,
-        base=args.base,
-    )
-    print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
-if __name__ == "__main__":
-    main()

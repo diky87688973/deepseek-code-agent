@@ -11,7 +11,6 @@
 """
 from __future__ import annotations
 
-import argparse
 import base64
 import hashlib
 import hmac
@@ -872,55 +871,5 @@ def _action_text2video(prompt: str, model_name: str = "kling-v3", duration: str 
     return r
 
 
-def main() -> None:
-    p = argparse.ArgumentParser(description="可灵 Kling AI 全能力工具")
-    p.add_argument("--action", default="text2video", help="操作类型")
-    p.add_argument("--prompt", default="", help="提示词")
-    p.add_argument("--model_name", default="kling-v3", help="模型名称")
-    p.add_argument("--duration", default="5", help="时长(秒)")
-    p.add_argument("--mode", default="std", help="模式：std/pro/4k")
-    p.add_argument("--sound", default="off", help="声音：on/off")
-    p.add_argument("--aspect_ratio", default="16:9", help="画面比例")
-    p.add_argument("--negative_prompt", default="", help="负向提示词")
-    p.add_argument("--cfg_scale", type=float, default=0.5, help="自由度")
-    p.add_argument("--multi_shot", action="store_true", help="多镜头")
-    p.add_argument("--shot_type", default="", help="分镜方式")
-    p.add_argument("--task_id", default="", help="查询任务ID")
-    p.add_argument("--external_task_id", default="", help="自定义任务ID")
-    p.add_argument("--image_url", default="", help="图片URL")
-    p.add_argument("--num_images", type=int, default=1, help="生成图片数量")
-    p.add_argument("--video_id", default="", help="视频ID")
-    p.add_argument("--audio_url", default="", help="音频URL")
-    p.add_argument("--query_action", default="", help="查询时指定操作类型")
-    p.add_argument("--callback_url", default="", help="任务回调URL")
-    p.add_argument("--watermark_enabled", action="store_true", help="是否生成水印")
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(action=args.action, prompt=args.prompt, model_name=args.model_name,
-                   duration=args.duration, mode=args.mode, sound=args.sound,
-                   aspect_ratio=args.aspect_ratio, negative_prompt=args.negative_prompt,
-                   cfg_scale=args.cfg_scale, multi_shot=args.multi_shot,
-                   shot_type=args.shot_type, task_id=args.task_id,
-                   external_task_id=args.external_task_id,
-                   image_url=args.image_url, num_images=args.num_images,
-                   video_id=args.video_id, audio_url=args.audio_url,
-                   query_action=args.query_action)
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    else:
-        if r.get("ok") and isinstance(r.get("data"), dict):
-            d = r["data"]
-            print(f"操作: {d.get('action')}")
-            if d.get("task_id"):
-                print(f"任务ID: {d.get('task_id', '')}")
-                print(f"状态: {d.get('task_status', '')}")
-            msg = d.get("message", "")
-            if msg:
-                print(msg)
-        err = r.get("error") or {}
-        if err:
-            print(f"错误: {err.get('message', '')}", file=sys.stderr)
 
 
-if __name__ == "__main__":
-    main()

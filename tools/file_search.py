@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import argparse
 import fnmatch
 import json
 import re
@@ -319,48 +318,5 @@ def agent_main(
         return {"ok": False, "data": None, "error": {"type": e.__class__.__name__, "message": str(e)}}
 
 
-def main() -> None:
-    p = argparse.ArgumentParser(description="全文搜索：按关键词/正则搜索文件内容")
-    p.add_argument("--path", required=True, help="搜索目标目录或文件")
-    p.add_argument("--pattern", required=True, help="搜索模式（字面字符串，--regex 时为正则）")
-    p.add_argument("--regex", action="store_true")
-    p.add_argument(
-        "--glob_pattern",
-        default=None,
-        dest="glob_pattern",
-        help="省略=仅常见文本/源码后缀；* 表示全部文件（含各类非文本/二进制）",
-    )
-    p.add_argument("--recursive", action="store_true", default=True)
-    p.add_argument("--no_recursive", action="store_false", dest="recursive")
-    p.add_argument("--context_lines", type=int, default=0, dest="context_lines")
-    p.add_argument("--ignore_case", action="store_true", dest="ignore_case")
-    p.add_argument("--no_gitignore", action="store_true", dest="no_gitignore")
-    p.add_argument("--limit", type=int, default=None)
-    p.add_argument("--restrict_to_workspace", action="store_true")
-    p.add_argument("--run_type", default="")
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(
-        path=args.path,
-        pattern=args.pattern,
-        regex=args.regex,
-        glob_pattern=args.glob_pattern,
-        recursive=args.recursive,
-        context_lines=args.context_lines,
-        ignore_case=args.ignore_case,
-        no_gitignore=args.no_gitignore,
-        limit=args.limit,
-        restrict_to_workspace=bool(args.restrict_to_workspace),
-        run_type=str(args.run_type or ""),
-    )
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    elif r.get("ok") and r.get("data"):
-        print(json.dumps(r["data"], ensure_ascii=False, indent=2))
-    else:
-        print(str((r.get("error") or {}).get("message", "")), file=sys.stderr)
-        sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import re
 import subprocess
@@ -284,57 +283,5 @@ def agent_main(
         }
 
 
-def main() -> None:
-    p = argparse.ArgumentParser(description="Git 工作区：status/diff、log、blame、show")
-    p.add_argument("--path", required=True)
-    p.add_argument(
-        "--mode",
-        choices=["worktree", "log", "blame", "show"],
-        default="worktree",
-    )
-    p.add_argument("--max_diff_chars", type=int, default=BUILTIN_MAX_DIFF_CHARS)
-    p.add_argument("--log_max", type=int, default=BUILTIN_LOG_MAX)
-    p.add_argument("--blame_path", default="")
-    p.add_argument("--start_line", type=int, default=None)
-    p.add_argument("--end_line", type=int, default=None)
-    p.add_argument("--show_ref", default="HEAD")
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(
-        path=args.path,
-        mode=args.mode,
-        max_diff_chars=args.max_diff_chars,
-        log_max=args.log_max,
-        blame_path=str(args.blame_path or ""),
-        start_line=args.start_line,
-        end_line=args.end_line,
-        show_ref=str(args.show_ref or "HEAD"),
-    )
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    elif r.get("ok"):
-        d = r.get("data") or {}
-        if args.mode == "worktree":
-            print((d.get("branch_line") or ""))
-            print("--- diff (worktree) ---")
-            print(d.get("diff_worktree", ""), end="")
-            print("--- diff (staged) ---")
-            print(d.get("diff_staged", ""), end="")
-        elif args.mode == "log":
-            for e in d.get("entries", []):
-                print(f"{e.get('commit', '')[:8]} {e.get('date', '')} {e.get('author', '')} {e.get('subject', '')}")
-        elif args.mode == "blame":
-            for row in d.get("lines", []):
-                print(f"{row.get('final_line')} {row.get('commit', '')[:8]} {row.get('text', '')}")
-        else:
-            print(d.get("commit_message", ""))
-            for f in d.get("changed_files", []):
-                print(f"{f.get('status')}\t{f.get('path')}")
-            print(d.get("patch", ""), end="")
-    else:
-        print(str((r.get("error") or {}).get("message", "")), file=sys.stderr)
-        sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

@@ -118,50 +118,7 @@ def agent_main(
         return ac.err(e)
 
 
-def build_parser() -> argparse.ArgumentParser:
-    import argparse
-
-    p = argparse.ArgumentParser(description="find_in_file：人工调试入口 → agent_main")
-    p.add_argument("--path", required=True)
-    p.add_argument("--pattern", required=True)
-    p.add_argument("--regex", action="store_true")
-    p.add_argument("--ignore_case", action="store_true")
-    p.add_argument("--occurrence", type=int, default=0)
-    p.add_argument("--encoding", default="utf-8")
-    p.add_argument(
-        "--restrict_to_workspace",
-        action="store_true",
-        help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
-    )
-    p.add_argument("--run_type", default="", help="占位，只读不拦截")
-    p.add_argument("--json_out", action="store_true")
-    return p
 
 
-def main() -> None:
-    import json
-    import sys
-
-    args = build_parser().parse_args()
-    r = agent_main(
-        path=args.path,
-        pattern=args.pattern,
-        regex=bool(args.regex),
-        ignore_case=bool(args.ignore_case),
-        occurrence=args.occurrence,
-        encoding=args.encoding,
-        restrict_to_workspace=bool(args.restrict_to_workspace),
-        run_type=str(args.run_type or ""),
-    )
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    else:
-        if r.get("ok") and isinstance(r.get("data"), dict):
-            print(json.dumps(r["data"], ensure_ascii=False, indent=2))
-        else:
-            print((r.get("error") or {}).get("message", ""), file=sys.stderr)
-            sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

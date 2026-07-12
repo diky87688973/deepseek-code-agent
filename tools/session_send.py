@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """session_send 工具：Agent 间互发消息，触发接收方执行。"""
 from __future__ import annotations
 
@@ -46,14 +46,14 @@ def agent_main(
             },
         }
     requires_reply_bool = ac.parse_tool_bool(_rr_raw, True)
-    from agent_v3.live_state import (
+    from agent_v4.live_state import (
         CONVERSATIONS,
         _ACTIVE_CONVERSATION_RUNS,
         conversation_run_locks,
         enqueue_session_inbox,
         get_agent_session,
     )
-    from agent_v3.agent_core import (
+    from agent_v4.agent_core import (
         _append_incoming_session_message_impl,
         _append_session_message_v2,
         _ensure_conversation_loaded,
@@ -184,45 +184,7 @@ def agent_main(
     }
 
 
-def build_parser() -> "argparse.ArgumentParser":
-    import argparse
-
-    p = argparse.ArgumentParser(description="session_send：人工调试 CLI → agent_main（无 --action）")
-    p.add_argument("--conversation_id", required=True, help="发送方会话 ID")
-    p.add_argument("--target_id", required=True)
-    p.add_argument("--message", required=True)
-    p.add_argument("--requires_reply", required=True, help="true 或 false")
-    p.add_argument("--thread_id", default="")
-    p.add_argument("--channel", default="direct")
-    p.add_argument("--priority", default="normal")
-    p.add_argument("--json_out", action="store_true")
-    return p
 
 
-def main() -> None:
-    import json
-    import sys
-
-    args = build_parser().parse_args()
-    r = agent_main(
-        target_id=args.target_id,
-        message=args.message,
-        requires_reply=args.requires_reply,
-        thread_id=args.thread_id,
-        channel=args.channel,
-        priority=args.priority,
-        conversation_id=args.conversation_id,
-    )
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    else:
-        if r.get("ok"):
-            print(json.dumps(r.get("data"), ensure_ascii=False, indent=2))
-        else:
-            err = r.get("error") or {}
-            print(err.get("message", r), file=sys.stderr)
-            sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

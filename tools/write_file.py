@@ -60,38 +60,5 @@ def agent_main(
         return ac.err(e)
 
 
-def main() -> None:
-    import argparse
-    import json
-    import sys
-
-    p = argparse.ArgumentParser(description="write_file")
-    p.set_defaults(dry_run=True)
-    p.add_argument("--path", required=True)
-    p.add_argument("--content", default="")
-    p.add_argument("--encoding", default="utf-8")
-    p.add_argument("--dry_run", dest="dry_run", action="store_true", help="仅预览（默认）")
-    p.add_argument("--commit", dest="dry_run", action="store_false", help="真正写盘（关闭 dry_run 预览）")
-    p.add_argument("--create_only", action="store_true")
-    p.add_argument(
-        "--restrict_to_workspace",
-        action="store_true",
-        help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
-    )
-    p.add_argument("--run_type", default="")
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(
-        path=args.path,
-        content=args.content,
-        encoding=args.encoding,
-        dry_run=bool(args.dry_run),
-        create_only=bool(args.create_only),
-        restrict_to_workspace=bool(args.restrict_to_workspace),
-        run_type=str(args.run_type or ""),
-    )
-    print(json.dumps(r, ensure_ascii=False))
 
 
-if __name__ == "__main__":
-    main()

@@ -73,29 +73,5 @@ def agent_main(
         return ac.err(e)
 
 
-def main() -> None:
-    import argparse
-    import json
-
-    p = argparse.ArgumentParser(description="replace_undo：回滚 replace_in_file 的版本化备份")
-    p.add_argument("--action", default="list", choices=["list", "undo"])
-    p.add_argument("--mod_id", default=None)
-    p.add_argument("--path", default=None)
-    p.add_argument("--restrict_to_workspace", action="store_true")
-    p.add_argument("--run_type", default="")
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-
-    import json as _json
-    r = agent_main(
-        action=args.action,
-        mod_id=args.mod_id,
-        path=args.path,
-        restrict_to_workspace=bool(args.restrict_to_workspace),
-        run_type=str(args.run_type or ""),
-    )
-    print(_json.dumps(r, ensure_ascii=False))
 
 
-if __name__ == "__main__":
-    main()

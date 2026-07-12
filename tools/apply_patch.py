@@ -69,35 +69,5 @@ def agent_main(
         return ac.err(e)
 
 
-def main() -> None:
-    import argparse
-    import json
-
-    p = argparse.ArgumentParser(description="apply_patch")
-    p.set_defaults(dry_run=True)
-    p.add_argument("--path", required=True)
-    p.add_argument("--patch_text", default=None)
-    p.add_argument("--patch_file", default=None)
-    p.add_argument("--dry_run", dest="dry_run", action="store_true")
-    p.add_argument("--commit", dest="dry_run", action="store_false")
-    p.add_argument(
-        "--restrict_to_workspace",
-        action="store_true",
-        help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
-    )
-    p.add_argument("--run_type", default="")
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(
-        path=args.path,
-        patch_text=args.patch_text,
-        patch_file=args.patch_file,
-        dry_run=bool(args.dry_run),
-        restrict_to_workspace=bool(args.restrict_to_workspace),
-        run_type=str(args.run_type or ""),
-    )
-    print(json.dumps(r, ensure_ascii=False))
 
 
-if __name__ == "__main__":
-    main()

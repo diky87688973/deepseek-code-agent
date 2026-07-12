@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import sys
 import time
@@ -76,30 +75,5 @@ def agent_main(*, url: str = "", wait_sec: float = 3.0, max_chars: int = 100000)
     return _fetch_with_playwright(url, ws, mc)
 
 
-def main() -> None:
-    p = argparse.ArgumentParser(description="JS 渲染网页抓取工具（Playwright 无头浏览器）")
-    p.add_argument("--url", required=True, help="目标 URL")
-    p.add_argument("--wait_sec", type=float, default=3.0, help="JS 渲染等待秒数")
-    p.add_argument("--max_chars", type=int, default=100000, help="最大字符数")
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(url=args.url, wait_sec=args.wait_sec, max_chars=args.max_chars)
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    else:
-        if r.get("ok") and isinstance(r.get("data"), dict):
-            d = r["data"]
-            print(f"标题: {d.get('title', '')}")
-            print(f"URL: {d.get('url', '')}")
-            print(f"HTML 大小: {d.get('html_len', 0)} 字符")
-            print("---正文---")
-            print(d.get("text", "")[:args.max_chars])
-        err = r.get("error") or {}
-        if err:
-            print(f"错误: {err.get('message', '')}", file=sys.stderr)
-            import sys as _sys
-            _sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

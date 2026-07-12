@@ -206,7 +206,7 @@ def chat_completion_stream(payload: dict, *, base_url: str = "", api_key: str = 
     try:
         while True:
             try:
-                from agent_v3.live_state import server_shutting_down
+                from agent_v4.live_state import server_shutting_down
 
                 if server_shutting_down():
                     break

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """读取文件内容（整文件 / 行闭区间 / 行列矩形 / 字符半开区间）。
 
-- **agent_main**：仅接受 Python 原生类型（str、int、bool、None 等），禁止将数组/对象以 JSON 字符串传入。
-- **main()**：仅供人工调试，解析 argv 后调用 agent_main；`build_parser()` 供宿主在失败时捕获等效 `--help` 文本。
+agent_main：仅接受 Python 原生类型（str、int、bool、None 等），禁止将数组/对象以 JSON 字符串传入。
+失败帮助由宿主 catalog 提供。
 """
 
 from __future__ import annotations
@@ -148,58 +148,7 @@ def agent_main(
         return ac.err(e)
 
 
-def build_parser() -> argparse.ArgumentParser:
-    import argparse
-
-    p = argparse.ArgumentParser(description="read_file：人工调试入口 → agent_main（仅 Python 类型）")
-    p.add_argument("--path", required=True)
-    p.add_argument("--encoding", default="utf-8")
-    p.add_argument("--raw", action="store_true", help="额外返回 content_lines 与 content_hash")
-    p.add_argument("--line_start", type=int, default=None)
-    p.add_argument("--line_end", type=int, default=None)
-    p.add_argument("--start_column", type=int, default=None)
-    p.add_argument("--end_column", type=int, default=None)
-    p.add_argument("--char_start", type=int, default=None)
-    p.add_argument("--char_end", type=int, default=None)
-    p.add_argument("--max_chars", type=int, default=500_000)
-    p.add_argument(
-        "--restrict_to_workspace",
-        action="store_true",
-        help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
-    )
-    p.add_argument("--run_type", default="", help="占位，与清单一致；只读工具不拦截")
-    p.add_argument("--json_out", action="store_true")
-    return p
 
 
-def main() -> None:
-    import json
-    import sys
-
-    args = build_parser().parse_args()
-    r = agent_main(
-        path=args.path,
-        encoding=args.encoding,
-        raw=bool(args.raw),
-        line_start=args.line_start,
-        line_end=args.line_end,
-        start_column=args.start_column,
-        end_column=args.end_column,
-        char_start=args.char_start,
-        char_end=args.char_end,
-        max_chars=args.max_chars,
-        restrict_to_workspace=bool(args.restrict_to_workspace),
-        run_type=str(args.run_type or ""),
-    )
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    else:
-        if r.get("ok") and isinstance(r.get("data"), dict):
-            print(r["data"].get("content", ""), end="")
-        else:
-            print((r.get("error") or {}).get("message", ""), file=sys.stderr)
-            sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

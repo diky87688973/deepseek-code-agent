@@ -15,17 +15,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 STEPS = (
     ("0.1 unittest", [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"]),
-    ("0.2 check_symbols", [sys.executable, str(ROOT / "agent_v3" / "check_symbols.py")]),
-    ("0.3 health", [sys.executable, str(ROOT / "scripts" / "check_agent_v3_health.py")]),
+    ("0.2 check_symbols", [sys.executable, str(ROOT / "agent_v4" / "check_symbols.py")]),
+    ("0.3 health", [sys.executable, str(ROOT / "scripts" / "check_agent_v4_health.py")]),
     (
         "0.4 compileall",
-        [sys.executable, "-m", "compileall", "agent_v3", "tools", "util", "-q"],
+        [sys.executable, "-m", "compileall", "agent_v4", "tools", "util", "-q"],
     ),
 )
 
 
 def main() -> int:
-    print("=== Layer 0 自动化门禁（agent_v3 全栈）===\n")
+    print("=== Layer 0 自动化门禁（agent_v4 全栈）===\n")
     failed = False
     for label, cmd in STEPS:
         print(f"[RUN] {label}")

@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
-"""安全删除：将文件移到宿主配置的回收目录（非 unlink），便于审计与恢复。"""
+"""安全删除：将文件移到宿主配置的回收目录（非 unlink），便于审计与恢复。
+
+回收根目录由宿主 `configure_trash_root` 注入，与 file_ops / main_tray 共用
+`AGENT_RECYCLE_ROOT`（默认 `DATA_ROOT/AI_安全删除回收站`）。
+"""
 
 from __future__ import annotations
 
-import argparse
-import json
+import os
 import shutil
-import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,9 +20,18 @@ _trash_root: Optional[Path] = None
 
 
 def configure_trash_root(root: Path) -> None:
-    """由 deepseek `DATA_ROOT / \"safe_delete\"` 调用。"""
+    """由宿主 bootstrap / main_tray 调用，与 AGENT_RECYCLE_ROOT 对齐。"""
     global _trash_root
     _trash_root = Path(root)
+
+
+def _resolved_trash_root() -> Optional[Path]:
+    if _trash_root is not None:
+        return _trash_root
+    env = str(os.environ.get("AGENT_RECYCLE_ROOT") or "").strip()
+    if env:
+        return Path(env).expanduser()
+    return None
 
 
 def _preview_dest(trash_root: Path, src: Path) -> Path:
@@ -62,60 +73,39 @@ def agent_main(
                 "error": {"type": "ModeConflict", "message": "当前为 Plan 模式，不允许删除文件"},
             }
 
-        if _trash_root is None:
-            return ac.err(RuntimeError("delete_file: 未配置回收目录（宿主应调用 configure_trash_root）"))
+        trash = _resolved_trash_root()
+        if trash is None:
+            return ac.err(
+                RuntimeError(
+                    "delete_file: 未配置回收目录（宿主应调用 configure_trash_root，"
+                    "或设置环境变量 AGENT_RECYCLE_ROOT）"
+                )
+            )
 
         fp = ac.resolve_path(path, allow_outside_workspace=not restrict_to_workspace)
         if not fp.is_file():
             return ac.err(FileNotFoundError(f"不是已存在文件: {fp}"))
 
         if dry_run:
-            dest_preview = _preview_dest(_trash_root, fp)
+            dest_preview = _preview_dest(trash, fp)
             return ac.ok(
                 {
                     "path": str(fp),
                     "dry_run": True,
                     "would_move_to": str(dest_preview),
-                    "trash_root": str(_trash_root),
+                    "trash_root": str(trash),
                 }
             )
 
-        dest = _unique_dest(_trash_root, fp)
+        dest = _unique_dest(trash, fp)
         shutil.move(str(fp), str(dest))
-        return ac.ok({"path": str(fp), "moved_to": str(dest), "dry_run": False})
+        return ac.ok(
+            {
+                "path": str(fp),
+                "moved_to": str(dest),
+                "trash_root": str(trash),
+                "dry_run": False,
+            }
+        )
     except Exception as e:
         return ac.err(e)
-
-
-def main() -> None:
-    p = argparse.ArgumentParser(description="delete_file（调试）")
-    p.set_defaults(dry_run=True)
-    p.add_argument("--path", required=True)
-    p.add_argument("--dry_run", dest="dry_run", action="store_true")
-    p.add_argument("--commit", dest="dry_run", action="store_false", help="真正移到回收目录（关闭 dry_run 预览）")
-    p.add_argument(
-        "--restrict_to_workspace",
-        action="store_true",
-        help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
-    )
-    p.add_argument("--run_type", default="")
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(
-        path=args.path,
-        dry_run=bool(args.dry_run),
-        restrict_to_workspace=bool(args.restrict_to_workspace),
-        run_type=str(args.run_type or ""),
-    )
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    else:
-        if r.get("ok"):
-            print(json.dumps(r.get("data"), ensure_ascii=False))
-        else:
-            print((r.get("error") or {}).get("message", ""), file=sys.stderr)
-            sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()

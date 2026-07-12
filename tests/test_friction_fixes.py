@@ -49,9 +49,10 @@ class TestReplaceInFileRaw(unittest.TestCase):
                 new_text="alpha2",
                 dry_run=True,
             )
-            self.assertTrue(r.get("ok"), r)
-            warnings = (r.get("data") or {}).get("warnings") or []
-            self.assertTrue(any("未以换行符结尾" in w for w in warnings), warnings)
+            # 产品行为（与备份一致）：中间行替换且 new_text 无末尾换行 → 硬错误，防黏连
+            self.assertFalse(r.get("ok"), r)
+            err = (r.get("error") or {}).get("message") or ""
+            self.assertIn("末尾缺少换行符", err)
 
     def test_backup_uses_versioned_store_without_bak_file(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -87,7 +88,7 @@ class TestReadFileRaw(unittest.TestCase):
 
 class TestReplaceUndoSafety(unittest.TestCase):
     def test_replace_undo_is_registered_as_write_tool(self) -> None:
-        from agent_v3.core.shared_state import WRITE_TOOL_SCRIPTS
+        from agent_v4.core.shared_state import WRITE_TOOL_SCRIPTS
 
         self.assertIn("replace_undo.py", WRITE_TOOL_SCRIPTS)
 
@@ -111,11 +112,11 @@ class TestSessionWaitSenderCid(unittest.TestCase):
     def test_sender_cid_reads_sentinel_from_other_conversation(self) -> None:
         msgs_a = self._sentinel_msgs()
         with unittest.mock.patch(
-            "agent_v3.live_state.CONVERSATIONS",
+            "agent_v4.live_state.CONVERSATIONS",
             {"session-a": msgs_a, "session-b": []},
         ):
             with unittest.mock.patch(
-                "agent_v3.agent_core._ensure_conversation_loaded",
+                "agent_v4.agent_core._ensure_conversation_loaded",
                 lambda _cid: None,
             ):
                 r = session_wait.agent_main(
@@ -132,11 +133,11 @@ class TestSessionWaitSenderCid(unittest.TestCase):
     def test_without_sender_cid_wrong_session_gets_wait_without_request(self) -> None:
         msgs_a = self._sentinel_msgs()
         with unittest.mock.patch(
-            "agent_v3.live_state.CONVERSATIONS",
+            "agent_v4.live_state.CONVERSATIONS",
             {"session-a": msgs_a, "session-b": []},
         ):
             with unittest.mock.patch(
-                "agent_v3.agent_core._ensure_conversation_loaded",
+                "agent_v4.agent_core._ensure_conversation_loaded",
                 lambda _cid: None,
             ):
                 r = session_wait.agent_main(
@@ -191,11 +192,12 @@ class TestCatalogFrictionExamples(unittest.TestCase):
         cat = json.loads((_ROOT / "tools" / "tool_list_agent.json").read_text(encoding="utf-8"))
         hints = str((cat.get("agent_hints") or {}).get("session_collab") or "")
         self.assertIn("sender_cid", hints)
-        tool = next(t for t in cat["tools"] if t["name"] == "session_wait.py")
-        flags = {a.get("flag") for a in tool.get("args") or []}
-        self.assertIn("--sender_cid", flags)
-        ex = tool.get("examples") or []
-        self.assertTrue(any("sender_cid" in (e.get("args") or {}) for e in ex))
+        # session_wait 为宿主协作工具，可不进 catalog；以 agent_main 签名为准
+        import inspect
+        import session_wait as sw
+
+        params = inspect.signature(sw.agent_main).parameters
+        self.assertIn("sender_cid", params)
 
 
 if __name__ == "__main__":

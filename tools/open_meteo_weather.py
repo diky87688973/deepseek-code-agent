@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import ipaddress
 import json
 import re
@@ -332,32 +331,5 @@ def agent_main(
         return {"ok": False, "data": None, "error": {"type": e.__class__.__name__, "message": str(e), "hint": "", "retryable": False}}
 
 
-def main() -> None:
-    p = argparse.ArgumentParser(description="Open-Meteo 天气查询")
-    p.add_argument("--location", default="")
-    p.add_argument("--latitude", default="")
-    p.add_argument("--longitude", default="")
-    p.add_argument("--ip", default="")
-    p.add_argument("--forecast_days", type=int, default=BUILTIN_FORECAST_DAYS)
-    p.add_argument("--timeout_sec", type=int, default=BUILTIN_TIMEOUT_SEC)
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(
-        location=str(args.location or ""),
-        latitude=str(args.latitude or ""),
-        longitude=str(args.longitude or ""),
-        ip=str(args.ip or ""),
-        forecast_days=int(args.forecast_days),
-        timeout_sec=int(args.timeout_sec),
-    )
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    elif r.get("ok"):
-        print(json.dumps(r.get("data"), ensure_ascii=False))
-    else:
-        print((r.get("error") or {}).get("message", ""), file=sys.stderr)
-        sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

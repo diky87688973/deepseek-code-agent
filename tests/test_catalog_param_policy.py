@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class TestCatalogParamPolicy(unittest.TestCase):
     def test_readonly_tools_no_restrict_in_openai_schema(self) -> None:
-        from agent_v3 import agent_core
+        from agent_v4 import agent_core
 
         cat = json.loads((ROOT / "tools" / "tool_list_agent.json").read_text(encoding="utf-8"))
         tools, _ = agent_core.catalog_to_openai_tools(cat)

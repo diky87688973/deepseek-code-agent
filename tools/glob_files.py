@@ -251,40 +251,5 @@ def agent_main(
         return ac.err(e)
 
 
-def main() -> None:
-    import argparse
-    import json
-
-    p = argparse.ArgumentParser(description="glob_files")
-    p.add_argument("--path", required=True, help="目录根路径")
-    p.add_argument("--glob_pattern", default="**/*")
-    p.add_argument("--recursive", action="store_true", default=True)
-    p.add_argument("--no_recursive", action="store_false", dest="recursive")
-    p.add_argument("--limit", type=int, default=500)
-    p.add_argument(
-        "--entry_type",
-        dest="entry_type",
-        choices=["file", "dir", "all"],
-        default="file",
-        help="列出文件/目录/全部（默认 file）。",
-    )
-    p.add_argument(
-        "--no_gitignore",
-        action="store_true",
-        help="不应用 .gitignore（默认在 Git 仓库内会批量校验忽略规则）。",
-    )
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(
-        path=args.path,
-        glob_pattern=args.glob_pattern,
-        recursive=args.recursive,
-        limit=args.limit,
-        entry_type=str(args.entry_type),
-        no_gitignore=bool(args.no_gitignore),
-    )
-    print(json.dumps(r, ensure_ascii=False))
 
 
-if __name__ == "__main__":
-    main()

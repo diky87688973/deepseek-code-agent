@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import ast
 import json
 import shutil
@@ -264,40 +263,5 @@ def agent_main(
         return {"ok": False, "data": None, "error": {"type": e.__class__.__name__, "message": str(e)}}
 
 
-def main() -> None:
-    p = argparse.ArgumentParser(description="统一诊断：语法 + 可选 ruff")
-    p.add_argument("--path", required=True)
-    p.add_argument("--glob_pattern", default=BUILTIN_GLOB, dest="glob_pattern")
-    p.add_argument("--limit", type=int, default=BUILTIN_LIMIT_FILES)
-    p.add_argument("--encoding", default="utf-8")
-    p.add_argument("--timeout_sec", type=int, default=BUILTIN_TIMEOUT_SEC, dest="timeout_sec")
-    p.add_argument("--no_ruff", action="store_true", dest="no_ruff")
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(
-        path=args.path,
-        glob_pattern=args.glob_pattern,
-        limit=args.limit,
-        encoding=args.encoding,
-        timeout_sec=args.timeout_sec,
-        no_ruff=args.no_ruff,
-    )
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    elif r.get("ok") and r.get("data"):
-        d = r["data"]
-        s = d.get("summary", {})
-        print(f"path={d.get('path')} files={d.get('files_scanned')} diagnostics={s.get('total')} errors={s.get('errors')}")
-        for diag in d.get("diagnostics", []):
-            loc = f"{diag.get('line')}:{diag.get('column')}" if diag.get("line") is not None else "-"
-            print(f"[{diag.get('severity')}] {diag.get('file')} {loc} {diag.get('rule')} {diag.get('message')}")
-        for n in d.get("notes", []):
-            print(f"note: {n}", file=sys.stderr)
-    else:
-        err = r.get("error") or {}
-        print(str(err.get("message", "")), file=sys.stderr)
-        sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

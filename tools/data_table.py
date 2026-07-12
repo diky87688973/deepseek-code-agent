@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import csv
 import io
 import json
@@ -205,42 +204,5 @@ def agent_main(
         return ac.err(e)
 
 
-def main() -> None:
-    p = argparse.ArgumentParser(description="data_table")
-    p.add_argument("--action", required=True)
-    p.add_argument("--path", required=True, help="表格文件路径")
-    p.add_argument("--sheet", default=None)
-    p.add_argument("--limit", type=int, default=20)
-    p.add_argument("--filter_col", default=None)
-    p.add_argument("--filter_val", default=None)
-    p.add_argument("--regex", action="store_true")
-    p.add_argument("--sort_col", default=None)
-    p.add_argument("--sort_desc", action="store_true")
-    p.add_argument("--col", default=None)
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(
-        action=args.action,
-        path=args.path,
-        sheet=args.sheet,
-        limit=args.limit,
-        filter_col=args.filter_col,
-        filter_val=args.filter_val,
-        regex=bool(args.regex),
-        sort_col=args.sort_col,
-        sort_desc=bool(args.sort_desc),
-        col=args.col,
-        restrict_to_workspace=bool(args.restrict_to_workspace),
-    )
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    else:
-        if r.get("ok"):
-            print(json.dumps(r.get("data"), ensure_ascii=False, indent=2))
-        else:
-            print((r.get("error") or {}).get("message", ""), file=sys.stderr)
-            sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

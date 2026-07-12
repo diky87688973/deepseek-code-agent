@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import fnmatch
 import json
 import sys
@@ -356,45 +355,5 @@ def agent_main(
         return ac.err(e)
 
 
-def main() -> None:
-    p = argparse.ArgumentParser(description="archive（调试；与 agent_main 同参）")
-    p.add_argument("--action", required=True, choices=["list", "extract", "create"])
-    p.add_argument("--source", required=True)
-    p.add_argument("--dest", default=None)
-    p.add_argument("--output_format", default=None)
-    p.add_argument("--password", default=None)
-    p.add_argument("--glob_pattern", default=None)
-    p.set_defaults(dry_run=True)
-    p.add_argument("--dry_run", dest="dry_run", action="store_true")
-    p.add_argument("--commit", dest="dry_run", action="store_false")
-    p.add_argument(
-        "--restrict_to_workspace",
-        action="store_true",
-        help="源/目标路径限定在 WORKSPACE_DIR 内（默认不限制）。",
-    )
-    p.add_argument("--run_type", default="")
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(
-        action=args.action,
-        source=args.source,
-        dest=args.dest,
-        output_format=args.output_format,
-        password=args.password,
-        glob_pattern=args.glob_pattern,
-        dry_run=bool(args.dry_run),
-        restrict_to_workspace=bool(args.restrict_to_workspace),
-        run_type=str(args.run_type or ""),
-    )
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    else:
-        if r.get("ok"):
-            print(json.dumps(r.get("data"), ensure_ascii=False))
-        else:
-            print((r.get("error") or {}).get("message", ""), file=sys.stderr)
-            sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

@@ -56,12 +56,12 @@ pip install edge-tts
 # 4. 启动
 #    Windows：双击 start.bat
 #    Linux：  chmod +x start.sh && ./start.sh
-#    或直接： python deepseek_code_agent3.py
+#    或直接： python deepseek_code_agent.py
 ```
 
 启动后浏览器访问 `http://127.0.0.1:8801` 打开主界面；多列沉浸布局访问 `http://127.0.0.1:8801/immersive`。
 
-**大重构 / 发版前回归**：只说「按文档回归」→ Agent 读 [`回归测试方案.md`](回归测试方案.md) 后 **自动执行** `python scripts/run_layer0.py`（含 `check_agent_v3_health` 等全套 Layer 0）。
+**大重构 / 发版前回归**：只说「按文档回归」→ Agent 读 [`回归测试方案.md`](回归测试方案.md) 后 **自动执行** `python scripts/run_layer0.py`（含 `check_agent_v4_health` 等全套 Layer 0）。
 
 ---
 
@@ -139,8 +139,8 @@ pip install edge-tts
 
 ```text
 deepseek-code-agent/
-├── deepseek_code_agent3.py     # 当前入口（FastAPI → agent_v3）
-├── agent_v3/                   # 宿主：HTTP、core 子模块、live_state
+├── deepseek_code_agent.py      # 当前入口（FastAPI → agent_v4）
+├── agent_v4/                   # 宿主：HTTP、core 子模块、live_state
 ├── scripts/run_layer0.py       # 回归 Layer 0 一键门禁
 ├── 回归测试方案.md             # 发版/重构后回归（Layer 0～2）
 ├── config.ini                  # 配置文件

@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """用户分岔确认：仅 Agent 宿主驱动 UI。进程内入口 agent_main（扁平参数）。"""
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ def agent_main(
             # 有待确认的 confirm_id 时自动标记
             if confirm_id:
                 try:
-                    from agent_v3.live_state import mark_confirmed
+                    from agent_v4.live_state import mark_confirmed
                     mark_confirmed(confirm_id)
                 except Exception:
                     pass
@@ -99,44 +99,5 @@ def agent_main(
         return ac.err(e)
 
 
-def main() -> None:
-    import argparse
-
-    p = argparse.ArgumentParser(description="user_confirm（本地调试；宿主用 agent_main）")
-    p.add_argument("--title", default="", help="标题")
-    p.add_argument(
-        "--confirms",
-        required=True,
-        help="JSON 数组字符串",
-    )
-    p.add_argument("--confirm", default=None)
-    p.add_argument("--multi", action="store_true")
-    p.add_argument("--custom_option_index", type=int, default=None)
-    p.add_argument("--interactive", action="store_true")
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    try:
-        cl = _normalize_confirms(json.loads(args.confirms))
-    except (json.JSONDecodeError, ValueError) as e:
-        print(str(e), file=sys.stderr)
-        sys.exit(1)
-    r = agent_main(
-        title=args.title,
-        confirms=cl,
-        confirm=args.confirm,
-        multi=bool(args.multi),
-        custom_option_index=args.custom_option_index,
-        interactive=bool(args.interactive),
-    )
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    else:
-        if r.get("ok") and isinstance(r.get("data"), dict):
-            print(r["data"].get("confirm", ""), end="")
-        else:
-            print((r.get("error") or {}).get("message", ""), file=sys.stderr)
-            sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

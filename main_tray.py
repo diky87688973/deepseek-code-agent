@@ -167,8 +167,8 @@ def start_server():
     _log("正在启动 uvicorn 服务器...")
     import uvicorn
 
-    from deepseek_code_agent3 import app
-    from agent_v3 import agent_core as _agent_core
+    from deepseek_code_agent import app
+    from agent_v4 import agent_core as _agent_core
 
     if not _agent_core._chat_api_key_available():
         _log("WARNING: API Key 未配置，请在 config.ini [model] 设置 api_key 或环境变量 CHAT_API_KEY")
@@ -231,7 +231,7 @@ def create_tray_icon():
         pystray.MenuItem("\u274c \u9000\u51fa\u670d\u52a1", on_exit),
     )
 
-    from agent_v3.version import AGENT_APP_VERSION
+    from agent_v4.version import AGENT_APP_VERSION
 
     icon = pystray.Icon(
         "deepseek_code_agent",
@@ -271,7 +271,7 @@ def _handle_console_interrupt(signum, frame):
     """命令行 Ctrl+C：先中止 SSE/LLM，再停 uvicorn，避免卡在 graceful shutdown。"""
     _log("收到 Ctrl+C，正在停止服务…")
     try:
-        from agent_v3.live_state import abort_all_conversation_runs_on_shutdown
+        from agent_v4.live_state import abort_all_conversation_runs_on_shutdown
 
         abort_all_conversation_runs_on_shutdown()
     except Exception:

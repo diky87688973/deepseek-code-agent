@@ -14,8 +14,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
-from agent_v3.core import host_quality as hq  # noqa: E402
-from agent_v3.version import AGENT_APP_VERSION  # noqa: E402
+from agent_v4.core import host_quality as hq  # noqa: E402
+from agent_v4.version import AGENT_APP_VERSION  # noqa: E402
 
 
 def _clear():
@@ -230,10 +230,15 @@ def case_09_overwrite_and_large_diff():
 
 def case_10_agent_turn_wiring_and_gates():
     _clear()
-    from agent_v3.core import agent_turn as at
+    from agent_v4.core import agent_turn as at
 
     _assert(hasattr(at, "_apply_host_quality_write_gate"), "missing write gate helper")
     _assert(hasattr(at, "_host_quality"), "missing host_quality bind")
+    from agent_v4.runtime.host_policy import HostPolicy
+    from agent_v4.runtime.agent_runtime import AgentRuntime
+
+    _assert(callable(HostPolicy), "HostPolicy missing")
+    _assert(callable(AgentRuntime), "AgentRuntime missing")
     _assert(AGENT_APP_VERSION == "v1.5", AGENT_APP_VERSION)
 
     previewed, written = {}, {}
@@ -244,7 +249,9 @@ def case_10_agent_turn_wiring_and_gates():
         previewed,
         written,
     )
-    _assert(r is None and "p.py" in previewed, (r, previewed))
+    # 门控仅放行 dry_run；previewed 由成功返回后写入（见 agent_runtime）
+    _assert(r is None and "p.py" not in previewed, (r, previewed))
+    previewed["p.py"] = "t"
     r = at._check_write_preview(
         "replace_in_file.py",
         {"path": "q.py", "dry_run": False},
@@ -365,14 +372,14 @@ def case_14_ephemeral_claim_review():
     )
     _assert(hq.get_quality_state(cid).reviewed_ok is True, "review should be done")
     # agent_turn 不得再拼 ephemeral
-    from agent_v3.core import agent_turn as at
+    from agent_v4.core import agent_turn as at
     src = Path(at.__file__).read_text(encoding="utf-8")
     _assert("build_quality_ephemeral_messages" not in src, "agent_turn must not inject ephemeral msgs")
 
 
 def case_15_preview_path_norm_and_plan_dryrun():
     _clear()
-    from agent_v3.core import agent_turn as at
+    from agent_v4.core import agent_turn as at
 
     previewed, written = {}, {}
     r = at._check_write_preview(
@@ -383,7 +390,8 @@ def case_15_preview_path_norm_and_plan_dryrun():
         written,
     )
     _assert(r is None, r)
-    _assert("D:/proj/x.py" in previewed, previewed)
+    _assert("D:/proj/x.py" not in previewed, previewed)
+    previewed["D:/proj/x.py"] = "t"
     r = at._check_write_preview(
         "replace_in_file.py",
         {"path": "D:/proj/x.py", "dry_run": False},
@@ -478,7 +486,7 @@ def case_17_review_red_no_deadlock_and_dest_path():
 
 
 def case_18_truncate_keeps_host_quality():
-    from agent_v3.core.tool_runtime import _truncate_tool_result
+    from agent_v4.core.tool_runtime import _truncate_tool_result
 
     huge = "x" * 50000
     result = {
@@ -520,7 +528,7 @@ def case_19_attach_is_dict_before_model():
     _assert(isinstance(out, dict), out)
     _assert(isinstance(out.get("data"), dict), out)
     _assert(isinstance(out["data"].get("host_quality"), dict), out)
-    from agent_v3.core.tool_runtime import _truncate_tool_result
+    from agent_v4.core.tool_runtime import _truncate_tool_result
 
     stored = _truncate_tool_result(out)
     _assert(isinstance(stored, str), stored)

@@ -15,7 +15,7 @@ if str(_TOOLS) not in sys.path:
 
 import session_wait  # noqa: E402
 
-from agent_v3.live_state import should_suspend_after_session_wait
+from agent_v4.live_state import should_suspend_after_session_wait
 
 
 class TestSessionWaitHostSuspendGate(unittest.TestCase):
@@ -54,9 +54,9 @@ class TestSessionWaitThreadMatch(unittest.TestCase):
                 "_thread_id": "t1",
             },
         ]
-        with unittest.mock.patch("agent_v3.live_state.CONVERSATIONS", {"me": msgs}):
+        with unittest.mock.patch("agent_v4.live_state.CONVERSATIONS", {"me": msgs}):
             with unittest.mock.patch(
-                "agent_v3.agent_core._ensure_conversation_loaded",
+                "agent_v4.agent_core._ensure_conversation_loaded",
                 lambda _cid: None,
             ):
                 r = session_wait.agent_main(
@@ -82,13 +82,13 @@ class TestSessionWaitSuspend(unittest.TestCase):
 
     def test_suspend_false_does_not_call_suspend_agent_wait(self) -> None:
         msgs = self._pending_msgs()
-        with unittest.mock.patch("agent_v3.live_state.CONVERSATIONS", {"me": msgs}):
+        with unittest.mock.patch("agent_v4.live_state.CONVERSATIONS", {"me": msgs}):
             with unittest.mock.patch(
-                "agent_v3.agent_core._ensure_conversation_loaded",
+                "agent_v4.agent_core._ensure_conversation_loaded",
                 lambda _cid: None,
             ):
                 with unittest.mock.patch(
-                    "agent_v3.live_state.suspend_agent_wait",
+                    "agent_v4.live_state.suspend_agent_wait",
                 ) as mock_suspend:
                     r = session_wait.agent_main(
                         target_ids=["peer-1"],
@@ -104,13 +104,13 @@ class TestSessionWaitSuspend(unittest.TestCase):
 
     def test_default_suspend_calls_suspend_agent_wait(self) -> None:
         msgs = self._pending_msgs()
-        with unittest.mock.patch("agent_v3.live_state.CONVERSATIONS", {"me": msgs}):
+        with unittest.mock.patch("agent_v4.live_state.CONVERSATIONS", {"me": msgs}):
             with unittest.mock.patch(
-                "agent_v3.agent_core._ensure_conversation_loaded",
+                "agent_v4.agent_core._ensure_conversation_loaded",
                 lambda _cid: None,
             ):
                 with unittest.mock.patch(
-                    "agent_v3.live_state.suspend_agent_wait",
+                    "agent_v4.live_state.suspend_agent_wait",
                     return_value={"wait_id": "w1"},
                 ) as mock_suspend:
                     r = session_wait.agent_main(

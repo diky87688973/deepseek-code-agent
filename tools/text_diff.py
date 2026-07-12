@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import difflib
 import json
 from pathlib import Path
@@ -14,7 +13,6 @@ import stdio_utf8 as _stdio_utf8
 
 _stdio_utf8.install_stdio_utf8()
 
-from tool_help_share import capture_help, HelpfulParser
 
 
 def read_text_auto(path: Path, encoding: str) -> str:
@@ -57,21 +55,6 @@ def _label_for_side(file_arg: Optional[str], kind: str) -> str:
     return kind
 
 
-def build_parser() -> argparse.ArgumentParser:
-    p = HelpfulParser(description="文本对比：unified diff + 摘要")
-    p.add_argument("--left_file", help="左侧文件（与 left_text 二选一）")
-    p.add_argument("--left_text", help="左侧文本")
-    p.add_argument("--right_file", help="右侧文件（与 right_text 二选一）")
-    p.add_argument("--right_text", help="右侧文本")
-    p.add_argument("--encoding", default="utf-8", help="读文件编码，默认 utf-8；可 auto")
-    p.add_argument("--context", type=int, default=3, help="unified diff 上下文行数 n")
-    p.add_argument(
-        "--restrict_to_workspace",
-        action="store_true",
-        help="左右侧文件路径均限定在 WORKSPACE_DIR 内（默认不限制）。",
-    )
-    p.add_argument("--json_out", action="store_true", help="JSON 输出")
-    return p
 
 
 def agent_main(
@@ -134,45 +117,5 @@ def agent_main(
         return ac.err(e)
 
 
-def main() -> None:
-    parser = build_parser()
-    args = parser.parse_args()
-    lf = getattr(args, "left_file", None)
-    lt = getattr(args, "left_text", None)
-    rf = getattr(args, "right_file", None)
-    rt = getattr(args, "right_text", None)
-    res = agent_main(
-        left_file=str(lf) if lf is not None else None,
-        left_text=str(lt) if lt is not None else None,
-        right_file=str(rf) if rf is not None else None,
-        right_text=str(rt) if rt is not None else None,
-        encoding=str(getattr(args, "encoding", "utf-8")),
-        context=int(getattr(args, "context", 3)),
-        restrict_to_workspace=bool(args.restrict_to_workspace),
-    )
-    if res["ok"]:
-        data = res["data"]
-        assert data is not None
-        if args.json_out:
-            print(json.dumps(res, ensure_ascii=False))
-        else:
-            print(json.dumps(data["summary"], ensure_ascii=False))
-            if data["diff"]:
-                print("\n".join(data["diff"]))
-        return
-    err = res.get("error") or {}
-    msg = str(err.get("message", ""))
-    full_msg = msg + "\n\n--help:\n" + capture_help(parser)
-    if args.json_out:
-        print(
-            json.dumps(
-                {"ok": False, "data": None, "error": {**err, "message": full_msg}},
-                ensure_ascii=False,
-            )
-        )
-    else:
-        raise RuntimeError(full_msg)
 
 
-if __name__ == "__main__":
-    main()

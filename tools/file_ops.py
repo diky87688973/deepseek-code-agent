@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import shutil
@@ -14,7 +13,6 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import agent_common as ac
-from tool_help_share import HelpfulParser
 
 
 def _ensure_under_root(root: Path, p: Path) -> None:
@@ -27,8 +25,10 @@ def _ensure_under_root(root: Path, p: Path) -> None:
 def _recycle_bin_root() -> Path:
     env = os.environ.get("AGENT_RECYCLE_ROOT")
     if not env:
-        # AGENT_RECYCLE_ROOT 由主程序基于 DATA_ROOT 设置
-        raise RuntimeError("AGENT_RECYCLE_ROOT 未设置！请通过主程序启动（main_tray.py）")
+        raise RuntimeError(
+            "AGENT_RECYCLE_ROOT 未设置！请通过 main_tray / deepseek_code_agent 启动"
+            "（bootstrap 会写入默认 DATA_ROOT/AI_安全删除回收站）"
+        )
     return Path(env)
 
 
@@ -189,29 +189,6 @@ def _do_move(src: Path, dest: Path, dry: bool) -> dict:
     return {"action": "move", "source": str(src), "dest": str(dest), "dry_run": False}
 
 
-def build_parser() -> argparse.ArgumentParser:
-    p = HelpfulParser(description="文件操作：delete / rename / copy / move")
-    p.add_argument(
-        "--action",
-        required=True,
-        choices=["delete", "rename", "copy", "move"],
-        help="delete | rename | copy | move",
-    )
-    p.add_argument("--source", required=True, help="源路径")
-    p.add_argument("--dest", help="目标路径（delete 时不需要；相对路径相对于 source 父目录）")
-    p.set_defaults(dry_run=True)
-    p.add_argument("--security_root", help="若指定，source/dest 均须落在该目录下")
-    p.add_argument("--recursive", action="store_true", help="delete 目录时必须指定")
-    p.add_argument("--dry_run", dest="dry_run", action="store_true", help="仅描述（默认）")
-    p.add_argument("--commit", dest="dry_run", action="store_false", help="真实执行")
-    p.add_argument(
-        "--restrict_to_workspace",
-        action="store_true",
-        help="路径解析限定在 WORKSPACE_DIR 内（默认不限制）。",
-    )
-    p.add_argument("--run_type", choices=["auto", "plan", "execute"], default="", help="Plan 时拒绝写操作")
-    p.add_argument("--json_out", action="store_true")
-    return p
 
 
 def agent_main(
@@ -266,21 +243,5 @@ def agent_main(
         return ac.err(e)
 
 
-def main() -> None:
-    parser = build_parser()
-    args = parser.parse_args()
-    r = agent_main(
-        action=str(args.action),
-        source=str(args.source),
-        dest=args.dest,
-        security_root=args.security_root,
-        recursive=bool(args.recursive),
-        dry_run=bool(args.dry_run),
-        restrict_to_workspace=bool(args.restrict_to_workspace),
-        run_type=str(args.run_type or ""),
-    )
-    print(json.dumps(r, ensure_ascii=False))
 
 
-if __name__ == "__main__":
-    main()

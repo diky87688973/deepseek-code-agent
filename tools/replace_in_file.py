@@ -246,7 +246,7 @@ def agent_main(
                 "data": None,
                 "error": {
                     "type": "ValueError",
-                    "message": "rules 须为 List[dict]，禁止传入 JSON 字符串；由宿主解析或仅用 CLI --rules_file。",
+                    "message": "rules 须为 List[dict]，禁止传入 JSON 字符串；由宿主解析参数对象传入。",
                 },
             }
         rt = str(run_type or "").strip().lower()
@@ -512,93 +512,5 @@ def agent_main(
         return ac.err(e)
 
 
-def main() -> None:
-    import argparse
-    import json
-
-    p = argparse.ArgumentParser(description="replace_in_file：字面/区间/多区间替换")
-    p.add_argument("--path", required=True)
-    p.add_argument("--old_text", default=None)
-    p.add_argument("--new_text", default=None)
-    p.add_argument("--rules_file", default=None, help="JSON 数组：[{old_text,new_text}, ...]")
-    p.add_argument("--regions_file", default=None, help="JSON 数组：[{region_start,region_end,new_text}, ...]，工具自动降序处理、检测重叠")
-    p.add_argument("--line_ranges_file", default=None, help="JSON 数组：[{line_start,line_end,new_text}, ...]，工具自动行号降序处理、检测重叠")
-    p.add_argument("--region_start", type=int, default=None)
-    p.add_argument("--region_end", type=int, default=None)
-    p.add_argument("--line_start", type=int, default=None)
-    p.add_argument("--line_end", type=int, default=None)
-    p.add_argument("--start_column", type=int, default=None)
-    p.add_argument("--end_column", type=int, default=None)
-    p.set_defaults(dry_run=True, replace_all=True)
-    p.add_argument("--dry_run", dest="dry_run", action="store_true")
-    p.add_argument("--commit", dest="dry_run", action="store_false")
-    p.add_argument("--replace_all", dest="replace_all", action="store_true")
-    p.add_argument("--single", dest="replace_all", action="store_false")
-    p.add_argument("--expected_replacements", type=int, default=None)
-    p.add_argument("--encoding", default="utf-8")
-    p.add_argument("--backup", action="store_true")
-    p.add_argument(
-        "--raw",
-        action="store_true",
-        help="true 时将 old_text/new_text 中的实际换行、制表符转为字面 \\n、\\t（两字符），用于改 Python 等源码中的转义字符串。",
-    )
-    p.add_argument(
-        "--restrict_to_workspace",
-        action="store_true",
-        help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
-    )
-    p.add_argument("--run_type", default="")
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-
-    rules: Optional[list] = None
-    if args.rules_file:
-        raw = Path(str(args.rules_file).strip()).expanduser().read_text(encoding="utf-8", errors="strict")
-        data = json.loads(raw)
-        if not isinstance(data, list):
-            raise SystemExit("rules_file JSON 顶层须为数组")
-        rules = data  # type: ignore[assignment]
-
-    regions: Optional[list] = None
-    if args.regions_file:
-        raw = Path(str(args.regions_file).strip()).expanduser().read_text(encoding="utf-8", errors="strict")
-        data = json.loads(raw)
-        if not isinstance(data, list):
-            raise SystemExit("regions_file JSON 顶层须为数组")
-        regions = data
-
-    line_ranges: Optional[list] = None
-    if args.line_ranges_file:
-        raw = Path(str(args.line_ranges_file).strip()).expanduser().read_text(encoding="utf-8", errors="strict")
-        data = json.loads(raw)
-        if not isinstance(data, list):
-            raise SystemExit("line_ranges_file JSON 顶层须为数组")
-        line_ranges = data
-
-    r = agent_main(
-        path=args.path,
-        old_text=args.old_text,
-        new_text=args.new_text,
-        rules=rules,
-        regions=regions,
-        line_ranges=line_ranges,
-        region_start=args.region_start,
-        region_end=args.region_end,
-        line_start=args.line_start,
-        line_end=args.line_end,
-        start_column=args.start_column,
-        end_column=args.end_column,
-        dry_run=bool(args.dry_run),
-        replace_all=bool(args.replace_all),
-        expected_replacements=args.expected_replacements,
-        encoding=args.encoding,
-        backup=bool(args.backup),
-        raw=bool(args.raw),
-        restrict_to_workspace=bool(args.restrict_to_workspace),
-        run_type=str(args.run_type or ""),
-    )
-    print(json.dumps(r, ensure_ascii=False))
 
 
-if __name__ == "__main__":
-    main()

@@ -302,37 +302,5 @@ def agent_main(
         return {"ok": False, "data": None, "error": {"type": e.__class__.__name__, "message": str(e)}}
 
 
-def main() -> None:
-    import argparse
-    import json
-
-    p = argparse.ArgumentParser(description="run_command")
-    p.add_argument("--command", required=True)
-    p.add_argument("--cwd", default=None, help="执行目录（默认：工作区根目录）")
-    p.set_defaults(safe_mode=True)
-    p.add_argument("--timeout_sec", type=int, default=300)
-    p.add_argument("--shell", choices=["auto", "cmd", "powershell"], default="auto")
-    p.add_argument("--safe_mode", dest="safe_mode", action="store_true")
-    p.add_argument("--no_safe_mode", dest="safe_mode", action="store_false")
-    p.add_argument(
-        "--restrict_to_workspace",
-        action="store_true",
-        help="cwd 限定在 WORKSPACE_DIR 内（默认不限制）。",
-    )
-    p.add_argument("--run_type", default="")
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(
-        command=args.command,
-        cwd=args.cwd,
-        timeout_sec=args.timeout_sec,
-        shell=args.shell,
-        safe_mode=bool(args.safe_mode),
-        restrict_to_workspace=bool(args.restrict_to_workspace),
-        run_type=str(args.run_type or ""),
-    )
-    print(json.dumps(r, ensure_ascii=False))
 
 
-if __name__ == "__main__":
-    main()

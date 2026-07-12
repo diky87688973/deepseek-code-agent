@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import ipaddress
 import json
 import sys
@@ -113,21 +112,5 @@ def agent_main(*, ip: str = "", timeout_sec: int = BUILTIN_TIMEOUT_SEC) -> dict:
         }
 
 
-def main() -> None:
-    p = argparse.ArgumentParser(description="IP 地理位置查询")
-    p.add_argument("--ip", default="")
-    p.add_argument("--timeout_sec", type=int, default=BUILTIN_TIMEOUT_SEC)
-    p.add_argument("--json_out", action="store_true")
-    args = p.parse_args()
-    r = agent_main(ip=str(args.ip or ""), timeout_sec=int(args.timeout_sec))
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    elif r.get("ok"):
-        print(json.dumps(r.get("data"), ensure_ascii=False))
-    else:
-        print((r.get("error") or {}).get("message", ""), file=sys.stderr)
-        sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

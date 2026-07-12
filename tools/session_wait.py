@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """session_wait 工具：非阻塞检查指定 Agent 是否已回复某个 thread。"""
 from __future__ import annotations
 
@@ -75,8 +75,8 @@ def agent_main(
     cid = str(sender_cid or _kwargs.get("conversation_id") or "").strip()
     if not cid:
         return {"ok": False, "error": {"type": "missing_conversation", "message": "缺少 conversation_id（当前会话未指定；跨会话等待请传 sender_cid）"}}
-    from agent_v3.live_state import CONVERSATIONS
-    from agent_v3.agent_core import _ensure_conversation_loaded
+    from agent_v4.live_state import CONVERSATIONS
+    from agent_v4.agent_core import _ensure_conversation_loaded
 
     _ensure_conversation_loaded(cid)
     msgs = CONVERSATIONS.get(cid) or []
@@ -160,7 +160,7 @@ def agent_main(
         _suspend_raw = suspend if suspend is not None else _kwargs.get("suspend")
         want_suspend = ac.parse_tool_bool(_suspend_raw, True)
         if want_suspend:
-            from agent_v3.live_state import suspend_agent_wait
+            from agent_v4.live_state import suspend_agent_wait
 
             wait_state = suspend_agent_wait(cid, targets, thread)
             data["suspend"] = True
@@ -170,42 +170,7 @@ def agent_main(
     return {"ok": True, "data": data}
 
 
-def build_parser() -> "argparse.ArgumentParser":
-    import argparse
-
-    p = argparse.ArgumentParser(description="session_wait：人工调试 CLI → agent_main（无 --action）")
-    p.add_argument("--conversation_id", required=True, help="发送方（等待方）会话 ID")
-    p.add_argument("--target_ids", required=True, help="逗号分隔")
-    p.add_argument("--thread_id", default="")
-    p.add_argument("--suspend", default="", help="true/false，pending 时是否挂起")
-    p.add_argument("--sender_cid", default="", help="跨会话等待时指定发送方 conversation_id")
-    p.add_argument("--json_out", action="store_true")
-    return p
 
 
-def main() -> None:
-    import json
-    import sys
-
-    args = build_parser().parse_args()
-    suspend_val = args.suspend if str(args.suspend or "").strip() else None
-    r = agent_main(
-        target_ids=args.target_ids,
-        thread_id=args.thread_id,
-        suspend=suspend_val,
-        sender_cid=str(args.sender_cid or "").strip(),
-        conversation_id=args.conversation_id,
-    )
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    else:
-        if r.get("ok"):
-            print(json.dumps(r.get("data"), ensure_ascii=False, indent=2))
-        else:
-            err = r.get("error") or {}
-            print(err.get("message", r), file=sys.stderr)
-            sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()

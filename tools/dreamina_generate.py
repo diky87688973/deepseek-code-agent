@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import subprocess
@@ -403,38 +402,5 @@ def agent_main(
         return ac.err(e)
 
 
-def main() -> None:
-    """CLI 入口（调试用）。"""
-    p = argparse.ArgumentParser(description="即梦 Dreamina CLI 工具封装")
-    p.add_argument("--action", default="user_credit", help="操作类型")
-    p.add_argument("--prompt", default="", help="生成提示词")
-    p.add_argument("--gen_type", default="text2image", help="生成类型：text2image/text2video")
-    p.add_argument("--submit_id", default="", help="查询任务ID")
-    p.add_argument("--device_code", default="", help="设备码（登录检查）")
-    p.add_argument("--poll", type=int, default=5, help="轮询间隔（秒）")
-    p.add_argument("--ratio", default="16:9", help="画面比例")
-    p.add_argument("--resolution_type", default="2k", help="分辨率")
-    p.add_argument("--model_version", default="", help="模型名称")
-    p.add_argument("--count", type=int, default=1, help="生成数量")
-    p.add_argument("--images", default="", help="图片路径")
-    p.add_argument("--gen_status", default="", help="筛选任务状态")
-    p.add_argument("--limit", type=int, default=20, help="任务列表数量")
-    p.add_argument("--json_out", action="store_true", help="JSON 输出")
-    args = p.parse_args()
-    r = agent_main(action=args.action, prompt=args.prompt, gen_type=args.gen_type, submit_id=args.submit_id,
-                   device_code=args.device_code, poll=args.poll, ratio=args.ratio, resolution_type=args.resolution_type,
-                   model_version=args.model_version, count=args.count, images=args.images, gen_status=args.gen_status, limit=args.limit)
-    if args.json_out:
-        print(json.dumps(r, ensure_ascii=False))
-    else:
-        if r.get("ok") and isinstance(r.get("data"), dict):
-            msg = r["data"].get("message", "")
-            if msg:
-                print(msg)
-        err = r.get("error") or {}
-        if err:
-            print(err.get("message", "操作失败"), file=sys.stderr)
 
 
-if __name__ == "__main__":
-    main()

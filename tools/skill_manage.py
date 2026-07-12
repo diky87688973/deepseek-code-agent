@@ -30,7 +30,7 @@ def agent_main(
 
     from util.skill_manager import get_skill_manager, init_skill_manager
     mgr = get_skill_manager()
-    # CLI 路径下未初始化，自动加载
+    # 宿主未 bootstrap skills 时自动加载
     if mgr.registry_count == 0:
         from pathlib import Path
         from util.config_loader import load_config
@@ -115,7 +115,7 @@ def agent_main(
 
         # ── 有冲突：confirm_id 流程 ──
         if _cid:
-            from agent_v3.live_state import consume_confirm_id
+            from agent_v4.live_state import consume_confirm_id
             info = consume_confirm_id(_cid)
             if info and info.get("confirmed"):
                 import shutil
@@ -137,7 +137,7 @@ def agent_main(
                 "message": "确认ID无效或尚未确认。请先调用 user_confirm 确认覆盖。"}}
 
         # ── 首次冲突：生成 confirm_id 让模型确认 ──
-        from agent_v3.live_state import create_confirm_id
+        from agent_v4.live_state import create_confirm_id
         new_id = create_confirm_id("copy", {"source": source, "subdir": subdir})
         return _with_meta({
             "ok": False,
@@ -158,30 +158,3 @@ def agent_main(
         })
 
     return _with_meta({"ok": False, "error": {"type": "unknown_action", "message": f"未知 action: {action}。可选: read, list, copy"}})
-
-
-# ── CLI 入口（供手动调试）──
-if __name__ == "__main__":
-    import json
-    import sys
-
-    # 用 argv 模拟参数：python skill_manage.py --action read --name "xxx"
-    args: Dict[str, Any] = {}
-    i = 1
-    while i < len(sys.argv):
-        a = sys.argv[i]
-        if a.startswith("--") and i + 1 < len(sys.argv):
-            key = a[2:]
-            val = sys.argv[i + 1]
-            # 布尔/数字尝试转换
-            if val.lower() in ("true", "false"):
-                val = val.lower() == "true"
-            elif val.isdigit():
-                val = int(val)
-            args[key] = val
-            i += 2
-        else:
-            i += 1
-
-    result = agent_main(**args)
-    print(json.dumps(result, ensure_ascii=False, indent=2))

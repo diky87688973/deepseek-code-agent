@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """在单文件或目录下按字面或正则检索文本。
 
-agent_main 仅接受 Python 原生类型；main() 仅供人工调试；build_parser 供失败时输出等效 --help。
+agent_main 仅接受 Python 原生类型。失败帮助由宿主 catalog 提供。
 """
 
 from __future__ import annotations
@@ -149,51 +149,7 @@ def agent_main(
         return ac.err(e)
 
 
-def build_parser() -> argparse.ArgumentParser:
-    import argparse
-
-    p = argparse.ArgumentParser(description="grep_files：人工调试入口 → agent_main")
-    p.add_argument("--path", required=True)
-    p.add_argument("--pattern", required=True)
-    p.add_argument("--glob_pattern", default="", help="省略=仅常见文本/源码后缀；* 表示全部文件（含各类非文本/二进制）")
-    p.add_argument("--regex", action="store_true")
-    p.add_argument("--ignore_case", action="store_true")
-    p.add_argument("--recursive", action="store_true", default=True)
-    p.add_argument("--no_recursive", action="store_false", dest="recursive")
-    p.add_argument("--context_lines", type=int, default=0)
-    p.add_argument("--limit", type=int, default=200)
-    p.add_argument("--encoding", default="utf-8")
-    p.add_argument("--no_gitignore", action="store_true", dest="no_gitignore")
-    p.add_argument(
-        "--restrict_to_workspace",
-        action="store_true",
-        help="将 path 限定在 WORKSPACE_DIR 内（默认不限制）。",
-    )
-    p.add_argument("--run_type", default="", help="占位，只读不拦截")
-    p.add_argument("--json_out", action="store_true")
-    return p
 
 
-def main() -> None:
-    import json
-
-    args = build_parser().parse_args()
-    r = agent_main(
-        path=args.path,
-        pattern=args.pattern,
-        glob_pattern=args.glob_pattern,
-        regex=args.regex,
-        ignore_case=args.ignore_case,
-        recursive=args.recursive,
-        context_lines=args.context_lines,
-        limit=args.limit,
-        encoding=args.encoding,
-        no_gitignore=args.no_gitignore,
-        restrict_to_workspace=bool(args.restrict_to_workspace),
-        run_type=str(args.run_type or ""),
-    )
-    print(json.dumps(r, ensure_ascii=False))
 
 
-if __name__ == "__main__":
-    main()
