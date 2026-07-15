@@ -551,6 +551,11 @@ class AgentRuntime:
                             _host_quality.note_write_tool_result(
                                 conversation_id, script, exec_args, result
                             )
+                            if script == "review_conclusion.py" and result.get("ok") and not exec_args.get("dry_run", True):
+                                if exec_args.get("review_type", "file") == "apply_patch":
+                                    _host_quality.mark_apply_patch_review_done(conversation_id)
+                                else:
+                                    _host_quality.mark_review_done(conversation_id)
                             # Plan 模式 dry_run 不走预览门：成功预览也要记入会话级 previewed，
                             # 否则切 Execute 真写会被 PreviewRequired 误拦。
                             if (
@@ -792,9 +797,6 @@ class AgentRuntime:
             )
             display_content = str(assistant_msg.get("content") or "").strip()
             if display_content:
-                _host_quality.note_assistant_may_complete_review(
-                    conversation_id, display_content
-                )
                 _host_quality.note_assistant_claim_fixed(
                     conversation_id, display_content
                 )

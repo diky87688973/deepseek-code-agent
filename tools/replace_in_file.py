@@ -254,6 +254,8 @@ def agent_main(
         want_write = not dry_run
         if want_write and rt == "plan":
             return {"ok": False, "data": None, "error": {"type": "ModeConflict", "message": "当前为 Plan 模式，不允许写文件"}}
+        if want_write and not confirm_id:
+            return {"ok": False, "data": None, "error": {"type": "ConfirmIdRequired", "message": "dry_run=false 必须传 confirm_id：请先 dry_run=true 预览，再用返回的 confirm_id 提交。"}}
 
         # ── confirm_id 模式：从预览存储的参数恢复，模型只需传 confirm_id + dry_run=false ──
         if confirm_id:

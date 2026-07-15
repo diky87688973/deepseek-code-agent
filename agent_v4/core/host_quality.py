@@ -64,6 +64,7 @@ class QualityState:
     pending_diagnose_red: bool = False
     last_diagnose_summary: str = ""
     reviewed_ok: bool = True
+    apply_patch_pending: bool = False
     changeset_id: str = ""
     changeset_mod_ids: List[Dict[str, str]] = field(default_factory=list)  # {path, mod_id}
     turn_wrote: bool = False
@@ -103,7 +104,7 @@ def _resolve_write_path(args: Optional[dict], result: Optional[dict] = None) -> 
             with _lock:
                 info = _cids.get(str(args["confirm_id"]).strip())
                 if info and info.get("params"):
-                    raw = info["params"].get("path", "")
+                    raw = info["params"].get("path", "") or info["params"].get("dest_path", "")
         except Exception:
             pass
     return _norm_path(str(raw).strip())
@@ -260,8 +261,13 @@ def check_pre_write_quality(
     if script not in _WRITE_PATH_SCRIPTS:
         return None
     st = get_quality_state(cid)
-    path = _norm_path(str(args.get("path") or ""))
+    path = _resolve_write_path(args)
     real = _is_real_write(script, args)
+    if real and not path:
+        return _reject(
+            "HostQualityPathRequired",
+            "真实写操作无法解析目标路径：请直接传 path 参数，或先 dry_run 预览拿到 confirm_id 再提交。",
+        )
     title = str(step_title or "")
 
     # P0: 调试/排查意图下无证据禁止真写
@@ -292,15 +298,23 @@ def check_pre_write_quality(
                 "修复已改文件上的 fail 项，再改其他文件。",
             )
 
-    # P1: review 未完限制跨文件
+    # P1: review 未完限制跨文件（状态由 review_conclusion 工具返回值清）
     if real and st.pending_review_paths and not st.reviewed_ok and path:
         pending = {_norm_path(p) for p in st.pending_review_paths}
-        if path not in pending and not any(_path_match(path, p) for p in pending):
+        if not st.reviewed_ok and path not in pending and not any(_path_match(path, p) for p in pending):
             return _reject(
                 "HostQualityReviewPending",
-                "上一次真写的 diff review 尚未完成：请先阅读写工具返回的 data.host_quality，"
-                "在回复中给出「review结论」后，再跨文件继续写。",
+                "上一次真写的 diff review 尚未完成：请调用 review_conclusion(dry_run=false) "
+                "提交 review 结论后，再跨文件继续写。",
             )
+
+    # P1a: apply_patch 每次写操作都需要 review（不依赖路径匹配）
+    if real and script == "apply_patch.py" and st.apply_patch_pending:
+        return _reject(
+            "HostQualityReviewPending",
+            "apply_patch 上一次真写尚未 review：请调用 review_conclusion(dry_run=false) "
+            "提交 review 结论后，再继续修改。",
+        )
 
     # P1: 同文件连改需 re-read
     if real and path and path in st.needs_reread:
@@ -389,6 +403,9 @@ def note_write_tool_result(
     st.turn_wrote = True
     st.reviewed_ok = False
     st.claim_fixed_blocked = True
+    if script == "apply_patch.py":
+        st.apply_patch_pending = True
+        return
     if path not in st.pending_review_paths:
         st.pending_review_paths.append(path)
     _track_fixable_path(st, path)
@@ -441,6 +458,12 @@ def mark_review_done(cid: str) -> None:
         st.fixable_paths.clear()
         st.claim_fixed_blocked = False
         st.large_delete_flag = False
+
+
+def mark_apply_patch_review_done(cid: str) -> None:
+    """仅清 apply_patch 通道，不影响单文件 review 状态。"""
+    st = get_quality_state(cid)
+    st.apply_patch_pending = False
 
 
 def build_post_write_quality_report(
@@ -606,7 +629,7 @@ def build_post_write_quality_report(
     checks.append({
         "id": "diff_review_required",
         "status": "required",
-        "summary": "必须完成 diff review 并在回复中写明「review结论」",
+        "summary": "必须完成 diff review 并调用 review_conclusion(dry_run=false) 确认",
         "checklist": [
             "是否遗漏引用/调用点",
             "与周围风格是否一致",
@@ -617,7 +640,7 @@ def build_post_write_quality_report(
         "modified_files": paths[:12],
         "changeset_mod_ids": st.changeset_mod_ids[-8:],
     })
-    actions.append("下一条回复须含「review结论」+ 上述 checklist 简评")
+    actions.append("请调用 review_conclusion(dry_run=false) 提交 review 结论")
 
     st.pending_diagnose_red = any_red
     if any_red and not st.last_diagnose_summary:
@@ -633,12 +656,12 @@ def build_post_write_quality_report(
         "files": paths[:12],
         "checks": checks,
         "required_next_actions": actions,
-        "must_include_in_reply": "review结论",
         "model_instruction": (
-            "【宿主质量回灌】以上检查已附在本次写工具结果中（非独立 system 消息）。"
-            "请逐项回应 checks：fail 必须先处理；degraded 须人工确认；"
-            "required 项完成后，回复中必须出现「review结论」。"
-            "在 overall=red 或未完成 review 前，禁止对用户宣称已修复/已完成。"
+            "以上检查附在写工具返回的 data.host_quality 中。"
+            "fail 项必须先修；degraded 须人工确认；"
+            "required 项完成后，调用 review_conclusion(dry_run=false) 提交结论。"
+            "不要仅在回复中写「review结论」文字——那不会解锁跨文件编辑。"
+            "必须调工具。"
         ),
     }
     return report
@@ -691,26 +714,6 @@ def attach_host_quality_to_write_result(
     result["host_quality_overall"] = report.get("overall")
     result["host_quality_actions"] = report.get("required_next_actions")
     return result
-
-
-def build_post_write_quality_messages(
-    cid: str,
-    written_files: Dict[str, str],
-) -> List[Dict[str, Any]]:
-    """兼容旧接口：不再落盘独立 system 回灌（改挂工具返回）。"""
-    return []
-
-
-def note_assistant_may_complete_review(cid: str, assistant_text: str) -> None:
-    """须显式给出 review 结论，才标记 review 完成。"""
-    t = str(assistant_text or "")
-    if not t.strip():
-        return
-    st = get_quality_state(cid)
-    if not st.pending_review_paths:
-        return
-    if re.search(r"(review\s*结论|【review】|自检结论|复查结论)", t, re.I) and len(t.strip()) >= 30:
-        mark_review_done(cid)
 
 
 def note_assistant_claim_fixed(cid: str, assistant_text: str) -> Optional[Dict[str, Any]]:

@@ -40,6 +40,20 @@
   },
   "tools": [
     {
+      "name": "review_conclusion.py",
+      "path": "tools/review_conclusion.py",
+      "purpose": "review_conclusion：写盘后提交 diff review 结论，解锁跨文件编辑。dry_run=true 仅校验结论长度，dry_run=false 正式提交并清除 review 标记。",
+      "stdout_output": "{ok,data:{reviewed,message}}",
+      "args": [
+        {"flag": "--conclusion", "type": "string", "required": true, "description": "review 结论文本，至少30字，需包含改动文件、改动内容、验证结果。"},
+        {"flag": "--dry_run", "type": "boolean", "required": false, "description": "默认 true 仅校验，false 提交结论并解锁跨文件编辑。"},
+        {"flag": "--review_type", "type": "string", "required": false, "description": "review 类型：file（默认）/ apply_patch。"}
+      ],
+      "examples": [
+        {"title": "提交 review 结论", "note": "写盘后调用，解锁后续跨文件编辑。", "args": {"conclusion": "Review结论：host_quality.py 修复了 HostQualityStackFirst 误判，正则加 (?![ntr]) + detect_and_update_intent 加 else 分支，回归 ALL GREEN。", "dry_run": false, "run_type": "execute"}}
+      ]
+    },
+    {
       "name": "run_type.py",
       "path": "tools/run_type.py",
       "purpose": "run_type：查询/切换会话运行模式（Auto / Plan / Execute），由宿主按会话维护。省略 run_type 参数为查询当前模式；传 run_type=auto/plan/execute 为请求切换。run_type=plan 时多数写盘工具会拒绝；run_type=execute 表示用户已授权真实写盘。",
@@ -1077,20 +1091,20 @@
     {
       "name": "write_file.py",
       "path": "tools/write_file.py",
-      "purpose": "write_file：写入或覆盖单个文本文件 path。默认 dry_run=true 仅校验与预览 diff，不落盘；须 dry_run=false 且 run_type≠plan 才实际写入。create_only=true 时若目标已存在则失败。",
+      "purpose": "write_file：写入或覆盖单个文本文件 path。默认 dry_run=true 预览；dry_run=false 必须传 preview 返回的 confirm_id，只需 dry_run=false + confirm_id 即可提交，不要传 content。",
       "stdout_output": "{ok,data:{path,existed_before,changed,diff_text,written,...}}",
       "args": [
         {
           "flag": "--path",
           "type": "string",
-          "required": true,
-          "description": "目标文件路径。"
+          "required": false,
+          "description": "目标文件路径。dry_run=true 预览时必传；dry_run=false（confirm_id 提交）时不要传。"
         },
         {
           "flag": "--content",
           "type": "string",
-          "required": true,
-          "description": "完整文件新内容（UTF-8 语义由 encoding 指定）。"
+          "required": false,
+          "description": "完整文件新内容。dry_run=true 预览时必传；dry_run=false（confirm_id 提交）时不要传。"
         },
         {
           "flag": "--encoding",
@@ -1126,6 +1140,12 @@
             "execute"
           ],
           "description": "run_type=plan 时 write_file 拒绝真实写盘。"
+        },
+        {
+          "flag": "--confirm_id",
+          "type": "string",
+          "required": false,
+          "description": "仅对 dry_run=false（提交）有效。提交时只需传此参数 + dry_run=false，所有其他参数从预览存储恢复，不要传。预览时（dry_run=true）不需要此参数。"
         }
       ],
       "examples": [
@@ -1139,24 +1159,20 @@
           }
         },
         {
-          "title": "真实写入",
-          "note": "用户已确认后。",
+          "title": "预览拿 confirm_id",
+          "note": "dry_run=true 返回确认ID。",
           "args": {
             "path": "src/new.py",
             "content": "# new\n",
-            "dry_run": false,
-            "run_type": "execute"
+            "dry_run": true
           }
         },
         {
-          "title": "新建保护",
-          "note": "避免覆盖已有文件。",
+          "title": "用 confirm_id 提交",
+          "note": "只需 confirm_id+dry_run=false，无需重复传 path/content。",
           "args": {
-            "path": "config.local.json",
-            "content": "{}",
-            "create_only": true,
-            "dry_run": false,
-            "run_type": "execute"
+            "confirm_id": "<上一步返回的 confirm_id>",
+            "dry_run": false
           }
         }
       ]
@@ -1164,20 +1180,20 @@
     {
       "name": "read_write.py",
       "path": "tools/read_write.py",
-      "purpose": "read_write：管道式从 source_path 按 read_file 相同语义读取片段，再写入 dest_path。用于复制/抽取落盘，减少模型搬运大段正文。支持整文件、行区间、行列矩形、字符区间（互斥）。max_chars=0 表示读侧不截断。读编码用 encoding；写目标用 encoding_write。",
+      "purpose": "read_write：管道式从 source_path 读取片段写入 dest_path。默认 dry_run=true 预览；dry_run=false 必须传 preview 返回的 confirm_id，只需 dry_run=false + confirm_id 即可提交，不要传 source_path/dest_path 等参数。",
       "stdout_output": "{ok,data}",
       "args": [
         {
           "flag": "--source_path",
           "type": "string",
-          "required": true,
-          "description": "源文件路径。"
+          "required": false,
+          "description": "源文件路径。dry_run=true 预览时必传；dry_run=false（confirm_id 提交）时不要传。"
         },
         {
           "flag": "--dest_path",
           "type": "string",
-          "required": true,
-          "description": "目标文件路径。"
+          "required": false,
+          "description": "目标文件路径。dry_run=true 预览时必传；dry_run=false（confirm_id 提交）时不要传。"
         },
         {
           "flag": "--encoding",
@@ -1261,17 +1277,30 @@
             "execute"
           ],
           "description": "run_type=plan 时 read_write 禁止写 dest。"
+        },
+        {
+          "flag": "--confirm_id",
+          "type": "string",
+          "required": false,
+          "description": "仅对 dry_run=false（提交）有效。提交时只需传此参数 + dry_run=false，所有其他参数从预览存储恢复，不要传。预览时（dry_run=true）不需要此参数。"
         }
       ],
       "examples": [
         {
-          "title": "整文件复制",
-          "note": "等同 cp。",
+          "title": "预览整文件复制",
+          "note": "dry_run=true 预览，返回 confirm_id。",
           "args": {
             "source_path": "tpl/README.md",
             "dest_path": "docs/README.md",
-            "dry_run": false,
-            "run_type": "execute"
+            "dry_run": true
+          }
+        },
+        {
+          "title": "用 confirm_id 提交复制",
+          "note": "只需 confirm_id+dry_run=false，无需重复传路径。",
+          "args": {
+            "confirm_id": "<上一步返回的 confirm_id>",
+            "dry_run": false
           }
         },
         {
@@ -1286,15 +1315,14 @@
           }
         },
         {
-          "title": "字符切片",
-          "note": "导出 JSON 片段。",
+          "title": "预览字符切片",
+          "note": "dry_run=true 预览切片结果。",
           "args": {
             "source_path": "data.json",
             "dest_path": "head.json",
             "char_start": 0,
             "char_end": 4096,
-            "dry_run": false,
-            "run_type": "execute"
+            "dry_run": true
           }
         },
         {
@@ -1519,7 +1547,7 @@
           "flag": "--path",
           "type": "string",
           "required": false,
-          "description": "被修改的单个文件路径。confirm_id 模式下可省略——路径从预览存储恢复。"
+          "description": "被修改的单个文件路径。dry_run=true 预览时必传；dry_run=false（confirm_id 提交）时不要传。"
         },
         {
           "flag": "--old_text",
@@ -1695,7 +1723,7 @@
           "flag": "--confirm_id",
           "type": "string",
           "required": false,
-          "description": "dry_run=true 预览后返回的确认ID；传此参数时无需重复传编辑参数（old_text/new_text/line_start 等），工具从预览存储恢复。须配合 dry_run=false。"
+          "description": "仅对 dry_run=false（提交）有效。提交时只需传此参数 + dry_run=false，所有编辑参数从预览存储恢复，不要传。预览时（dry_run=true）不需要此参数。"
         }
       ],
       "examples": [
@@ -1721,15 +1749,22 @@
           }
         },
         {
-          "title": "区间覆盖",
-          "note": "来自 find_in_file 的 region。",
+          "title": "区间覆盖预览",
+          "note": "先 dry_run=true 预览拿 confirm_id。",
           "args": {
             "path": "x.py",
             "region_start": 120,
             "region_end": 180,
-            "new_text": "replacement_block\n",
-            "dry_run": false,
-            "run_type": "execute"
+            "new_text": "replacement_block\\n",
+            "dry_run": true
+          }
+        },
+        {
+          "title": "区间覆盖确认",
+          "note": "只传 confirm_id+dry_run=false。",
+          "args": {
+            "confirm_id": "<上一操作返回的 confirm_id>",
+            "dry_run": false
           }
         },
         {
@@ -1919,26 +1954,26 @@
     {
       "name": "apply_patch.py",
       "path": "tools/apply_patch.py",
-      "purpose": "apply_patch：将 unified diff 补丁应用到 path 根下的已有文件（不支持 add/rename 语义，仅更新）。patch_text 与 patch_file 二选一。默认 dry_run=true 校验与列出将变更文件，并返回 diff_text 供可视化预览。",
+      "purpose": "apply_patch：将 unified diff 补丁应用到 path 根下的已有文件。默认 dry_run=true 预览；dry_run=false 必须传 preview 返回的 confirm_id，只需 dry_run=false + confirm_id 即可提交，不要传 patch_text。",
       "stdout_output": "{ok,data:{path,changed_files,diff_text,...}}",
       "args": [
         {
           "flag": "--path",
           "type": "string",
-          "required": true,
-          "description": "补丁内路径相对的根目录。⚠️ 重要：--- 和 +++ 中的文件路径去除 a/ b/ 前缀后必须完全相同（指同一个已有文件）；不支持创建新文件或重命名，仅能修改已有文件内容。"
+          "required": false,
+          "description": "补丁内路径相对的根目录。dry_run=true 预览时必传；dry_run=false（confirm_id 提交）时不要传。⚠️ 重要：--- 和 +++ 中的文件路径去除 a/ b/ 前缀后必须完全相同（指同一个已有文件）；不支持创建新文件或重命名，仅能修改已有文件内容。"
         },
         {
           "flag": "--patch_text",
           "type": "string",
           "required": false,
-          "description": "补丁全文字符串。"
+          "description": "补丁全文字符串。dry_run=true 预览时必传；dry_run=false（confirm_id 提交）时不要传。"
         },
         {
           "flag": "--patch_file",
           "type": "string",
           "required": false,
-          "description": "补丁文件路径。"
+          "description": "补丁文件路径。dry_run=true 预览时必传（与 patch_text 二选一）；dry_run=false（confirm_id 提交）时不要传。"
         },
         {
           "flag": "--dry_run",
@@ -1962,6 +1997,12 @@
             "execute"
           ],
           "description": "run_type=plan 时 apply_patch 禁止应用。"
+        },
+        {
+          "flag": "--confirm_id",
+          "type": "string",
+          "required": false,
+          "description": "仅对 dry_run=false（提交）有效。提交时只需传此参数 + dry_run=false，所有其他参数从预览存储恢复，不要传。预览时（dry_run=true）不需要此参数。"
         }
       ],
       "examples": [
@@ -1984,13 +2025,20 @@
           }
         },
         {
-          "title": "应用",
-          "note": "Execute 下 false。",
+          "title": "预览补丁",
+          "note": "dry_run=true 预览差异，返回 confirm_id。",
           "args": {
             "path": ".",
             "patch_file": "fixes/001.diff",
-            "dry_run": false,
-            "run_type": "execute"
+            "dry_run": true
+          }
+        },
+        {
+          "title": "确认应用补丁",
+          "note": "只传 confirm_id+dry_run=false。",
+          "args": {
+            "confirm_id": "<上一步返回的 confirm_id>",
+            "dry_run": false
           }
         }
       ]

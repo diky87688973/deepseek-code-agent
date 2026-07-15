@@ -129,12 +129,7 @@ def case_06_review_and_cross_file():
         cid, "replace_in_file.py", {"path": "d.py", "dry_run": False, "new_text": "x"}
     )
     _assert(r and r["error"]["type"] == "HostQualityReviewPending", r)
-    hq.note_assistant_may_complete_review(cid, "随便 review 一下")
-    _assert(hq.get_quality_state(cid).reviewed_ok is False, "weak review should not clear")
-    hq.note_assistant_may_complete_review(
-        cid, "review结论：无遗漏引用，风格一致，无调试残留，边界与错误路径OK。"
-    )
-    _assert(hq.get_quality_state(cid).reviewed_ok is True, "explicit review should clear")
+    hq.mark_review_done(cid)
     r = hq.check_pre_write_quality(
         cid, "replace_in_file.py", {"path": "d.py", "dry_run": False, "new_text": "x"}
     )
@@ -331,7 +326,8 @@ def case_12_real_replace_fingerprint_and_postwrite():
     good["dry_run"] = False
     r = hq.check_pre_write_quality(cid, "replace_in_file.py", good)
     _assert(r is None, r)
-    committed = rif.agent_main(**good)
+    cid_confirm = (prev.get("data") or {}).get("confirm_id", "")
+    committed = rif.agent_main(confirm_id=cid_confirm, dry_run=False)
     _assert(committed.get("ok") is True, committed)
     attached = hq.attach_host_quality_to_write_result(cid, str(fp), committed)
     _assert((attached.get("data") or {}).get("host_quality"), attached)
@@ -367,10 +363,7 @@ def case_14_ephemeral_claim_review():
     _assert(hq.build_post_write_quality_messages(cid, {str(fp): "t"}) == [], "no system dump")
     hq.note_assistant_claim_fixed(cid, "修复完成，已修复")
     _assert(hq.get_quality_state(cid).claim_fixed_blocked is True, "flag only, no message")
-    hq.note_assistant_may_complete_review(
-        cid, "review结论：①无遗漏 ②风格一致 ③无调试残留 ④边界OK ⑤单文件无需交叉。"
-    )
-    _assert(hq.get_quality_state(cid).reviewed_ok is True, "review should be done")
+    hq.mark_review_done(cid)
     # agent_turn 不得再拼 ephemeral
     from agent_v4.core import agent_turn as at
     src = Path(at.__file__).read_text(encoding="utf-8")
@@ -437,11 +430,8 @@ def case_17_review_red_no_deadlock_and_dest_path():
     st = hq.get_quality_state(cid)
     _assert(st.pending_diagnose_red is True, st)
     _assert(st.fixable_paths, st.fixable_paths)
-    hq.note_assistant_may_complete_review(
-        cid, "review结论：结构仍有问题，将继续修复语法错误，暂不扩大改动。"
-    )
+    hq.mark_review_done(cid)
     st = hq.get_quality_state(cid)
-    _assert(st.reviewed_ok is True, st)
     _assert(st.pending_diagnose_red is True, "red should remain")
     # 同文件应可继续改
     hq.note_evidence_tool(cid, "read_file.py", {"path": str(bad)}, {"ok": True})

@@ -31,6 +31,12 @@ class TestReplaceInFileRaw(unittest.TestCase):
                 old_text='MSG = "ok"',
                 new_text='MSG = "line1\nline2"',
                 raw=True,
+                dry_run=True,
+            )
+            self.assertTrue(r.get("ok"), r)
+            cid = (r.get("data") or {}).get("confirm_id", "")
+            r = replace_in_file.agent_main(
+                confirm_id=cid,
                 dry_run=False,
             )
             self.assertTrue(r.get("ok"), r)
@@ -64,6 +70,13 @@ class TestReplaceInFileRaw(unittest.TestCase):
                 path=str(fp),
                 old_text="alpha",
                 new_text="beta",
+                dry_run=True,
+                backup=True,
+            )
+            self.assertTrue(r.get("ok"), r)
+            cid = (r.get("data") or {}).get("confirm_id", "")
+            r = replace_in_file.agent_main(
+                confirm_id=cid,
                 dry_run=False,
                 backup=True,
             )
