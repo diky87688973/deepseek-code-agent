@@ -6,8 +6,8 @@
 
     model = "glm-5.2"
     p = get_provider(model)              # → "glm"
-    url = provider_api_base_url(p)      # → 从配置读取的 GLM base_url
-    key = provider_api_key(p)           # → 从配置读取的 GLM api_key
+    url = provider_api_base_url(p)      # → 从 [model_vision] 读取 base_url
+    key = provider_api_key(p)           # → 从 [model_vision] 读取 api_key
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ def _chat_completions_url(base: str, provider: str) -> str:
     """按 provider 拼接 chat/completions 完整 URL。
 
     - DeepSeek 官方基址为 https://api.deepseek.com → .../v1/chat/completions
-    - 智谱 GLM 基址已含 /v4 → .../v4/chat/completions
+    - GLM 视觉模型基址已含 /v4 → .../v4/chat/completions
     - local_model 代理暴露 /v1/chat/completions
     """
     b = str(base or "").strip().rstrip("/")
@@ -120,7 +120,7 @@ def provider_api_key(provider: str) -> str:
             return ""
         raise ValueError(
             f"Provider {provider!r} 的 api_key 未配置。"
-            f"请在 config.ini 中设置对应节。"
+            f"请在 config.ini 的 [model_reasoning] 或 [model_vision] 中设置对应字段。"
         )
     return key
 

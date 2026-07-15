@@ -94,11 +94,16 @@ class _InlineProgressWriter(io.TextIOBase):
 
 
 def _forbid_inline_search(code: str) -> bool:
-    """禁止在胶水代码里直接调用搜索工具、base64 编解码或绕过 kling API。"""
+    """禁止在胶水代码里直接调用搜索工具、写文件操作、base64 编解码或绕过 kling API。"""
     s = code or ""
     if re.search(r"\bfile_search\s*\(", s) or re.search(r"\bgrep_files\s*\(", s):
         return True
     if re.search(r"\bbase64\s*\.\s*(b64decode|b64encode|decode|encode)\s*\(", s):
+        return True
+    # 禁止写文件操作——代码编辑必须走 write_file / replace_in_file / apply_patch
+    if re.search(r"\.write_text\s*\(", s) or re.search(r"\.write_bytes\s*\(", s):
+        return True
+    if re.search(r"\bopen\s*\([^)]*['\"]w", s):
         return True
     _kling_pats = [
         "api-beijing.klingai.com",
@@ -141,8 +146,8 @@ def agent_main(
                 "error": {
                     "type": "Forbidden",
                     "message": (
-                        "禁止在 python_inline 中使用 file_search/grep_files/base64！"
-                        "搜索类工具请用对应 function call，base64 嵌入图片浪费 token 且导致对话中断。"
+                        "禁止在 python_inline 中调用搜索/写文件/base64 操作！"
+                        "搜索类工具请用对应 function call，代码编辑必须走 write_file / replace_in_file / apply_patch。"
                     ),
                 },
             }

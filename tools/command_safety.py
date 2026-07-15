@@ -147,12 +147,24 @@ def _check_command_blacklist(command: str) -> Optional[str]:
                 f"禁止通过 run_command/python_inline 直接调用可灵 API。\n"
                 f"请使用 kling_generate 工具并走用户确认流程后生成。"
             )
+    # 内容层面拦截：禁止用命令编辑项目源码文件（echo/sed/awk/tee 等定向写入）
+    _SRC_EXTS = r"\.(py|json|md|ts|js|html|css|java|txt|ini|cfg|toml|ya?ml|xml|bat|sh|ps1)"
+    if re.search(r"[|>]\s*\S*" + _SRC_EXTS, command):
+        return (
+            "命令黑名单拦截：命令中包含对源码文件的写入操作。\n"
+            "禁止通过 run_command 用 echo/sed/awk/tee 等命令直接修改项目源代码文件。\n"
+            "代码编辑必须走 write_file / replace_in_file / apply_patch 工具。"
+        )
+    if re.search(r"\bsed\s+-i", command) and re.search(_SRC_EXTS, command):
+        return (
+            "命令黑名单拦截：禁止用 sed -i 直接修改源码文件。\n"
+            "请使用 replace_in_file 工具做文件内替换。"
+        )
     for blk in sorted(_CMD_BLACKLIST, key=len, reverse=True):
         if " " in blk and command.strip().lower().startswith(blk):
             advice = _BLACKLIST_ADVICE.get(blk, "禁止使用此命令")
             return f"命令黑名单拦截：'{blk}' 是禁止的删除/毁灭性命令。\n{advice}"
     return None
-
 
 def _decode_output(raw: Union[bytes, str, None]) -> str:
     if raw is None:

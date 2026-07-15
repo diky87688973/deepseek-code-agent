@@ -10,6 +10,8 @@ app = create_app()
 
 
 def main() -> None:
+    import os
+    import signal
     import sys
 
     import uvicorn
@@ -23,15 +25,18 @@ def main() -> None:
         sys.exit(1)
     if not _core._chat_api_key_available():
         print(
-            "⚠️  WARNING: API Key 未配置或为空！请在 config.ini 的 [model] 节设置 api_key 或环境变量 CHAT_API_KEY",
+            "⚠️  WARNING: API Key 未配置或为空！请在 config.ini 的 [model_reasoning] 节设置 api_key 或环境变量 CHAT_API_KEY",
             file=sys.stderr,
             flush=True,
         )
+
+    signal.signal(signal.SIGINT, lambda sig, frame: os._exit(0))
+
     uvicorn.run(
         app,
         host=_core.AGENT_CONFIG["AGENT_SERVER_HOST"],
         port=int(port_str),
-        timeout_graceful_shutdown=5,
+        timeout_graceful_shutdown=0,
     )
 
 

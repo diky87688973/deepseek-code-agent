@@ -22,8 +22,8 @@ from typing import Any, Dict, List, Optional
 
 # ── INI section.key → 内部 AGENT_* 键名映射 ──
 INI_TO_AGENT_MAP: Dict[str, str] = {
-    "model.api_base_url": "AGENT_MODEL_API_BASE_URL",
-    "model.api_key": "AGENT_MODEL_API_KEY",
+    "model_reasoning.api_base_url": "AGENT_MODEL_API_BASE_URL",
+    "model_reasoning.api_key": "AGENT_MODEL_API_KEY",
     "server.port": "AGENT_SERVER_PORT",
     "server.host": "AGENT_SERVER_HOST",
     "workspace.dir": "AGENT_WORKSPACE_DIR",
@@ -68,12 +68,12 @@ INI_TO_AGENT_MAP: Dict[str, str] = {
     "misc.extra_headers_json": "AGENT_EXTRA_HEADERS_JSON",
     "misc.pricing_page_url": "AGENT_PRICING_PAGE_URL",
     "model.allowed_models": "AGENT_ALLOWED_MODELS",
-    "model.default_model": "AGENT_DEFAULT_MODEL",
+    "model_reasoning.default_model": "AGENT_DEFAULT_MODEL",
     "model.model_context_tokens_json": "AGENT_MODEL_CONTEXT_TOKENS_JSON",
-    "model.vision_model": "AGENT_VISION_MODEL",
-    "model.attachment_public_base_url": "AGENT_ATTACHMENT_PUBLIC_BASE_URL",
-    "model_glm.api_base_url": "AGENT_MODEL_GLM_API_BASE_URL",
-    "model_glm.api_key": "AGENT_MODEL_GLM_API_KEY",
+    "model_vision.default_model": "AGENT_VISION_MODEL",
+    "model_vision.attachment_public_base_url": "AGENT_ATTACHMENT_PUBLIC_BASE_URL",
+    "model_vision.api_base_url": "AGENT_MODEL_GLM_API_BASE_URL",
+    "model_vision.api_key": "AGENT_MODEL_GLM_API_KEY",
     "model_local.base_url": "AGENT_LOCAL_MODEL_BASE_URL",
     "model_local.api_key": "AGENT_LOCAL_MODEL_API_KEY",
     "kling.api_key": "AGENT_KLING_API_KEY",
@@ -170,7 +170,12 @@ def _read_ini(path: Path) -> Dict[str, Any]:
     cp.read(path, encoding="utf-8")
 
     result: Dict[str, Any] = {}
+    # 黑名单：这些节由独立模块自行读取（如 multimodal_proxy.py），config_loader 不负责识别
+    # 如需新增，直接追加节名到此集合即可
+    _IGNORED_SECTIONS = frozenset({"multimodal_proxy"})
     for section in cp.sections():
+        if section in _IGNORED_SECTIONS:
+            continue
         for key, value in cp.items(section):
             agent_key = INI_TO_AGENT_MAP.get(f"{section}.{key}")
             if agent_key is None:
@@ -277,7 +282,7 @@ def load_config(verbose: bool = True) -> Dict[str, Any]:
                 elif shown and shown != "(未设置)":
                     shown = "****"
             ini_ref = AGENT_TO_INI_MAP.get(cfg_key, cfg_key)
-            print(f"    {cfg_key} ← config.{ini_ref} | env[{env_key}] = {shown}", flush=True)
+            print(f"    {cfg_key:35s} ← config.{ini_ref:35s} | env[{env_key:27s}] = {shown}", flush=True)
 
     return result
 

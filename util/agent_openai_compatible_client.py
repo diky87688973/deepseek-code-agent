@@ -2,7 +2,7 @@
 """OpenAI-compatible chat completions client (POST .../v1/chat/completions, SSE data: lines).
 
 Use any gateway that follows the OpenAI chat completions + streaming shape used by this agent.
-Configure via config.ini [model] api_key / api_base_url, or env CHAT_API_KEY / CHAT_API_BASE_URL.
+Configure via config.ini [model_reasoning] api_key / api_base_url, or env CHAT_API_KEY / CHAT_API_BASE_URL.
 """
 
 from __future__ import annotations
@@ -76,14 +76,14 @@ def _map_upstream_http_for_client(status_code: int, body: str, *, base_url: str,
 def chat_api_base_url() -> str:
     v = str(_AGENT_CONFIG.get("AGENT_MODEL_API_BASE_URL") or "").strip().rstrip("/")
     if not v:
-        raise ValueError("AGENT_MODEL_API_BASE_URL 未设置！请在 config.ini 的 [model] 节配置 api_base_url 或设置环境变量 CHAT_API_BASE_URL")
+        raise ValueError("AGENT_MODEL_API_BASE_URL 未设置！请在 config.ini 的 [model_reasoning] 节配置 api_base_url 或设置环境变量 CHAT_API_BASE_URL")
     return v
 
 
 def chat_api_key() -> str:
     v = str(_AGENT_CONFIG.get("AGENT_MODEL_API_KEY") or "").strip()
     if not v:
-        raise ValueError("AGENT_MODEL_API_KEY 未设置！请在 config.ini 的 [model] 节配置 api_key 或设置环境变量 CHAT_API_KEY")
+        raise ValueError("AGENT_MODEL_API_KEY 未设置！请在 config.ini 的 [model_reasoning] 节配置 api_key 或设置环境变量 CHAT_API_KEY")
     return v
 
 

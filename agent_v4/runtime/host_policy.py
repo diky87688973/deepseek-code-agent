@@ -48,6 +48,9 @@ def _check_write_preview(
     if dr is True or dr == 1 or str(dr).strip().lower() in ("1", "true"):
         # 仅放行预览调用；previewed_files 须等工具成功返回后再记（见 agent_runtime）
         return None
+    # confirm_id 模式下跳过预览指纹检查——质量门控层会验证 confirm_id 有效性
+    if exec_args.get("confirm_id"):
+        return None
     if path in previewed_files:
         return None
     return {

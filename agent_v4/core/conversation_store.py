@@ -113,7 +113,7 @@ def _enrich_tool_error_message(script_name: str, message: str) -> str:
     low = message.lower()
     if "\n--help:\n" in message or "usage:" in low or "optional arguments:" in low or "options:" in low:
         return message
-    h = _subprocess_cli_help(script_name)
+    h = _subprocess_tool_help(script_name)
     if not h:
         return message
     return f"{message}\n\n--help:\n{h}"
@@ -229,7 +229,6 @@ def _intent_tool_hints(key_lower: str, names: List[str]) -> List[str]:
             "dir_list",
             "list_dir",
             "folder",
-            "cli_directory",
             "ls",
         )
     ):
@@ -244,7 +243,6 @@ def _intent_tool_hints(key_lower: str, names: List[str]) -> List[str]:
             "substitute",
             "sed",
             "rewrite",
-            "cli_find",
         )
     ):
         for c in ("replace_in_file", "read_write", "apply_patch", "write_file"):
@@ -408,7 +406,7 @@ def _session_date_group_from_path(fp: Path) -> str:
     parent = fp.parent.name
     return parent if re.match(r"^\d{4}-\d{2}-\d{2}$", parent) else ""
 
-def _subprocess_cli_help(script_name: str) -> str:
+def _subprocess_tool_help(script_name: str) -> str:
     """历史名：现仅从 catalog 取 tool_help，不再调用工具 main/--help。"""
     try:
         from agent_v4.core.tool_runtime import _capture_tool_help_from_catalog
@@ -435,7 +433,7 @@ def _unknown_tool_result(api_name: Any, script_by_api: Dict[str, str]) -> dict:
             close = difflib.get_close_matches(key[:-1], names, n=5, cutoff=0.45)
         for c in close[:1]:
             scr = script_by_api.get(c) or ""
-            h = _subprocess_cli_help(scr) if scr else ""
+            h = _subprocess_tool_help(scr) if scr else ""
             if h:
                 lines.extend(["", f"与 {key!r} 最接近的已注册名称：{c!r}（脚本 {scr}），该脚本 --help：", h])
                 break

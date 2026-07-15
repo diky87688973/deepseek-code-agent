@@ -1512,14 +1512,14 @@
     {
       "name": "replace_in_file.py",
       "path": "tools/replace_in_file.py",
-      "purpose": "【单文件 find-replace】OpenAI function 名固定为 replace_in_file——即本工具完成 URL/文本片段替换；禁止 cli_find_replace、search_replace 等臆造名。find_in_file 仅只读定位，不负责写回。模式 A：old_text+new_text 字面替换（可 replace_all、expected_replacements；JSON 含真实换行却要写入源码字面 \\n 时 raw=true）。模式 B：region / 行列矩形替换。模式 C：rules 数组多条顺序替换。EXECUTE 真写须 dry_run=false（或 run_type execute）。备份用 backup:true。",
+      "purpose": "【单文件 find-replace】OpenAI function 名固定为 replace_in_file——即本工具完成 URL/文本片段替换；禁止 search_replace 等臆造名。find_in_file 仅只读定位，不负责写回。模式 A：old_text+new_text 字面替换。模式 B：region / 行列矩形替换。模式 C：rules 数组多条顺序替换。模式 D：confirm_id 两步提交——先 dry_run=true 预览拿 confirm_id，再仅传 confirm_id+dry_run=false 提交，无需重复编辑参数。备份用 backup:true。",
       "stdout_output": "{ok,data:{diff_text,replacements,counts_per_rule,...}}",
       "args": [
         {
           "flag": "--path",
           "type": "string",
-          "required": true,
-          "description": "被修改的单个文件路径。"
+          "required": false,
+          "description": "被修改的单个文件路径。confirm_id 模式下可省略——路径从预览存储恢复。"
         },
         {
           "flag": "--old_text",
@@ -1690,6 +1690,12 @@
             "execute"
           ],
           "description": "run_type=plan 时 replace_in_file 禁止写盘。"
+        },
+        {
+          "flag": "--confirm_id",
+          "type": "string",
+          "required": false,
+          "description": "dry_run=true 预览后返回的确认ID；传此参数时无需重复传编辑参数（old_text/new_text/line_start 等），工具从预览存储恢复。须配合 dry_run=false。"
         }
       ],
       "examples": [

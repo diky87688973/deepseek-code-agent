@@ -1145,7 +1145,7 @@ def maybe_attach_write_tool_host_dry_run_notice(
     out["data"] = out_data
     return out
 
-def normalize_cli_args(raw: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_tool_args(raw: Dict[str, Any]) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     for k, v in raw.items():
         key = str(k)

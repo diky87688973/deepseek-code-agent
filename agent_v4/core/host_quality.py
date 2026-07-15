@@ -34,8 +34,9 @@ _TROUBLESHOOT_RE = re.compile(
     r"(排查|根因|为什么|怎么回事|分析原因|多角度|从哪查)",
     re.I,
 )
+# (?![ntr]) 防止将字面 \n \t \r 误判为 Windows 路径分隔符（已修复 ✓✓）
 _STACK_FILE_RE = re.compile(
-    r"""(?:File\s+[\"']([^\"']+)[\"']|([A-Za-z]:[\\/][^\s:,]+|/[^\s:,]+))(?::|,?\s*line\s+)(\d+)""",
+    r"""(?:File\s+["']([^"']+)["']|([A-Za-z]:[\\/](?![ntr])[^\s:,]+|/[^\s:,]+))(?::|,?\s*line\s+)(\d+)""",
     re.I,
 )
 _DEF_RE = re.compile(
@@ -83,7 +84,7 @@ def reset_quality_turn_flags(cid: str) -> None:
 
 
 def _resolve_write_path(args: Optional[dict], result: Optional[dict] = None) -> str:
-    """统一解析写路径：path / dest_path / data.path / data.dest_path。"""
+    """统一解析写路径：path / dest_path / data.path / data.dest_path / confirm_id 存储。"""
     args = args or {}
     data = {}
     if isinstance(result, dict) and isinstance(result.get("data"), dict):
@@ -95,6 +96,16 @@ def _resolve_write_path(args: Optional[dict], result: Optional[dict] = None) -> 
         or data.get("dest_path")
         or ""
     )
+    # confirm_id 模式下从存储取 path（模型可不传 path）
+    if not raw and args.get("confirm_id"):
+        try:
+            from agent_v4.live_state import _CONFIRM_IDS as _cids, _CONFIRM_LOCK as _lock
+            with _lock:
+                info = _cids.get(str(args["confirm_id"]).strip())
+                if info and info.get("params"):
+                    raw = info["params"].get("path", "")
+        except Exception:
+            pass
     return _norm_path(str(raw).strip())
 
 
@@ -121,6 +132,11 @@ def detect_and_update_intent(cid: str, user_text: str) -> QualityState:
         st.lenses_injected = False
         st.stack_addressed = False
         st.stack_targets = stacks
+    else:
+        # 非调试/排查意图：清空残留栈标记，防止上轮误判泄露到本轮
+        st.intent = ""
+        st.stack_targets = []
+        st.stack_addressed = False
     return st
 
 
@@ -313,7 +329,8 @@ def check_pre_write_quality(
             pass
 
     # P1: 预览指纹绑定（真写参数须与最近成功 dry_run 一致）
-    if real and path and script in ("replace_in_file.py", "write_file.py", "read_write.py"):
+    # confirm_id 模式下跳过指纹检查——存储的参数已在工具层恢复，模型不传编辑参数故指纹必不匹配
+    if real and path and script in ("replace_in_file.py", "write_file.py", "read_write.py") and not args.get("confirm_id"):
         fp_now = _args_fingerprint(script, args)
         prev_list = st.preview_fp.get(path, [])
         if prev_list and fp_now not in prev_list:

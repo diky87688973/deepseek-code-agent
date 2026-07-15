@@ -87,10 +87,10 @@ def audit_tools():
         cdefs = set(_defs(csrc))
         lost = sorted(bdefs - cdefs)
         # CLI-only helpers intentionally removed with main/build_parser
-        cli_only_ok = {
+        tool_only_ok = {
             "python_inline.py": {"_emit_envelope_file_and_stdout"},
         }
-        lost = [x for x in lost if x not in cli_only_ok.get(name, set())]
+        lost = [x for x in lost if x not in tool_only_ok.get(name, set())]
         if lost:
             fail("%s lost symbols vs bak: %s" % (name, lost))
         if name in catalog_names or name in (

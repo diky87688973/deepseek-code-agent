@@ -218,7 +218,7 @@ def _detect_replace_modes(
 
 def agent_main(
     *,
-    path: str,
+    path: str = "",
     old_text: Optional[str] = None,
     new_text: Optional[str] = None,
     rules: Optional[list] = None,
@@ -238,6 +238,7 @@ def agent_main(
     raw: bool = False,
     restrict_to_workspace: bool = False,
     run_type: str = "",
+    confirm_id: str = "",
 ) -> dict:
     try:
         if rules is not None and isinstance(rules, str):
@@ -253,6 +254,30 @@ def agent_main(
         want_write = not dry_run
         if want_write and rt == "plan":
             return {"ok": False, "data": None, "error": {"type": "ModeConflict", "message": "当前为 Plan 模式，不允许写文件"}}
+
+        # ── confirm_id 模式：从预览存储的参数恢复，模型只需传 confirm_id + dry_run=false ──
+        if confirm_id:
+            from agent_v4.live_state import consume_confirm_id
+            stored = consume_confirm_id(str(confirm_id).strip())
+            if stored is None:
+                return {"ok": False, "data": None, "error": {"type": "InvalidConfirmId", "message": "confirm_id 无效或已过期，请重新 dry_run=true 预览"}}
+            sp = stored.get("params", {})
+            # 从存储恢复所有编辑参数（模型传入的同名参数被覆盖）
+            path = sp.get("path", path)
+            old_text = sp.get("old_text")
+            new_text = sp.get("new_text")
+            rules = sp.get("rules")
+            regions = sp.get("regions")
+            line_ranges = sp.get("line_ranges")
+            region_start = sp.get("region_start")
+            region_end = sp.get("region_end")
+            line_start = sp.get("line_start")
+            line_end = sp.get("line_end")
+            start_column = sp.get("start_column")
+            end_column = sp.get("end_column")
+            replace_all = sp.get("replace_all", True)
+            # confirm_id 隐含用户已审核预览，强制写入
+            dry_run = False
 
         mode = _detect_replace_modes(
             old_text=old_text,
@@ -468,6 +493,26 @@ def agent_main(
             )
 
         if dry_run or new_body == original:
+            # 生成 confirm_id 供后续免参数提交
+            _confirm_id = ""
+            if dry_run:
+                from agent_v4.live_state import create_confirm_id, mark_confirmed
+                _confirm_id = create_confirm_id("replace_in_file", {
+                    "path": str(fp),
+                    "old_text": old_text,
+                    "new_text": new_text,
+                    "rules": rules,
+                    "regions": regions,
+                    "line_ranges": line_ranges,
+                    "region_start": region_start,
+                    "region_end": region_end,
+                    "line_start": line_start,
+                    "line_end": line_end,
+                    "start_column": start_column,
+                    "end_column": end_column,
+                    "replace_all": replace_all,
+                })
+                mark_confirmed(_confirm_id)
             return ac.ok(
                 {
                     "path": str(fp),
@@ -480,6 +525,7 @@ def agent_main(
                     "written": False,
                     "backup_path": None,
                     "mod_id": None,
+                    "confirm_id": _confirm_id,
                     "warnings": warnings,
                     "diff_text": diff_text[:16000] + ("…" if len(diff_text) > 16000 else ""),
                 }

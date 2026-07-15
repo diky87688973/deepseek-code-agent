@@ -138,7 +138,7 @@ def _shorthand_allowed_in_context(token: str, ctx: str) -> bool:
         return True
     if token == "write" and ("write_file" in ctx or "read_write" in ctx):
         return True
-    if token == "find" and ("find_in_file" in ctx or "find-replace" in ctx or "cli_find" in ctx):
+    if token == "find" and ("find_in_file" in ctx or "find-replace" in ctx):
         return True
     if token == "delete" and ("delete_file" in ctx or "action=delete" in ctx):
         return True

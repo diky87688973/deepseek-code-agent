@@ -139,7 +139,9 @@ pip install edge-tts
 
 ```text
 deepseek-code-agent/
-├── deepseek_code_agent.py      # 当前入口（FastAPI → agent_v4）
+├── multimodal_proxy.py         # 多模态代理服务（Cursor 接入，独立进程）
+├── deepseek_code_agent.py      # 直接启动入口
+├── main_tray.py                # 系统托盘启动入口（Windows 任务栏图标）
 ├── agent_v4/                   # 宿主：HTTP、core 子模块、live_state
 ├── scripts/run_layer0.py       # 回归 Layer 0 一键门禁
 ├── 回归测试方案.md             # 发版/重构后回归（Layer 0～2）
@@ -156,7 +158,7 @@ deepseek-code-agent/
 │   ├── js/                     # 前端 JS
 │   ├── img/                    # 截图资源
 │
-├── tools/                      # 内置工具（catalog 38 个 function）
+├── tools/                      # 内置工具（catalog 39 个 function）
 │   ├── read_file.py / write_file.py
 │   ├── grep_files.py / glob_files.py
 │   ├── run_command.py / python_inline.py
@@ -172,19 +174,101 @@ deepseek-code-agent/
 
 ---
 
-## ⚙️ 配置说明
+## 🔌 多模态代理服务（Cursor 接入）
+
+`multimodal_proxy.py` 是一个独立的代理服务，作为 Cursor IDE 与 AI 模型之间的桥梁，提供 OpenAI 兼容 API。
+
+### 启动
+
+```bash
+cd code-web-agent
+python multimodal_proxy.py
+```
+
+默认监听 `http://127.0.0.1:18802`。如需 ngrok 内网穿透供 Cursor 云端访问：
+
+```bash
+ngrok http 18802
+```
+
+### 配置
 
 ```ini
-[model]
-api_key = sk-你的API密钥
+[multimodal_proxy]
+api_key = 123                        # Cursor 配置的 API Key
+port = 18802                         # 监听端口
+bind = 127.0.0.1                     # 绑定地址
+debug_log = true                     # 是否打印 SSE 日志
+
+[model_reasoning]
+# 推理模型（DeepSeek）
+api_base_url = https://api.deepseek.com
+api_key = sk-你的DeepSeek密钥
+default_model = deepseek-v4-flash
+
+[model_vision]
+# 视觉模型（GLM-5V，用于图片分析）
+api_base_url = https://open.bigmodel.cn/api/paas/v4
+api_key = 你的智谱API密钥
+default_model = glm-5v-turbo
+```
+
+### Cursor 配置
+
+1. Cursor Settings → Models → 开启自定义端点
+2. **Override OpenAI Base URL**: `http://127.0.0.1:18802/v1`（或 ngrok 公网地址）
+3. **API Key**: 与 `config.ini` 中 `[multimodal_proxy].api_key` 一致
+4. **模型名**: 填写 `deepseek-v4-flash`（代理会忽略实际模型名，使用自身配置）
+
+### 功能说明
+
+- **纯文本聊天**: 走 DeepSeek 流式推理，支持思考过程显示
+- **图片分析**: 上传截图或图片后，自动调用 GLM-5V 视觉模型分析
+- **工具调用**: 透传 Cursor 的工具定义（Read/Write/Shell 等），DeepSeek 可执行
+- **思考过程**: 流式返回 `reasoning_content` 字段，Cursor 识别后显示为思考面板
+
+### 图片限制
+
+单次最多 4 张图片，超出返回错误。
+
+---
+
+## ⚙️ 配置说明
+
+
+```ini
+[model_reasoning]
+api_key = sk-你的API密钥          # DeepSeek API 密钥（必填）
+default_model = deepseek-v4-flash
 
 [server]
+host = 127.0.0.1
 port = 8801
 
+[workspace]
+dir = D:/AI_DATA_ROOT/workspace    # 工作区根目录
+
+[knowledge_base]
+dir = D:/AI_DATA_ROOT/knowledge_base  # 知识库文件目录
+
+[context]
+max_tool_rounds = 500               # 每轮工具调用次数上限
+
+[kling]
+api_key = xxx                       # 可灵 AI 视频生成
+secret_key = xxx
+
+[dreamina]
+cli_path =                          # 即梦 CLI 路径（留空自动查找）
+
+[agent]
+name_pool = 小明,小红,张三...       # Agent 名字池
+user_rules_file = user_rules.md     # 用户自定义规则
+
 [tts]
-engine = edge          # console=静默 / edge=语音
+enabled = false                     # 语音朗读开关
+engine = edge                       # console=静默 / edge=语音
 voice = zh-CN-XiaoxiaoNeural
-enabled = false        # 默认关闭，改为 true 开机自动语音
 ```
 
 完整配置说明见 `config.ini`。
