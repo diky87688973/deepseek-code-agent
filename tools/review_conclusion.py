@@ -22,7 +22,8 @@ def agent_main(
         fn = str(file_name or "").strip()
         if not fn:
             return ac.err(ValueError("file_name 必填：请填写本次 review 涉及的一个或多个文件名，多个用逗号分隔。"))
-        if len(text) < 30:
+        cancel = str(cancel_preview or "").strip().lower() in ("true", "1", "yes")
+        if not cancel and len(text) < 30:
             return ac.err(
                 ValueError(
                     "结论至少 30 字，必须给出真实验证结果与证据，不能只写「验证通过」。"
