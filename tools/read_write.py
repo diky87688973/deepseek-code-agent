@@ -25,6 +25,7 @@ def agent_main(
     max_chars: int = 0,
     dry_run: bool = True,
     create_only: bool = False,
+    backup: bool = True,
     restrict_to_workspace: bool = False,
     run_type: str = "",
     confirm_id: str = "",
@@ -42,10 +43,33 @@ def agent_main(
         if want_write and not confirm_id:
             return {"ok": False, "data": None, "error": {"type": "ConfirmIdRequired", "message": "dry_run=false 必须传 confirm_id：请先 dry_run=true 预览，再用返回的 confirm_id 提交。"}}
 
+        # ── confirm_id 模式校验：检测模型是否同时传了编辑参数 ──
+        _EDIT_KEYS = ["source_path", "dest_path", "encoding", "encoding_write",
+                      "line_start", "line_end", "start_column", "end_column",
+                      "char_start", "char_end", "max_chars", "create_only",
+                      "restrict_to_workspace"]
+        _EDIT_VALS = {k: v for k, v in locals().items() if k in _EDIT_KEYS}
+        _DEFAULTS = {"source_path": "", "dest_path": "", "encoding": "utf-8",
+                     "encoding_write": "", "max_chars": 0,
+                     "restrict_to_workspace": False, "create_only": False}
+        if confirm_id and not dry_run:
+            _extra = [k for k, v in _EDIT_VALS.items()
+                      if v is not None and v != _DEFAULTS.get(k) and v != [] and v != {}]
+            if _extra:
+                return {"ok": False, "data": None, "error": {
+                    "type": "BadToolArguments",
+                    "message": "确认提交模式（dry_run=false + confirm_id）不接受编辑参数。"
+                               f"你同时传了 confirm_id 和以下参数：{', '.join(_extra)}。"
+                               "请只传 confirm_id + dry_run=false，编辑参数从预览存储自动恢复。",
+                }}
+
         # ── confirm_id 模式：从预览存储恢复参数 ──
         if confirm_id:
-            from agent_v4.live_state import consume_confirm_id
-            stored = consume_confirm_id(str(confirm_id).strip())
+            from agent_v4.live_state import consume_confirm_id, confirm_id_needs_review
+            cid_str = str(confirm_id).strip()
+            if confirm_id_needs_review(cid_str):
+                return {"ok": False, "data": None, "error": {"type": "DiffReviewRequired", "message": "请先调用 review_conclusion(confirm_id=...) 提交 diff review 结论后，再 dry_run=false 提交。"}}
+            stored = consume_confirm_id(cid_str)
             if stored is None:
                 return {"ok": False, "data": None, "error": {"type": "InvalidConfirmId", "message": "confirm_id 无效或已过期，请重新 dry_run=true 预览"}}
             sp = stored.get("params", {})
@@ -62,7 +86,7 @@ def agent_main(
             max_chars = sp.get("max_chars", max_chars)
             create_only = sp.get("create_only", create_only)
             restrict_to_workspace = sp.get("restrict_to_workspace", restrict_to_workspace)
-            dry_run = False  # confirm_id 隐含用户已审核预览，强制写入
+            dry_run = False  # confirm_id 隐含已审查，强制写入
 
         enc_w = (encoding_write or encoding).strip() or "utf-8"
         r = _read_main(
@@ -93,7 +117,9 @@ def agent_main(
             raise FileExistsError(f"create_only：文件已存在 {fp}")
 
         if dry_run:
-            # 预览：用 _write_main 生成 diff，但不落盘
+            from agent_v4.live_state import create_confirm_id, has_pending_confirm_for_path
+            if (source_path and has_pending_confirm_for_path(str(source_path))) or (dest_path and has_pending_confirm_for_path(str(dest_path))):
+                return {"ok": False, "data": None, "error": {"type": "PendingPreviewExists", "message": "该文件已有未提交的预览，请先 review_conclusion(confirm_id=..., cancel_preview=True) 取消，或 review_conclusion(confirm_id=...) 提交后再操作。"}}
             w = _write_main(
                 path=dest_path,
                 content=content,
@@ -107,14 +133,11 @@ def agent_main(
                 return w
             data_out = w.get("data") or {}
 
-            # 生成 confirm_id 供后续免参数提交
-            _confirm_id = ""
-            from agent_v4.live_state import create_confirm_id, mark_confirmed
             _confirm_id = create_confirm_id("read_write", {
                 "source_path": source_path,
                 "dest_path": dest_path,
                 "encoding": encoding,
-                "encoding_write": enc_w,
+                "encoding_write": encoding_write,
                 "line_start": line_start,
                 "line_end": line_end,
                 "start_column": start_column,
@@ -124,8 +147,7 @@ def agent_main(
                 "max_chars": max_chars,
                 "create_only": create_only,
                 "restrict_to_workspace": restrict_to_workspace,
-            })
-            mark_confirmed(_confirm_id)
+            }, require_diff_review=True)
 
             return ac.ok({
                 "source_path": str(data_in.get("path", source_path)),
@@ -143,7 +165,15 @@ def agent_main(
             })
 
         # 真写：直接落盘，不调 _write_main（避免 ConfirmIdRequired 冲突）
+        mod_id: Optional[str] = None
+        if backup and existed:
+            original = ac.read_file_text(fp, enc_w)
+            mod_id = ac.create_file_backup(
+                fp, original, enc_w, "read_write", ""
+            )
         ac.write_unicode_file(fp, content, encoding=enc_w)
+        from agent_v4.live_state import invalidate_confirm_ids_for_path
+        invalidate_confirm_ids_for_path(str(fp))
         return ac.ok({
             "source_path": str(data_in.get("path", source_path)),
             "dest_path": str(fp),
@@ -155,6 +185,7 @@ def agent_main(
             "dry_run": False,
             "written": True,
             "existed_dest_before": existed,
+            "mod_id": mod_id,
             "byte_length_approx": len(content.encode(enc_w, errors="replace")),
         })
     except Exception as e:

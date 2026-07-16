@@ -21,7 +21,7 @@ _QUALITY_BY_CID: Dict[str, "QualityState"] = {}
 
 _WRITE_PATH_SCRIPTS = QUALITY_WRITE_PATH_SCRIPTS
 _EVIDENCE_SCRIPTS = frozenset(
-    {"read_file.py", "grep_files.py", "find_in_file.py", "regex_locate.py", "file_search.py"}
+    {"read_file", "grep_files", "find_in_file", "regex_locate", "file_search"}
 )
 
 _DEBUG_INTENT_RE = re.compile(
@@ -309,7 +309,7 @@ def check_pre_write_quality(
             )
 
     # P1a: apply_patch 每次写操作都需要 review（不依赖路径匹配）
-    if real and script == "apply_patch.py" and st.apply_patch_pending:
+    if real and script == "apply_patch" and st.apply_patch_pending:
         return _reject(
             "HostQualityReviewPending",
             "apply_patch 上一次真写尚未 review：请调用 review_conclusion(dry_run=false) "
@@ -324,7 +324,7 @@ def check_pre_write_quality(
         )
 
     # P1: 已存在文件禁止 write_file 默覆盖（须 dry_run 预览或 step_title 明示确认）
-    if real and script == "write_file.py" and path:
+    if real and script == "write_file" and path:
         try:
             fp = Path(str(args.get("path") or ""))
             if fp.is_file() and fp.stat().st_size > 0:
@@ -344,7 +344,7 @@ def check_pre_write_quality(
 
     # P1: 预览指纹绑定（真写参数须与最近成功 dry_run 一致）
     # confirm_id 模式下跳过指纹检查——存储的参数已在工具层恢复，模型不传编辑参数故指纹必不匹配
-    if real and path and script in ("replace_in_file.py", "write_file.py", "read_write.py") and not args.get("confirm_id"):
+    if real and path and script in ("replace_in_file", "write_file", "read_write") and not args.get("confirm_id"):
         fp_now = _args_fingerprint(script, args)
         prev_list = st.preview_fp.get(path, [])
         if prev_list and fp_now not in prev_list:
@@ -354,7 +354,7 @@ def check_pre_write_quality(
             )
 
     # P1: 异常大 diff（对 replace 的 new_text 行数粗检）
-    if real and script == "replace_in_file.py":
+    if real and script == "replace_in_file":
         nt = args.get("new_text")
         if isinstance(nt, str) and nt.count("\n") + 1 > _LARGE_DIFF_LINE_THRESHOLD:
             ls, le = args.get("line_start"), args.get("line_end")
@@ -403,7 +403,7 @@ def note_write_tool_result(
     st.turn_wrote = True
     st.reviewed_ok = False
     st.claim_fixed_blocked = True
-    if script == "apply_patch.py":
+    if script == "apply_patch":
         st.apply_patch_pending = True
         return
     if path not in st.pending_review_paths:
@@ -624,6 +624,16 @@ def build_post_write_quality_report(
             "symbols": ref_hits,
         })
         actions.append("核对 reference_scan 中的引用是否需同步")
+
+    # needs_reread 提示：文件刚写入，继续改前须先 read_file
+    reread_paths = [p for p in norm_paths if p in st.needs_reread]
+    if reread_paths:
+        checks.append({
+            "id": "needs_reread_hint",
+            "status": "info",
+            "summary": "文件改动已生效，继续修改前必须先用 read_file 读取该文件当前内容，否则宿主会阻止后续修改。",
+        })
+        actions.append("如需继续修改，先 read_file 读取文件内容")
 
     # 强制 review（始终）
     checks.append({

@@ -223,19 +223,22 @@ def _prune_stale_confirms() -> None:
             _CONFIRM_IDS.pop(k, None)
 
 
-def create_confirm_id(action: str, params: dict) -> str:
-    """创建待确认的确认ID，返回 UUID。"""
+def create_confirm_id(action: str, params: dict, *, require_diff_review: bool = False) -> str:
+    """创建待确认的确认ID，返回 UUID。require_diff_review=True 时，需要 review_conclusion 解锁后才能提交。"""
     import uuid
 
     _prune_stale_confirms()
     cid = str(uuid.uuid4())
     with _CONFIRM_LOCK:
-        _CONFIRM_IDS[cid] = {
+        entry: Dict[str, Any] = {
             "confirmed": False,
             "action": action,
             "params": dict(params),
             "created_at": time.time(),
         }
+        if require_diff_review:
+            entry["diff_reviewed"] = False
+        _CONFIRM_IDS[cid] = entry
     return cid
 
 
@@ -248,15 +251,79 @@ def mark_confirmed(confirm_id: str) -> bool:
     return False
 
 
+def mark_diff_reviewed(confirm_id: str) -> bool:
+    """标记 confirm_id 的 diff review 已通过。仅对 require_diff_review=True 的 ID 有效。"""
+    with _CONFIRM_LOCK:
+        if confirm_id in _CONFIRM_IDS:
+            info = _CONFIRM_IDS[confirm_id]
+            if info.get("diff_reviewed") is False:
+                info["diff_reviewed"] = True
+                info["confirmed"] = True
+                return True
+        return False
+
+
+def confirm_id_needs_review(confirm_id: str) -> bool:
+    """检查 confirm_id 是否因 diff_review 未通过而不可消费。"""
+    with _CONFIRM_LOCK:
+        info = _CONFIRM_IDS.get(confirm_id)
+        if info is None:
+            return False
+        return info.get("diff_reviewed") is False
+
+
+def invalidate_confirm_ids_for_path(file_path: str) -> int:
+    """删除指定文件路径下所有 pending 的 confirm_id，返回删除数量。"""
+    from pathlib import Path
+    target = Path(file_path).resolve()
+    count = 0
+    with _CONFIRM_LOCK:
+        stale = []
+        for cid, info in _CONFIRM_IDS.items():
+            params = info.get("params", {})
+            p = params.get("path") or params.get("source_path") or params.get("dest_path") or ""
+            if p and Path(p).resolve() == target:
+                stale.append(cid)
+        for cid in stale:
+            del _CONFIRM_IDS[cid]
+            count += 1
+    return count
+
+
+def has_pending_confirm_for_path(file_path: str) -> bool:
+    """检查指定文件路径是否有 pending（未确认）的 confirm_id。"""
+    from pathlib import Path
+    target = Path(file_path).resolve()
+    with _CONFIRM_LOCK:
+        for info in _CONFIRM_IDS.values():
+            params = info.get("params", {})
+            p = params.get("path") or params.get("source_path") or params.get("dest_path") or ""
+            if p and Path(p).resolve() == target:
+                return True
+    return False
+
+
+def cancel_confirm_id(confirm_id: str) -> bool:
+    """删除指定的 confirm_id（取消预览）。"""
+    with _CONFIRM_LOCK:
+        if confirm_id in _CONFIRM_IDS:
+            del _CONFIRM_IDS[confirm_id]
+            return True
+    return False
+
+
 def consume_confirm_id(confirm_id: str) -> Optional[Dict[str, Any]]:
-    """检查并消耗确认ID。返回任务信息表示放行，None 表示无效。"""
+    """检查并消耗确认ID。返回任务信息表示放行，None 表示无效或等待 diff review。"""
     with _CONFIRM_LOCK:
         info = _CONFIRM_IDS.get(confirm_id)
         if info is None:
             return None
         if not info.get("confirmed"):
             return None
-        # 已确认，消耗删除
+        # require_diff_review 的 ID 必须 diff_reviewed=True
+        if info.get("diff_reviewed") is False:
+            return None
+        # 已确认且 diff review 通过，消耗删除
         del _CONFIRM_IDS[confirm_id]
         return dict(info)
 

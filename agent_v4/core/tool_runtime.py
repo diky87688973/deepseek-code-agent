@@ -69,11 +69,11 @@ def preflight_write_tool(
 def _host_tool_hook_result(script_name: str, args: Dict[str, Any], conversation_id: str) -> Optional[dict]:
     """宿主专用工具：统一走真实现，避免占位 agent_main。"""
     cid = str(conversation_id or "").strip()
-    if script_name == "run_type.py":
+    if script_name == "run_type":
         from agent_v4.core.conversation_store import _execute_run_type
 
         return _execute_run_type(cid, args)
-    if script_name == "todo_list.py":
+    if script_name == "todo_list":
         from agent_v4.bootstrap import _execute_todo_list
 
         return _execute_todo_list(cid, args)
@@ -343,7 +343,7 @@ def _execute_tool_script_locked(script_name: str, args: Dict[str, Any]) -> dict:
     _ensure_tools_sys_path()
 
     # ── kling_generate 确认 ID 拦截（放在参数校验之前；catalog/agent_main 含 confirm_id 供模型重试） ──
-    if script_name == "kling_generate.py":
+    if script_name == "kling_generate":
         action = str(args.get("action", "") or "")
         if action in _KLING_GENERATE_ACTIONS:
             raw_cid = args.get("confirm_id")
@@ -469,7 +469,7 @@ def _execute_tool_script_stoppable(
         if _turn_abort_requested(conversation_id, run_id):
             if progress is not None:
                 progress["_abort"] = True
-            if script_name == "run_command.py":
+            if script_name == "run_command":
                 try:
                     from command_safety import force_kill_active_shell_process
 
@@ -484,7 +484,7 @@ def _execute_tool_script_stoppable(
                 return _user_stopped_tool_result_dict()
             break
         if time.monotonic() >= wall_deadline:
-            if not kill_sent and script_name == "run_command.py":
+            if not kill_sent and script_name == "run_command":
                 try:
                     from command_safety import force_kill_active_shell_process
 
@@ -614,7 +614,7 @@ def _strip_internal_tool_result(result: dict) -> dict:
 
 def _tool_host_wall_timeout_sec(script_name: str, exec_args: Dict[str, Any]) -> float:
     """宿主等待工具线程的上限（略大于 run_command 的 timeout_sec）。"""
-    if script_name in ("run_command.py", "python_inline.py"):
+    if script_name in ("run_command", "python_inline"):
         try:
             t = int(exec_args.get("timeout_sec") or 300)
         except (TypeError, ValueError):
@@ -629,7 +629,7 @@ def _tool_progress_sse_event(
     tool_call_id: str,
     script: str,
 ) -> Dict[str, Any]:
-    if script in ("run_command.py", "python_inline.py"):
+    if script in ("run_command", "python_inline"):
         if not isinstance(progress, dict):
             return {}
         tail = progress.get("stdout_tail") or ""
@@ -644,7 +644,7 @@ def _tool_progress_sse_event(
         except Exception:
             STREAM_OUTPUT_TAIL_MAX_CHARS = 12000
             STREAM_OUTPUT_STDERR_TAIL_MAX_CHARS = 4000
-        phase = "run_command" if script == "run_command.py" else "python_inline"
+        phase = "run_command" if script == "run_command" else "python_inline"
         ev: Dict[str, Any] = {
             "type": "tool_progress",
             "conversation_id": conversation_id,
@@ -825,7 +825,7 @@ def _validate_public_tool_args(script_name: str, args: Dict[str, Any]) -> Option
             bad.append(bare)
     if not bad:
         rules = args.get("rules")
-        if script_name == "replace_in_file.py" and isinstance(rules, list):
+        if script_name == "replace_in_file" and isinstance(rules, list):
             nested_bad: List[str] = []
             for item in rules:
                 if not isinstance(item, dict):
@@ -943,40 +943,40 @@ def attach_tool_help_on_failure(script_name: str, mod: Optional[Any], result: di
         cap = _TOOL_HELP_MAX_CHARS
     if len(merged) > cap:
         merged = merged[:cap] + "\n…"
-    return {**result, "error": {**err, "tool_help": merged}}
+    return result  # tool_help 暂关闭（2026-07-16），不注入帮助信息；原逻辑: return {**result, "error": {**err, "tool_help": merged}}
 
 _READONLY_NO_RUN_TYPE_SCRIPTS: frozenset = frozenset(
     {
-        "read_file.py",
-        "glob_files.py",
-        "grep_files.py",
-        "find_in_file.py",
-        "regex_locate.py",
-        "file_search.py",
-        "git_workspace.py",
-        "web_fetch.py",
-        "web_fetch_render.py",
-        "unified_diagnose.py",
-        "env_probe.py",
-        "ip_geolocate.py",
-        "open_meteo_weather.py",
-        "data_table.py",
-        "text_diff.py",
-        "image_ocr.py",
-        "look_screenshot.py",
-        "session_send.py",
-        "session_multisend.py",
-        "session_broadcast.py",
-        "session_wait.py",
-        "session_list.py",
-        "session_create.py",
+        "read_file",
+        "glob_files",
+        "grep_files",
+        "find_in_file",
+        "regex_locate",
+        "file_search",
+        "git_workspace",
+        "web_fetch",
+        "web_fetch_render",
+        "unified_diagnose",
+        "env_probe",
+        "ip_geolocate",
+        "open_meteo_weather",
+        "data_table",
+        "text_diff",
+        "image_ocr",
+        "look_screenshot",
+        "session_send",
+        "session_multisend",
+        "session_broadcast",
+        "session_wait",
+        "session_list",
+        "session_create",
     }
 )
 
 _READONLY_NO_RESTRICT_SCRIPTS: frozenset = _READONLY_NO_RUN_TYPE_SCRIPTS | frozenset(
     {
-        "glob_files.py",
-        "text_diff.py",
+        "glob_files",
+        "text_diff",
     }
 )
 
@@ -991,8 +991,6 @@ def catalog_to_openai_tools(catalog: dict) -> Tuple[List[dict], Dict[str, str]]:
         if not isinstance(t, dict):
             continue
         fn = str(t.get("name") or "").strip()
-        if not fn.endswith(".py"):
-            continue
         api = api_function_name(fn)
         if api in name_map:
             continue

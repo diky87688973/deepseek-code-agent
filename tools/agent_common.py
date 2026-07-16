@@ -19,19 +19,19 @@ from util.config_loader import load_config
 _AGENT_CONFIG = load_config(verbose=False)
 
 # ── 版本化备份配置 ──
-_REPLACE_BACKUP_ROOT: Optional[Path] = None
+_FILE_BACKUP_ROOT: Optional[Path] = None
 
 
-def configure_replace_backup_root(root: Path) -> None:
-    global _REPLACE_BACKUP_ROOT
-    _REPLACE_BACKUP_ROOT = root
+def configure_file_backup_root(root: Path) -> None:
+    global _FILE_BACKUP_ROOT
+    _FILE_BACKUP_ROOT = root
 
 
 def _ensure_backup_root() -> Path:
-    if _REPLACE_BACKUP_ROOT is None:
-        raise RuntimeError("replace_backup_root 未配置（请在 bootstrap 中调用 configure_replace_backup_root）")
-    _REPLACE_BACKUP_ROOT.mkdir(parents=True, exist_ok=True)
-    return _REPLACE_BACKUP_ROOT
+    if _FILE_BACKUP_ROOT is None:
+        raise RuntimeError("file_backup_root 未配置（请在 bootstrap 中调用 configure_file_backup_root）")
+    _FILE_BACKUP_ROOT.mkdir(parents=True, exist_ok=True)
+    return _FILE_BACKUP_ROOT
 
 
 def ok(data: Optional[dict]) -> dict:
@@ -526,7 +526,7 @@ def backup_dir_for_mod(mod_id: str) -> Path:
     return _ensure_backup_root() / mod_id
 
 
-def create_replace_backup(
+def create_file_backup(
     fp: Path,
     original: str,
     encoding: str,

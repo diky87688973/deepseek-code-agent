@@ -234,7 +234,7 @@ def agent_main(
     replace_all: bool = True,
     expected_replacements: Optional[int] = None,
     encoding: str = "utf-8",
-    backup: bool = False,
+    backup: bool = True,
     raw: bool = False,
     restrict_to_workspace: bool = False,
     run_type: str = "",
@@ -257,28 +257,49 @@ def agent_main(
         if want_write and not confirm_id:
             return {"ok": False, "data": None, "error": {"type": "ConfirmIdRequired", "message": "dry_run=false 必须传 confirm_id：请先 dry_run=true 预览，再用返回的 confirm_id 提交。"}}
 
+        # ── confirm_id 模式校验：检测模型是否同时传了编辑参数 ──
+        _EDIT_KEYS = ["path", "old_text", "new_text", "rules", "regions", "line_ranges",
+                      "region_start", "region_end", "line_start", "line_end",
+                      "start_column", "end_column", "replace_all", "expected_replacements",
+                      "encoding", "raw", "restrict_to_workspace"]
+        _EDIT_VALS = {k: v for k, v in locals().items() if k in _EDIT_KEYS}
+        _DEFAULTS = {"path": "", "encoding": "utf-8", "raw": False,
+                     "restrict_to_workspace": False, "replace_all": True}
+        if confirm_id and not dry_run:
+            _extra = [k for k, v in _EDIT_VALS.items()
+                      if v is not None and v != _DEFAULTS.get(k) and v != [] and v != {}]
+            if _extra:
+                return {"ok": False, "data": None, "error": {
+                    "type": "BadToolArguments",
+                    "message": "确认提交模式（dry_run=false + confirm_id）不接受编辑参数。"
+                               f"你同时传了 confirm_id 和以下参数：{', '.join(_extra)}。"
+                               "请只传 confirm_id + dry_run=false，编辑参数从预览存储自动恢复。",
+                }}
+
         # ── confirm_id 模式：从预览存储的参数恢复，模型只需传 confirm_id + dry_run=false ──
         if confirm_id:
-            from agent_v4.live_state import consume_confirm_id
-            stored = consume_confirm_id(str(confirm_id).strip())
+            from agent_v4.live_state import consume_confirm_id, confirm_id_needs_review
+            cid_str = str(confirm_id).strip()
+            if confirm_id_needs_review(cid_str):
+                return {"ok": False, "data": None, "error": {"type": "DiffReviewRequired", "message": "请先调用 review_conclusion(confirm_id=...) 提交 diff review 结论后，再 dry_run=false 提交。"}}
+            stored = consume_confirm_id(cid_str)
             if stored is None:
                 return {"ok": False, "data": None, "error": {"type": "InvalidConfirmId", "message": "confirm_id 无效或已过期，请重新 dry_run=true 预览"}}
             sp = stored.get("params", {})
-            # 从存储恢复所有编辑参数（模型传入的同名参数被覆盖）
             path = sp.get("path", path)
-            old_text = sp.get("old_text")
-            new_text = sp.get("new_text")
-            rules = sp.get("rules")
-            regions = sp.get("regions")
-            line_ranges = sp.get("line_ranges")
-            region_start = sp.get("region_start")
-            region_end = sp.get("region_end")
-            line_start = sp.get("line_start")
-            line_end = sp.get("line_end")
-            start_column = sp.get("start_column")
-            end_column = sp.get("end_column")
-            replace_all = sp.get("replace_all", True)
-            # confirm_id 隐含用户已审核预览，强制写入
+            old_text = sp.get("old_text", old_text)
+            new_text = sp.get("new_text", new_text)
+            rules = sp.get("rules", rules)
+            regions = sp.get("regions", regions)
+            line_ranges = sp.get("line_ranges", line_ranges)
+            region_start = sp.get("region_start", region_start)
+            region_end = sp.get("region_end", region_end)
+            line_start = sp.get("line_start", line_start)
+            line_end = sp.get("line_end", line_end)
+            start_column = sp.get("start_column", start_column)
+            end_column = sp.get("end_column", end_column)
+            replace_all = sp.get("replace_all", replace_all)
+            # confirm_id 隐含已审查，强制写入
             dry_run = False
 
         mode = _detect_replace_modes(
@@ -498,7 +519,9 @@ def agent_main(
             # 生成 confirm_id 供后续免参数提交
             _confirm_id = ""
             if dry_run:
-                from agent_v4.live_state import create_confirm_id, mark_confirmed
+                from agent_v4.live_state import create_confirm_id, has_pending_confirm_for_path
+                if has_pending_confirm_for_path(str(fp)):
+                    return {"ok": False, "data": None, "error": {"type": "PendingPreviewExists", "message": "该文件已有未提交的预览，请先 review_conclusion(confirm_id=..., cancel_preview=True) 取消，或 review_conclusion(confirm_id=...) 提交后再操作。"}}
                 _confirm_id = create_confirm_id("replace_in_file", {
                     "path": str(fp),
                     "old_text": old_text,
@@ -513,8 +536,7 @@ def agent_main(
                     "start_column": start_column,
                     "end_column": end_column,
                     "replace_all": replace_all,
-                })
-                mark_confirmed(_confirm_id)
+                }, require_diff_review=True)
             return ac.ok(
                 {
                     "path": str(fp),
@@ -536,10 +558,12 @@ def agent_main(
         # 版本化备份
         mod_id: Optional[str] = None
         if backup and fp.is_file():
-            mod_id = ac.create_replace_backup(
+            mod_id = ac.create_file_backup(
                 fp, original, encoding, mode, diff_text
             )
         ac.write_unicode_file(fp, new_body, encoding=encoding)
+        from agent_v4.live_state import invalidate_confirm_ids_for_path
+        invalidate_confirm_ids_for_path(str(fp))
         return ac.ok(
             {
                 "path": str(fp),

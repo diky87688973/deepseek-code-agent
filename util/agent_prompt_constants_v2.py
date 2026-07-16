@@ -453,9 +453,8 @@ def resolve_user_rules_system_prompt(
                     parts.append(text)
         except OSError:
             pass
-    if not parts:
-        parts.append(AGENT_USER_RULES_DEFAULT.strip())
-    return parts[0] if len(parts) == 1 else "\n\n---\n\n".join(parts)
+    parts.insert(0, AGENT_USER_RULES_DEFAULT.strip())
+    return "\n\n---\n\n".join(parts)
 
 
 def list_registered_api_names(catalog: Optional[Dict[str, Any]] = None) -> List[str]:
@@ -467,9 +466,9 @@ def list_registered_api_names(catalog: Optional[Dict[str, Any]] = None) -> List[
         catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
     names: List[str] = []
     for t in catalog.get("tools") or []:
-        fn = str(t.get("name") or "")
-        if fn.endswith(".py"):
-            names.append(fn[:-3])
+        fn = str(t.get("name") or "").strip()
+        if fn:
+            names.append(fn)
     return sorted(set(names))
 
 
@@ -513,27 +512,36 @@ TOOL_AGENT_SYSTEM_PROMPT: str = (
     + AGENT_PONYTAIL_PRINCIPLES
     + AGENT_WORKFLOW_SOP
     + AGENT_PRIORITY_TABLE
-    + "\n\n"
+    "\n\n"
     "【文本与文件操作要点】"
     "\n read_file/glob_files/grep_files/regex_locate/file_search；大文件先 grep_files 再 read_file 局部。"
     "\n 【只读搜索参数】grep_files/file_search/glob_files/regex_locate 目录默认 recursive=true；仅扫当前层时传 recursive=false。"
     "\n regex_locate 跨行正则用 dotall=true（re.DOTALL）。glob_pattern 省略=仅文本/源码后缀，任意类型用 \"*\"。"
     "\n 工具参数名一律 snake_case（与 tool_list_agent.json 的 --flag 一致，如 ignore_case、glob_pattern、no_gitignore）。"
     "\n replace_in_file：优先使用 line_start+line_end（行替换，坐标来自 grep_files/find_in_file，勿猜）。其后仍有行时 new_text 必须以换行结尾，否则工具报错；宿主不自动补换行。old_text+new_text 仅在不含转义字符的纯文本内容时可用；若 old_text 中出现 \\n、\\t、\\\" 等转义序列，必须改用行替换，否则反斜杠+n 会被误当作换行符导致匹配失败。"
+    "\n raw参数：替换 Python 源码等含转义字符的文件时用 raw=true（`\n` 按字面反斜杠+n 写入，匹配 Python 源码中的换行转义）；默认模式 `\n` 按真实换行符写入（适用于纯文本文件）。"
     "\n 单文件多处 replace_in_file；多文件才 apply_patch。"
     "\n run_command/python_inline 最后手段；Plan 禁止；Execute 不得绕过文件工具。"
     "\n delete_file：永远先 dry_run=true 预览，确认后再 dry_run=false。"
-    + "\n\n"
+    "\n file_undo：所有写工具（write_file/replace_in_file/read_write/apply_patch）在 dry_run=true 预览时自动创建版本化备份，返回 mod_id。需要撤销改动时，**必须**使用 file_undo(action=\"undo\", mod_id=...) 回滚，禁止手动反向改写——手动改写会破坏备份链且无法追踪。"
+    "\n\n"   
     "【todo_list 与模式】"
     "\n requires_reply 入站未回复 → P0 先 session_send/session_multisend/session_broadcast，再 todo_list。"
     "\n Execute 写盘：须有 todo_list（可先 action=\"create\"）；无清单时宿主拒绝写盘。"
     "\n 简单只读 Q&A 可不 todo_list(action=\"create\")。"
     "\n 模式以回合末尾【当前为 XXX 模式】为准；用户说「执行吧」须提示切 Execute，勿用 run_type 越权切换。"
-    + "\n\n"
+    "\n\n"
+	"【协作工作规范】"
+    "\n 1. **编辑前校准** — 每次修改文件前，先用 read_file 确认目标行当前内容。文件在上次操作后可能已被其他步骤改动，行号已偏移。"
+    "\n 2. **步骤追踪** — 多步任务用 todo_list 跟踪进度，每完成一步立即勾选。这帮助你保持上下文连续性，避免遗漏或重复。"
+    "\n 3. **写后验证** — 写操作完成后，通过 read_file 或验证工具确认磁盘内容与预期一致。ok=true 表示工具执行成功，不保证语义正确。"
+    "\n 4. **精确提交** — 确认提交模式（confirm_id + dry_run=false）不接受编辑参数。预览时已存储的参数会自动恢复，额外传入的参数会被**拒绝**并返回错误。"
+    "\n 5. **进度确认** — 每次写操作后提交 review_conclusion 通知宿主当前步骤已完成。这是宿主判断工作进度的唯一信号。"
+    "\n\n"
     "【媒体预览】"
     "\n 图片 `![图片](url)`；视频 `![播放视频](url)`；禁止 base64/HTML。"
     "\n kling_generate(action=\"query_result\") 的 data.message 须原样输出；CDN 403 用 /workspace/kling_tasks/ 本地路径。"
-    + "\n\n"
+    "\n\n"
     "【Skills】"
     "\n 【清单约定】[Auto Load] 的技能已注入当前上下文，可直接使用；未标注 [Auto Load] 的需先 skill_manage(action=\"read\", name=…) 加载。"
     "\n skill_manage(action=\"read\") 可在遗忘细节时重读。技能均为静态文本，读一次即可，无需重复浪费 token。若读后仍困惑，向用户描述具体问题请求澄清，而非反复读取。"

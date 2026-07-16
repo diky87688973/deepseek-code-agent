@@ -91,8 +91,8 @@ def _load_catalog_api_names() -> Set[str]:
     out: Set[str] = set()
     for t in data.get("tools") or []:
         name = str(t.get("name") or "")
-        if name.endswith(".py"):
-            out.add(name[:-3])
+        if name:
+            out.add(name)
     return out
 
 
@@ -161,10 +161,9 @@ def _shorthand_allowed_in_context(token: str, ctx: str) -> bool:
 def _iter_catalog_tool_text_fields(data: dict) -> Iterable[Tuple[str, str, str]]:
     """(api_name, field_id, text) — 会进入 function schema 的文本。"""
     for t in data.get("tools") or []:
-        fn = str(t.get("name") or "")
-        if not fn.endswith(".py"):
+        api = str(t.get("name") or "").strip()
+        if not api:
             continue
-        api = fn[:-3]
         for key in ("purpose", "extended_description"):
             val = t.get(key)
             if isinstance(val, str) and val.strip():
@@ -269,13 +268,12 @@ class TestPromptToolNames(unittest.TestCase):
                 issues.append(f"tools[{idx}] 不是对象")
                 continue
             fn = str(t.get("name") or "").strip()
-            if not fn.endswith(".py"):
-                issues.append(f"tools[{idx}] 缺少有效 name: {fn!r}")
+            if not fn:
+                issues.append(f"tools[{idx}] name 为空")
                 continue
-            api = fn[:-3]
-            if api in seen:
-                issues.append(f"重复工具名: {api}")
-            seen.add(api)
+            if fn in seen:
+                issues.append(f"重复工具名: {fn}")
+            seen.add(fn)
         self.assertEqual([], issues, f"catalog 结构异常: {issues}")
 
     def test_no_forbidden_shorthand_tokens(self) -> None:
@@ -293,10 +291,9 @@ class TestPromptToolNames(unittest.TestCase):
         data = _load_catalog()
         missing: List[str] = []
         for t in data.get("tools") or []:
-            fn = str(t.get("name") or "")
-            if not fn.endswith(".py"):
+            api = str(t.get("name") or "").strip()
+            if not api:
                 continue
-            api = fn[:-3]
             purpose = str(t.get("purpose") or "")
             if api not in purpose:
                 missing.append(api)
@@ -307,10 +304,9 @@ class TestPromptToolNames(unittest.TestCase):
         data = _load_catalog()
         issues: List[str] = []
         for t in data.get("tools") or []:
-            fn = str(t.get("name") or "")
-            if not fn.endswith(".py") or not _tool_has_action_param(t):
+            api = str(t.get("name") or "").strip()
+            if not api or not _tool_has_action_param(t):
                 continue
-            api = fn[:-3]
             purpose = str(t.get("purpose") or "")
             if "action=" not in purpose:
                 issues.append(f"{api}.purpose 缺少 action=")

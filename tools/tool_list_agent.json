@@ -40,21 +40,24 @@
   },
   "tools": [
     {
-      "name": "review_conclusion.py",
+      "name": "review_conclusion",
       "path": "tools/review_conclusion.py",
-      "purpose": "review_conclusion：写盘后提交 diff review 结论，解锁跨文件编辑。dry_run=true 仅校验结论长度，dry_run=false 正式提交并清除 review 标记。",
-      "stdout_output": "{ok,data:{reviewed,message}}",
+      "purpose": "review_conclusion：写盘后提交 diff review 结论。支持三种用途：① 提交 review 结论（必填 file_name+conclusion），满足宿主跨文件编辑门禁；② 解锁二阶提交（传 confirm_id），使 write_file/replace_in_file/read_write/apply_patch 的 dry_run=false 能通过；③ 取消预览（传 confirm_id+cancel_preview=true），释放预览锁。dry_run=true 仅校验。",
+      "stdout_output": "{ok,data:{reviewed,file_name,message}}",
       "args": [
-        {"flag": "--conclusion", "type": "string", "required": true, "description": "review 结论文本，至少30字，需包含改动文件、改动内容、验证结果。"},
+        {"flag": "--conclusion", "type": "string", "required": true, "description": "review 结论文本，至少30字，必须给出真实验证结果与证据（如：read_file 确认内容正确、unified_diagnose/编译检查通过、测试通过），不能只写「验证通过」。"},
+        {"flag": "--file_name", "type": "string", "required": true, "description": "本次 review 涉及的文件名，多个用逗号分隔。如：main.py,utils.py"},
         {"flag": "--dry_run", "type": "boolean", "required": false, "description": "默认 true 仅校验，false 提交结论并解锁跨文件编辑。"},
-        {"flag": "--review_type", "type": "string", "required": false, "description": "review 类型：file（默认）/ apply_patch。"}
+        {"flag": "--review_type", "type": "string", "required": false, "description": "review 类型：file（默认）/ apply_patch。"},
+        {"flag": "--confirm_id", "type": "string", "required": false, "description": "可选。传此参数可解锁二阶提交的 confirm_id，使其 dry_run=false 能通过。"},
+        {"flag": "--cancel_preview", "type": "boolean", "required": false, "description": "为 true 时取消指定的 confirm_id（释放预览锁），而非解锁提交。"}
       ],
       "examples": [
-        {"title": "提交 review 结论", "note": "写盘后调用，解锁后续跨文件编辑。", "args": {"conclusion": "Review结论：host_quality.py 修复了 HostQualityStackFirst 误判，正则加 (?![ntr]) + detect_and_update_intent 加 else 分支，回归 ALL GREEN。", "dry_run": false, "run_type": "execute"}}
+        {"title": "提交 review 结论", "note": "写盘后调用，解锁后续跨文件编辑。", "args": {"conclusion": "Review结论：host_quality.py 修复了 HostQualityStackFirst 误判，正则加 (?![ntr]) + detect_and_update_intent 加 else 分支，回归 ALL GREEN。", "file_name": "host_quality.py", "dry_run": false, "run_type": "execute"}}
       ]
     },
     {
-      "name": "run_type.py",
+      "name": "run_type",
       "path": "tools/run_type.py",
       "purpose": "run_type：查询/切换会话运行模式（Auto / Plan / Execute），由宿主按会话维护。省略 run_type 参数为查询当前模式；传 run_type=auto/plan/execute 为请求切换。run_type=plan 时多数写盘工具会拒绝；run_type=execute 表示用户已授权真实写盘。",
       "stdout_output": "{ok,data}",
@@ -100,7 +103,7 @@
       ]
     },
     {
-      "name": "read_file.py",
+      "name": "read_file",
       "path": "tools/read_file.py",
       "purpose": "read_file：读取单个文本文件 path 的全文或局部。改文件前**必须先 read_file** 确认上下文（见 agent_hints.read_before_write）。大文件先 grep_files 定位行号再按 line_start/region 用 read_file 读局部，避免一次 read_file 全文。raw=true 时额外返回 content_lines 与 content_hash，便于区分 JSON 转义。切片模式互斥：max_chars；line_start+line_end；行列矩形；char_start+char_end。精确区间请用 find_in_file/regex_locate 得 region_start/end 再 read_file 或 replace_in_file。",
       "stdout_output": "{ok,data:{content,path,...}}",
@@ -219,7 +222,7 @@
       ]
     },
     {
-      "name": "grep_files.py",
+      "name": "grep_files",
       "path": "tools/grep_files.py",
       "purpose": "grep_files【内容搜索·默认首选】：在 path 下搜 pattern（字面或简单正则，| 为 OR）。返回 matches 含 region_start/end 可直传 replace_in_file。大目录勿用 file_search 除非要进度条。目录省略 glob_pattern=仅文本/源码扩展名。",
       "stdout_output": "{ok,data:{matches:[{file,line,column,match,region_start,region_end,text,context?}],...}}",
@@ -372,7 +375,7 @@
       ]
     },
     {
-      "name": "find_in_file.py",
+      "name": "find_in_file",
       "path": "tools/find_in_file.py",
       "purpose": "find_in_file：在单个文件 path 内定位 pattern 的第 occurrence 次命中，返回 region_start/region_end（0-based 半开区间），可直接传入 replace_in_file。字面与正则由 regex 参数控制；多命中时增大 occurrence。",
       "stdout_output": "{ok,data:{region_start,region_end,matched_text,...}}",
@@ -455,7 +458,7 @@
       ]
     },
     {
-      "name": "regex_locate.py",
+      "name": "regex_locate",
       "path": "tools/regex_locate.py",
       "purpose": "regex_locate【内容搜索·高级正则】：需 Python 正则特性（dotall 跨行、lookahead 等）时用；返回字段同 grep_files。一般调查仍优先 grep_files。",
       "stdout_output": "{ok,data:{count,items:[{region_start,region_end,match,...}],...}}",
@@ -552,7 +555,7 @@
       ]
     },
     {
-      "name": "file_search.py",
+      "name": "file_search",
       "path": "tools/file_search.py",
       "purpose": "file_search【内容搜索·大范围+进度】：仅当目录极大或需要侧栏 tool_progress 时用；返回同 grep_files。日常定位一律 grep_files。须经对话 function 调用（勿 run_command 旁路）。",
       "stdout_output": "{ok,data:{matches:[{file,line,column,text,match,region_start,region_end,...}],...}}",
@@ -679,7 +682,7 @@
       ]
     },
     {
-      "name": "glob_files.py",
+      "name": "glob_files",
       "path": "tools/glob_files.py",
       "purpose": "glob_files：在 path 目录下列出路径（不读内容）。匹配用 glob_pattern；entry_type 控制 file/dir/all；可选 no_gitignore。",
       "stdout_output": "{ok,data:{path,paths,items:[{path,relative_path,kind}],count,truncated,git_repo_root,...}}",
@@ -767,7 +770,7 @@
       ]
     },
     {
-      "name": "git_workspace.py",
+      "name": "git_workspace",
       "path": "tools/git_workspace.py",
       "purpose": "git_workspace：Git 仓库只读；mode=worktree 看状态与 diff；mode=log 看提交；mode=blame 看行归属；mode=show 看某提交补丁。依赖本机 git 可执行文件，不执行写入。path 须为含 .git 的仓库根。",
       "stdout_output": "{ok,data}",
@@ -869,7 +872,7 @@
       ]
     },
     {
-      "name": "web_fetch.py",
+      "name": "web_fetch",
       "path": "tools/web_fetch.py",
       "purpose": "web_fetch：HTTP(S) GET 抓取 url，抽取正文纯文本。支持 timeout_sec、max_chars、可选落盘 out_file；min_chars / require_keywords 用于简单验收（防空页或错误页）。仅在确需联网核对时使用。",
       "stdout_output": "{ok,data}",
@@ -947,7 +950,7 @@
       ]
     },
     {
-      "name": "unified_diagnose.py",
+      "name": "unified_diagnose",
       "path": "tools/unified_diagnose.py",
       "purpose": "unified_diagnose：对项目 path 下 Python 文件做语法（AST）解析，并可选调用 ruff check。返回 diagnostics 列表与汇总；写盘后建议调用以尽早发现语法/风格问题。no_ruff=true 时仅语法扫描。",
       "stdout_output": "{ok,data:{path,glob_pattern,files_scanned,diagnostics,summary,...}}",
@@ -1018,7 +1021,7 @@
       ]
     },
     {
-      "name": "text_diff.py",
+      "name": "text_diff",
       "path": "tools/text_diff.py",
       "purpose": "text_diff：对左右两侧文本生成 unified diff（只读、不落盘）。左侧二选一 left_file 或 left_text；右侧二选一 right_file 或 right_text。context 参数控制 diff 上下文行数。",
       "stdout_output": "{ok,data:{summary,diff[],diff_markdown}}",
@@ -1089,10 +1092,10 @@
       ]
     },
     {
-      "name": "write_file.py",
+      "name": "write_file",
       "path": "tools/write_file.py",
-      "purpose": "write_file：写入或覆盖单个文本文件 path。默认 dry_run=true 预览；dry_run=false 必须传 preview 返回的 confirm_id，只需 dry_run=false + confirm_id 即可提交，不要传 content。",
-      "stdout_output": "{ok,data:{path,existed_before,changed,diff_text,written,...}}",
+      "purpose": "write_file：写入或覆盖单个文本文件 path。默认 dry_run=true 预览；dry_run=false 必须传 preview 返回的 confirm_id，只需 dry_run=false + confirm_id 即可提交，不要传 content。写入前自动创建版本化备份，返回 mod_id 可用于 file_undo 回滚。",
+      "stdout_output": "{ok,data:{path,existed_before,changed,diff_text,written,mod_id,...}}",
       "args": [
         {
           "flag": "--path",
@@ -1178,10 +1181,10 @@
       ]
     },
     {
-      "name": "read_write.py",
+      "name": "read_write",
       "path": "tools/read_write.py",
-      "purpose": "read_write：管道式从 source_path 读取片段写入 dest_path。默认 dry_run=true 预览；dry_run=false 必须传 preview 返回的 confirm_id，只需 dry_run=false + confirm_id 即可提交，不要传 source_path/dest_path 等参数。",
-      "stdout_output": "{ok,data}",
+      "purpose": "read_write：管道式从 source_path 读取片段写入 dest_path。默认 dry_run=true 预览；dry_run=false 必须传 preview 返回的 confirm_id，只需 dry_run=false + confirm_id 即可提交，不要传 source_path/dest_path 等参数。写入前自动创建版本化备份，返回 mod_id 可用于 file_undo 回滚。",
+      "stdout_output": "{ok,data:{source_path,dest_path,written,mod_id,...}}",
       "args": [
         {
           "flag": "--source_path",
@@ -1352,7 +1355,7 @@
       ]
     },
     {
-      "name": "delete_file.py",
+      "name": "delete_file",
       "path": "tools/delete_file.py",
       "purpose": "delete_file：安全删除 path 对应文件（移入宿主回收目录，非 unlink）。默认 dry_run=true；run_type=plan 拒绝真实移动；run_type=execute 且满足宿主策略时才移动。",
       "stdout_output": "{ok,data}",
@@ -1416,7 +1419,7 @@
       ]
     },
     {
-      "name": "file_ops.py",
+      "name": "file_ops",
       "path": "tools/file_ops.py",
       "purpose": "file_ops：action=delete（至回收站或 purge）、action=rename、action=copy、action=move。source 必填；action=delete 时勿传 dest；action=delete 目录须 recursive=true。可选 security_root 限制 source/dest 均在其下。默认 dry_run=true。",
       "stdout_output": "{ok,data}",
@@ -1538,9 +1541,9 @@
       ]
     },
     {
-      "name": "replace_in_file.py",
+      "name": "replace_in_file",
       "path": "tools/replace_in_file.py",
-      "purpose": "【单文件 find-replace】OpenAI function 名固定为 replace_in_file——即本工具完成 URL/文本片段替换；禁止 search_replace 等臆造名。find_in_file 仅只读定位，不负责写回。模式 A：old_text+new_text 字面替换。模式 B：region / 行列矩形替换。模式 C：rules 数组多条顺序替换。模式 D：confirm_id 两步提交——先 dry_run=true 预览拿 confirm_id，再仅传 confirm_id+dry_run=false 提交，无需重复编辑参数。备份用 backup:true。",
+      "purpose": "replace_in_file——【单文件 find-replace】在已有文件中替换文本内容。find_in_file 仅只读定位，不负责写回。模式 A：old_text+new_text 字面替换。模式 B：region / 行列矩形替换。模式 C：rules 数组多条顺序替换。模式 D：confirm_id 两步提交——先 dry_run=true 预览拿 confirm_id，再仅传 confirm_id+dry_run=false 提交，无需重复编辑参数。写入前自动创建版本化备份，返回 mod_id 可用于 file_undo 回滚。",
       "stdout_output": "{ok,data:{diff_text,replacements,counts_per_rule,...}}",
       "args": [
         {
@@ -1689,12 +1692,6 @@
           "type": "string",
           "required": false,
           "description": "文件读写编码。"
-        },
-        {
-          "flag": "--backup",
-          "type": "boolean",
-          "required": false,
-          "description": "写盘前创建版本化备份，返回 mod_id；备份位于 DATA_ROOT/temp/replace_backup，不写同目录 .bak。"
         },
         {
           "flag": "--raw",
@@ -1894,9 +1891,9 @@
       ]
     },
     {
-      "name": "replace_undo.py",
-      "path": "tools/replace_undo.py",
-      "purpose": "replace_undo：回滚 replace_in_file 的版本化备份。action=list + path 列历史；action=undo + mod_id 回滚。回滚前会自动备份当前文件。",
+      "name": "file_undo",
+      "path": "tools/file_undo.py",
+      "purpose": "file_undo：文件版本化备份回滚——撤销改动**必须**使用本工具，禁止手动反向改写。action=list + path 列历史；action=undo + mod_id 回滚。回滚前会自动备份当前文件（可逆）。",
       "stdout_output": "{ok,data:{backups,mod_id,restored_path,...}}",
       "args": [
         {
@@ -1952,10 +1949,10 @@
       ]
     },
     {
-      "name": "apply_patch.py",
+      "name": "apply_patch",
       "path": "tools/apply_patch.py",
-      "purpose": "apply_patch：将 unified diff 补丁应用到 path 根下的已有文件。默认 dry_run=true 预览；dry_run=false 必须传 preview 返回的 confirm_id，只需 dry_run=false + confirm_id 即可提交，不要传 patch_text。",
-      "stdout_output": "{ok,data:{path,changed_files,diff_text,...}}",
+      "purpose": "apply_patch：将 unified diff 补丁应用到 path 根下的已有文件。默认 dry_run=true 预览；dry_run=false 必须传 preview 返回的 confirm_id，只需 dry_run=false + confirm_id 即可提交，不要传 patch_text。写入前自动创建版本化备份，返回 file_backups（路径→mod_id 映射）可用于 file_undo 回滚。",
+      "stdout_output": "{ok,data:{path,changed_files,file_backups,diff_text,...}}",
       "args": [
         {
           "flag": "--path",
@@ -2044,7 +2041,7 @@
       ]
     },
     {
-      "name": "todo_list.py",
+      "name": "todo_list",
       "path": "tools/todo_list.py",
       "purpose": "todo_list：action=create 建列表；action=check/uncheck 用 indices（0-based 下标数组）；action=add_item/remove_item/replace_item 维护条目；action=collapse/close 结束态；action=query 查询。Execute 写盘前宿主强制先 todo_list(action=create)。【何时用】预计 3 步以上、跨文件、或 Execute 要写盘时 action=create/action=query；单回合只读 Q&A 可跳过。多步任务每完成一步立即 action=check，全部完成 action=close。优先级低于 requires_reply 协作回复（见 agent_hints.priority_table）。",
       "stdout_output": "{ok,data}",
@@ -2187,7 +2184,7 @@
       ]
     },
     {
-      "name": "user_confirm.py",
+      "name": "user_confirm",
       "path": "tools/user_confirm.py",
       "purpose": "user_confirm：阻塞式用户确认。首次调用传 title + confirms（选项文案数组），返回 needs_confirm；宿主展示 UI 后第二次调用传入 confirm 参数（用户选择项）。multi 控制是否多选；custom_option_index 用于「其他」类选项。",
       "stdout_output": "needs_confirm: ok=false 且 error.code=E_USER_CONFIRM_REQUIRED；完成: data.confirm",
@@ -2278,7 +2275,7 @@
       ]
     },
     {
-      "name": "ip_geolocate.py",
+      "name": "ip_geolocate",
       "path": "tools/ip_geolocate.py",
       "purpose": "ip_geolocate：调用免费 ipwho.is 查询 ip 地理信息（国家、城市、经纬度、时区等）。省略 ip 时查当前出口公网；私网或 localhost 视为未指定。",
       "stdout_output": "{ok,data}",
@@ -2320,7 +2317,7 @@
       ]
     },
     {
-      "name": "env_probe.py",
+      "name": "env_probe",
       "path": "tools/env_probe.py",
       "purpose": "env_probe：探测本机可用 shell（cmd/PowerShell/bash）与 python/py 路径、平台与 cwd；无业务必填参数，用于生成可移植命令前缀。",
       "stdout_output": "{ok,data}",
@@ -2355,7 +2352,7 @@
       ]
     },
     {
-      "name": "open_meteo_weather.py",
+      "name": "open_meteo_weather",
       "path": "tools/open_meteo_weather.py",
       "purpose": "open_meteo_weather：Open-Meteo 天气预报（免 Key）。location 与 latitude+longitude 二选一；否则可用 ip 推断地区。forecast_days 1–7。",
       "stdout_output": "{ok,data}",
@@ -2434,7 +2431,7 @@
       ]
     },
     {
-      "name": "archive.py",
+      "name": "archive",
       "path": "tools/archive.py",
       "purpose": "archive：action=list 列成员；action=extract 解压到 dest；action=create 从 source 打包到 dest。支持 zip/tar/tar.gz/tar.bz2/tar.xz；rar 只读。extract/create 默认 dry_run=true 预览（would_extract_count / would_add_count），实写传 dry_run=false。Plan 下仅 dry_run=false 的 extract/create 会被拒绝。password 用于读加密包。",
       "stdout_output": "{ok,data}",
@@ -2557,7 +2554,7 @@
       ]
     },
     {
-      "name": "image_ocr.py",
+      "name": "image_ocr",
       "path": "tools/image_ocr.py",
       "purpose": "image_ocr：对 path 指定图片做 OCR，engine 可选 pytesseract 或 easyocr。",
       "stdout_output": "{ok,data:{full_text,...}}",
@@ -2628,7 +2625,7 @@
       ]
     },
     {
-      "name": "data_table.py",
+      "name": "data_table",
       "path": "tools/data_table.py",
       "purpose": "data_table：action=preview 看前几行；action=filter 按列值筛；action=sort 排序；action=stats 数值列统计；action=to_json/action=to_csv/action=to_md 导出；action=sheets 列 Excel 工作表名。action=filter 需 filter_col+filter_val；action=sort 需 sort_col。",
       "stdout_output": "{ok,data}",
@@ -2787,7 +2784,7 @@
       ]
     },
     {
-      "name": "run_command.py",
+      "name": "run_command",
       "path": "tools/run_command.py",
       "purpose": "run_command：【最低优先级】在 shell 中执行单条 command（非脚本块），收集 stdout/stderr/exit_code；宿主推送 tool_progress。文件操作用 read_file/write_file 等专用 function。safe_mode 默认 true：禁止 command 中含 ; & | ` $ > <（勿用 &&/||/管道/重定向）；多条命令请多次调用或设 cwd 后只传一条（如 python -m unittest …）。黑名单含 del/rm/format/dd 等（删文件用 delete_file）。安装类 timeout_sec≥300。",
       "stdout_output": "{ok,data:{stdout,stderr,exit_code}}",
@@ -2896,7 +2893,7 @@
       ]
     },
     {
-      "name": "python_inline.py",
+      "name": "python_inline",
       "path": "tools/python_inline.py",
       "purpose": "python_inline：exec 执行 code 源码（不经 shell），stdout/stderr 由宿主捕获并推送 tool_progress。复杂编排可用；run_type=plan 拒绝。勿代替 run_command 跑 winget/npm 等 shell 安装。",
       "stdout_output": "{ok,data:{stdout,stderr,exit_code,timeout}}",
@@ -2972,7 +2969,7 @@
       ]
     },
     {
-      "name": "dreamina_generate.py",
+      "name": "dreamina_generate",
       "path": "tools/dreamina_generate.py",
       "purpose": "dreamina_generate：即梦 Dreamina 文生图/文生视频。action=login/check_login/logout/user_credit/text2image/text2video/image2video/image2image/query_result/list_task 等。需先安装 dreamina CLI。",
       "stdout_output": "{ok,data}",
@@ -3101,7 +3098,7 @@
       ]
     },
     {
-      "name": "kling_generate.py",
+      "name": "kling_generate",
       "path": "tools/kling_generate.py",
       "purpose": "kling_generate：可灵 Kling AI 全能力（消耗积分）。action=text2video/image2video/…/account_info/query_result 等；action=query_result 与 action=account_info 不耗积分。生成类由 agent 层拦截确认。",
       "stdout_output": "{ok,data}",
@@ -3417,7 +3414,7 @@
       ]
     },
     {
-      "name": "web_fetch_render.py",
+      "name": "web_fetch_render",
       "path": "tools/web_fetch_render.py",
       "purpose": "web_fetch_render：支持 JS 渲染的网页抓取；Playwright 加载 url 后提取正文。适合 SPA。依赖 playwright（按需安装）。",
       "stdout_output": "{ok,data}",
@@ -3461,7 +3458,7 @@
       ]
     },
     {
-      "name": "skill_manage.py",
+      "name": "skill_manage",
       "path": "tools/skill_manage.py",
       "purpose": "skill_manage：action=list 列出所有可用技能名称与描述，action=read 按名称读取指定技能完整正文，action=copy 从 source 路径或按 name 复制技能文件到 skills 配置目录。必须直接调用 skill_manage，不要用 python_inline 或 run_command 或任何其他方式替代。",
       "stdout_output": "{ok,data:{name,content}}",
@@ -3546,7 +3543,7 @@
       ]
     },
     {
-      "name": "session_send.py",
+      "name": "session_send",
       "path": "tools/session_send.py",
       "purpose": "session_send：向 target_id 指定 Agent 发 message 并触发执行。点对点沟通、追问、汇报；目标忙时入 inbox 队列。requires_reply、thread_id 见参数说明。",
       "stdout_output": "{ok,data:{target_id,queued,run_id,message_sent}}",
@@ -3621,7 +3618,7 @@
       ]
     },
     {
-      "name": "session_multisend.py",
+      "name": "session_multisend",
       "path": "tools/session_multisend.py",
       "purpose": "session_multisend：向 target_ids 多个 Agent 发送同一条 message。小组私聊、并行派工等。requires_reply 必填。",
       "stdout_output": "{ok,data:{sent,skipped,count,thread_id}}",
@@ -3681,7 +3678,7 @@
       ]
     },
     {
-      "name": "session_broadcast.py",
+      "name": "session_broadcast",
       "path": "tools/session_broadcast.py",
       "purpose": "session_broadcast：向 Agent 网络广播 message。必须传 tag 筛选目标群组，禁止全员广播。目标忙时自动入队。",
       "stdout_output": "{ok,data:{sent,skipped,count}}",
@@ -3751,7 +3748,7 @@
       ]
     },
     {
-      "name": "session_list.py",
+      "name": "session_list",
       "path": "tools/session_list.py",
       "purpose": "session_list：列出 Session Mesh 中自由 Agent，返回 cid/name/role/status/tags/queueSize。无参数。",
       "stdout_output": "{ok,data:{agents,count}}",
@@ -3765,7 +3762,7 @@
       ]
     },
     {
-      "name": "session_create.py",
+      "name": "session_create",
       "path": "tools/session_create.py",
       "purpose": "session_create：创建自由 Agent 会话。支持 name/persona/count/name_prefix/tags，批量创建玩家、评审员等。",
       "stdout_output": "{ok,data:{agents,count,session_id,name,role}}",
@@ -3830,7 +3827,7 @@
       ]
     },
     {
-      "name": "github_api.py",
+      "name": "github_api",
       "path": "tools/github_api.py",
       "purpose": "github_api：GitHub 远程 API（action=login/get_repo/list_issues/create_issue/list_releases/set_topics/list_prs/get_pr/create_pr/close_pr/update_pr）。与 git_workspace 本地只读互补。",
       "stdout_output": "{\"ok\":true,\"data\":{...}} 或 {\"ok\":false,\"error\":\"...\"}",
@@ -3972,7 +3969,7 @@
       ]
     },
     {
-      "name": "look_screenshot.py",
+      "name": "look_screenshot",
       "path": "tools/look_screenshot.py",
       "purpose": "look_screenshot：用独立视觉模型查看本轮用户截图。主模型看不到像素。prompt 必填（≤4000字）；path / paths / attachment_ids 三个参数可同时使用，但必须至少传一个（见系统提示）；三个参数合计图片总数不超过 4 张（如 path 传 1 张 + paths 传 2 张 = 共 3 张）；超出或任一条定位失败均直接报错。单文件≤8MB；仅本会话 attachments 下的 jpg/png/webp/gif。prompt 须表达用户意图并导向答案。",
       "stdout_output": "{ok,data:{description,vision_model,prompt,paths,attachment_ids}}",

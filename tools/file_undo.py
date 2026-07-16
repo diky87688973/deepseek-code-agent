@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""回滚 replace_in_file 的版本化备份。"""
+"""文件版本化备份回滚工具。支持 list 查看备份历史、undo 回滚到指定版本。"""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def agent_main(
 
             # 1. 先备份当前文件
             current = ac.read_file_text(fp, encoding)
-            new_mod_id = ac.create_replace_backup(
+            new_mod_id = ac.create_file_backup(
                 fp, current, encoding, "undo_pre", ""
             )
 

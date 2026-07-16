@@ -425,9 +425,9 @@ class AgentRuntime:
                                     _tool_aborted_by_user = False
                                     _cmd_input_key = ""
                                     _progress_last_seq = -1
-                                    if script == "file_search.py":
+                                    if script == "file_search":
                                         set_file_search_allowed(conversation_id, True)
-                                    if script == "run_command.py":
+                                    if script == "run_command":
                                         _search_progress["_shell_scope"] = conversation_id
                                         _cmd_input_key = f"{conversation_id}:{tc.get('id')}"
                                         _search_progress["command_input_key"] = _cmd_input_key
@@ -437,7 +437,7 @@ class AgentRuntime:
                                             register_command_input_target(_cmd_input_key, _search_progress)
                                         except Exception:
                                             pass
-                                    elif script == "python_inline.py":
+                                    elif script == "python_inline":
                                         _cmd_input_key = ""
 
                                     def _run_tool_with_progress() -> None:
@@ -480,7 +480,7 @@ class AgentRuntime:
                                             if _turn_abort_requested(conversation_id, run_id):
                                                 _search_progress["_abort"] = True
                                                 _tool_aborted_by_user = True
-                                                if script == "run_command.py":
+                                                if script == "run_command":
                                                     try:
                                                         from command_safety import force_kill_active_shell_process
 
@@ -492,7 +492,7 @@ class AgentRuntime:
                                                         break
                                                     _t.join(timeout=0.25)
                                                 break
-                                            if script == "run_command.py" and time.monotonic() >= _wall_deadline:
+                                            if script == "run_command" and time.monotonic() >= _wall_deadline:
                                                 try:
                                                     from command_safety import force_kill_active_shell_process
 
@@ -518,9 +518,9 @@ class AgentRuntime:
                                         else:
                                             result = _ts_result_holder.get("r", {})
                                     finally:
-                                        if script == "file_search.py":
+                                        if script == "file_search":
                                             set_file_search_allowed(conversation_id, False)
-                                        if script == "run_command.py" and _cmd_input_key:
+                                        if script == "run_command" and _cmd_input_key:
                                             try:
                                                 from agent_v4.live_state import unregister_command_input_target
 
@@ -551,7 +551,7 @@ class AgentRuntime:
                             _host_quality.note_write_tool_result(
                                 conversation_id, script, exec_args, result
                             )
-                            if script == "review_conclusion.py" and result.get("ok") and not exec_args.get("dry_run", True):
+                            if script == "review_conclusion" and result.get("ok") and not exec_args.get("dry_run", True):
                                 if exec_args.get("review_type", "file") == "apply_patch":
                                     _host_quality.mark_apply_patch_review_done(conversation_id)
                                 else:
@@ -616,7 +616,7 @@ class AgentRuntime:
                             active_sender_is_peer
                             and active_sender
                             and active_sender not in ("boss",)
-                            and script == "user_confirm.py"
+                            and script == "user_confirm"
                             and _is_user_confirm_required(result)
                             and isinstance(exec_args, dict)
                         ):
@@ -632,7 +632,7 @@ class AgentRuntime:
                             }
                             _te_tool_end["ok"] = True
                             _te_tool_end["preview"] = preview_tool_result(script, result)
-                        if script in ("user_confirm.py", "kling_generate.py", "skill_manage.py") and _is_user_confirm_required(result) and isinstance(exec_args, dict):
+                        if script in ("user_confirm", "kling_generate", "skill_manage") and _is_user_confirm_required(result) and isinstance(exec_args, dict):
                             _te_tool_end["user_confirm_required"] = True
                             _ucd = result.get("data") or {}
                             _te_tool_end["user_confirm_title"] = str(_ucd.get("title") or "")
@@ -644,7 +644,7 @@ class AgentRuntime:
                             if isinstance(_cix, int):
                                 _te_tool_end["user_confirm_custom_index"] = _cix
                             _pending_args = dict(exec_args)
-                            if script in ("kling_generate.py", "skill_manage.py"):
+                            if script in ("kling_generate", "skill_manage"):
                                 _cid = _ucd.get("confirm_id")
                                 if _cid:
                                     _pending_args["confirm_id"] = str(_cid)
@@ -654,8 +654,8 @@ class AgentRuntime:
                                 "script": script,
                                 "confirms": list(_cos) if isinstance(_cos, list) else [],
                             }
-                        _suspend_wait = script == "session_wait.py" and should_suspend_after_session_wait(result)
-                        if script == "todo_list.py" and isinstance(result, dict) and result.get("ok"):
+                        _suspend_wait = script == "session_wait" and should_suspend_after_session_wait(result)
+                        if script == "todo_list" and isinstance(result, dict) and result.get("ok"):
                             _td = result.get("data")
                             if _td is None:
                                 # 无活跃清单 → 发送关闭信号
@@ -691,7 +691,7 @@ class AgentRuntime:
                             yield _emit({"type": "done"})
                             return
 
-                        if script == "session_create.py" and isinstance(result, dict) and result.get("ok"):
+                        if script == "session_create" and isinstance(result, dict) and result.get("ok"):
                             _sd = (result.get("data") or {})
                             _agents = _sd.get("agents") or []
                             if _sd.get("session_id") and not _agents:
@@ -700,7 +700,7 @@ class AgentRuntime:
                                 if isinstance(_agent, dict) and _agent.get("session_id"):
                                     yield _emit({"type": "open_session", "session_id": _agent["session_id"], "name": _agent.get("name", "")})
 
-                        if script == "run_type.py" and isinstance(result, dict) and result.get("ok"):
+                        if script == "run_type" and isinstance(result, dict) and result.get("ok"):
                             _dc = result.get("data") or {}
                             _rtm = _dc.get("run_type")
                             if _rtm in ("auto", "plan", "execute"):
@@ -722,7 +722,7 @@ class AgentRuntime:
                         "script": script or "(unknown)",
                         "ok": bool(result.get("ok")),
                     }
-                    if script in ("session_send.py", "session_multisend.py", "session_broadcast.py"):
+                    if script in ("session_send", "session_multisend", "session_broadcast"):
                         _out_rr = _exec_requires_reply_true(exec_args)
                         _tool_rec["requires_reply_out"] = _out_rr
                         _reply_tids = _extract_reply_tool_target_ids(script, exec_args, result)
@@ -738,7 +738,7 @@ class AgentRuntime:
                                 )
                                 _sync_ephemeral_tail()
                     turn_tool_records.append(_tool_rec)
-                    if script == "look_screenshot.py" and isinstance(result, dict) and result.get("ok"):
+                    if script == "look_screenshot" and isinstance(result, dict) and result.get("ok"):
                         _looked_screenshot = True
                         ctx.looked_screenshot = True
                         _sync_ephemeral_tail()

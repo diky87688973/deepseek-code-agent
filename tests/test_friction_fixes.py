@@ -18,7 +18,7 @@ if str(_TOOLS) not in sys.path:
 import session_wait  # noqa: E402
 import agent_common as ac  # noqa: E402
 
-from tools import python_inline, read_file, replace_in_file, replace_undo
+from tools import python_inline, read_file, replace_in_file, file_undo
 
 
 class TestReplaceInFileRaw(unittest.TestCase):
@@ -35,6 +35,9 @@ class TestReplaceInFileRaw(unittest.TestCase):
             )
             self.assertTrue(r.get("ok"), r)
             cid = (r.get("data") or {}).get("confirm_id", "")
+            from tools import review_conclusion
+            rc = review_conclusion.agent_main(conclusion="test: unlock confirm_id for raw test. ok.", file_name="test.py", confirm_id=cid, dry_run=False)
+            self.assertTrue(rc.get("ok"), rc)
             r = replace_in_file.agent_main(
                 confirm_id=cid,
                 dry_run=False,
@@ -63,7 +66,7 @@ class TestReplaceInFileRaw(unittest.TestCase):
     def test_backup_uses_versioned_store_without_bak_file(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            ac.configure_replace_backup_root(root / "replace_backup")
+            ac.configure_file_backup_root(root / "replace_backup")
             fp = root / "app.py"
             fp.write_text("alpha\n", encoding="utf-8")
             r = replace_in_file.agent_main(
@@ -75,6 +78,10 @@ class TestReplaceInFileRaw(unittest.TestCase):
             )
             self.assertTrue(r.get("ok"), r)
             cid = (r.get("data") or {}).get("confirm_id", "")
+            # 解锁 confirm_id 使其可通过二阶提交
+            from tools import review_conclusion
+            rc = review_conclusion.agent_main(conclusion="test: unlock confirm_id for backup test. ok.", file_name="test.py", confirm_id=cid, dry_run=False)
+            self.assertTrue(rc.get("ok"), rc)
             r = replace_in_file.agent_main(
                 confirm_id=cid,
                 dry_run=False,
@@ -100,13 +107,13 @@ class TestReadFileRaw(unittest.TestCase):
 
 
 class TestReplaceUndoSafety(unittest.TestCase):
-    def test_replace_undo_is_registered_as_write_tool(self) -> None:
+    def test_file_undo_is_registered_as_write_tool(self) -> None:
         from agent_v4.core.shared_state import WRITE_TOOL_SCRIPTS
 
-        self.assertIn("replace_undo.py", WRITE_TOOL_SCRIPTS)
+        self.assertIn("file_undo", WRITE_TOOL_SCRIPTS)
 
     def test_undo_rejects_plan_mode(self) -> None:
-        r = replace_undo.agent_main(action="undo", mod_id="missing", run_type="plan")
+        r = file_undo.agent_main(action="undo", mod_id="missing", run_type="plan")
         self.assertFalse(r.get("ok"))
         self.assertEqual("ModeConflict", (r.get("error") or {}).get("type"))
 
@@ -190,14 +197,14 @@ class TestPythonInlineForbidSearch(unittest.TestCase):
 class TestCatalogFrictionExamples(unittest.TestCase):
     def test_replace_in_file_second_example_is_raw(self) -> None:
         cat = json.loads((_ROOT / "tools" / "tool_list_agent.json").read_text(encoding="utf-8"))
-        tool = next(t for t in cat["tools"] if t["name"] == "replace_in_file.py")
+        tool = next(t for t in cat["tools"] if t["name"] == "replace_in_file")
         ex = tool.get("examples") or []
         self.assertGreaterEqual(len(ex), 2)
         self.assertTrue(ex[1].get("args", {}).get("raw"))
 
     def test_read_file_exposes_raw_flag(self) -> None:
         cat = json.loads((_ROOT / "tools" / "tool_list_agent.json").read_text(encoding="utf-8"))
-        tool = next(t for t in cat["tools"] if t["name"] == "read_file.py")
+        tool = next(t for t in cat["tools"] if t["name"] == "read_file")
         flags = {a.get("flag") for a in tool.get("args") or []}
         self.assertIn("--raw", flags)
 

@@ -178,7 +178,7 @@ class TestFileSearchHostGate(unittest.TestCase):
         from agent_v4.agent_core import execute_tool_script
 
         r = execute_tool_script(
-            "file_search.py",
+            "file_search",
             {"pattern": "x", "path": "."},
             conversation_id="gate-test-cid",
         )
@@ -194,7 +194,7 @@ class TestFileSearchHostGate(unittest.TestCase):
         set_file_search_allowed(cid, True)
         try:
             r = execute_tool_script(
-                "file_search.py",
+                "file_search",
                 {"pattern": "AGENT_APP_VERSION", "path": str(vf), "recursive": True},
                 conversation_id=cid,
             )
@@ -210,7 +210,7 @@ class TestFileSearchHostGate(unittest.TestCase):
         set_file_search_allowed("cid-a", True)
         try:
             r = execute_tool_script(
-                "file_search.py",
+                "file_search",
                 {"pattern": "x", "path": "."},
                 conversation_id="cid-b",
             )

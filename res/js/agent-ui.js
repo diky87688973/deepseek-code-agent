@@ -1226,7 +1226,7 @@ const dry=dr!==false&&dr!==0;
 const co=!!argGet(args,"create_only");
 const tag=dry?"（dry_run 预览）":"（写入）";
 const cx=co?" · create_only":"";
-return {main:dry?"预览写入":"写入文件",fname:leaf+tag+cx};}
+return {main:dry?"预览修改":"提交修改",fname:leaf+tag+cx};}
 if(s.indexOf("replace_in_file")>=0){
 const path=String(argGet(args,"path")||"").trim();
 const leaf=pathLeaf(path)||"（未指定 path）";
@@ -1240,7 +1240,7 @@ let mode="字面替换",extra="";
 if(rs!=null&&re!=null){mode="区间";extra=" §"+rs+"–"+re;}
 else if(ls!=null&&le!=null&&sc!=null&&ec!=null){mode="矩形";extra=" L"+ls+":"+sc+"–"+le+":"+ec;}
 else if(Array.isArray(rules)&&rules.length)mode="规则×"+rules.length;
-return {main:dry?"预览替换":"替换文件",fname:leaf+" · "+mode+extra+(dry?" · dry_run":"")};}
+return {main:dry?"预览修改":"提交修改",fname:leaf+" · "+mode+extra+(dry?" · dry_run":"")};}
 if(s.indexOf("grep_files")>=0){
 const root=String(argGet(args,"path")||"").trim();
 const leaf=pathLeaf(root)||root.slice(0,36)+(root.length>36?"…":"");
@@ -1264,7 +1264,7 @@ if(ls!=null&&le!=null)rng=" L"+ls+"–"+le;
 else if(chs!=null||che!=null)rng=" §"+(chs!=null?chs:0)+"–"+(che!=null?che:"");
 const dr=argGet(args,"dry_run");
 const dry=dr!==false&&dr!==0;
-return {main:dry?"预览读写管道":"读写管道",fname:(src||"?")+(dst?" → "+dst:"")+rng+(dry?" · dry_run":"")};}
+return {main:dry?"预览修改":"提交修改",fname:(src||"?")+(dst?" → "+dst:"")+rng+(dry?" · dry_run":"")};}
 if(s.indexOf("delete_file")>=0){
 const leaf=pathLeaf(String(argGet(args,"path")||""))||"（未指定 path）";
 const dr=argGet(args,"dry_run");
@@ -1277,7 +1277,7 @@ const dry=dr!==false&&dr!==0;
 const pf=baseNameOnly(String(argGet(args,"patch_file")||""));
 const pt=String(argGet(args,"patch_text")||"");
 const hint=pf|| (pt?"内联补丁":"补丁");
-return {main:dry?"预览应用补丁":"应用补丁",fname:root+" · "+hint+(dry?" · dry_run":"")};}
+return {main:dry?"预览修改":"提交修改",fname:root+" · "+hint+(dry?" · dry_run":"")};}
 if(s.indexOf("run_command")>=0){
 const cwd=pathLeaf(String(argGet(args,"cwd")||""));
 const cmd=String(argGet(args,"command")||"").replace(/\s+/g," ").trim().slice(0,72);
@@ -1365,6 +1365,24 @@ if(s.indexOf("env_probe")>=0)return {main:"探测运行环境",fname:""};
 if(s.indexOf("diagnos")>=0){
 const root=pathLeaf(String(argGet(args,"path")||""))||".";
 return {main:"统一诊断",fname:root};}
+if(s.indexOf("review_conclusion")>=0){
+const fn=String(argGet(args,"file_name")||"").trim();
+return {main:"Review",fname:fn};}
+if(s.indexOf("file_undo")>=0){
+const fp=pathLeaf(String(argGet(args,"path")||""))||"";
+let ts="";
+const mid=String(argGet(args,"mod_id")||"").trim();
+if(mid){const parts=mid.split("_");if(parts.length>=3)ts=parts.slice(-2,-1)[0]||"";if(ts.length>=6)ts=ts.slice(0,2)+":"+ts.slice(2,4)+":"+ts.slice(4,6);}
+return {main:"回滚文件"+(fp?" · "+fp:"")+(ts?" to "+ts:""),fname:""};}
+if(s.indexOf("session_send")>=0){
+const tid=String(argGet(args,"target_id")||"").trim().slice(0,12);
+return {main:"多Agent协作"+(tid?" · to "+tid:""),fname:""};}
+if(s.indexOf("session_multisend")>=0){
+const ch=String(argGet(args,"channel")||"").trim();
+const tids=argGet(args,"target_ids");
+let grp=ch||"";
+if(!grp&&Array.isArray(tids)&&tids.length)grp="组"+(tids.length>1?tids.length+"个":"1个");
+return {main:"多Agent协作"+(grp?" · to "+grp:""),fname:""};}
 const unk='(unknown)';
 if(s===unk)return {main:"无法识别的工具（见下方参数）",fname:""};
 return {main:toolZh(script),fname:""};}
@@ -1551,7 +1569,7 @@ if(s.indexOf("grep_files")>=0)return "检索结果";
 if(s.indexOf("image_ocr")>=0)return "识别结果";
 if(s.indexOf("ip_geolocate")>=0)return "地理定位";
 if(s.indexOf("open_meteo")>=0)return "天气数据";
-if(s.indexOf("replace_in_file")>=0)return "替换预览";
+if(s.indexOf("replace_in_file")>=0)return "预览修改";
 if(s.indexOf("glob_files")>=0)return "目录结果";
 if(s.indexOf("regex_locate")>=0)return "检索结果";
 if(s.indexOf("file_ops")>=0)return "文件操作结果";
@@ -1561,7 +1579,7 @@ if(s.indexOf("git_workspace")>=0)return "工作区状态";
 if(s.indexOf("diagnos")>=0)return "诊断结果";
 if(s.indexOf("run_command")>=0)return "命令输出";
 if(s.indexOf("python_inline")>=0)return "内联代码输出";
-return "工具输出";}
+return "工具调度";}
 function clearLlmAnim(){
 if(lastLlm&&lastLlm.dotsTimer){clearInterval(lastLlm.dotsTimer);lastLlm.dotsTimer=null;}}
 function promoteReasoningToChatIfNeeded(){
@@ -1588,7 +1606,7 @@ const n=r||1;
 llmStreamBuffer.round=n;llmStreamBuffer.reqHtml="";llmStreamBuffer.resHtml="";llmStreamBuffer.consumed=false;
 if(n>1&&streamAssistantEl){pendingDeltaSeparator=true;}
 let baseMsg="正在思考中";
-if(n>1){const tail=lastAnalysisTail||"工具输出";baseMsg="分析"+tail;lastAnalysisTail="";}
+if(n>1){const tail=lastAnalysisTail||"工具调度";baseMsg="分析"+tail;lastAnalysisTail="";}
 const c=document.createElement("div");c.className="step card";
 const h=document.createElement("div");h.className="ch ch-toggle";h.setAttribute("role","button");
 const left=document.createElement("div");left.className="tit tit-row";

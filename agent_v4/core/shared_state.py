@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from agent_v4.core.deps import *  # noqa: F403
 
-_RESTRICTED_TOOLS: frozenset = frozenset({"file_search.py"})
+_RESTRICTED_TOOLS: frozenset = frozenset({"file_search"})
 _TOOL_PROGRESS_SCRIPTS: frozenset = frozenset(
-    {"file_search.py", "grep_files.py", "regex_locate.py", "run_command.py", "python_inline.py"}
+    {"file_search", "grep_files", "regex_locate", "run_command", "python_inline"}
 )
 from agent_v4.core.tool_sets import (  # noqa: E402
     PREVIEW_REQUIRED_SCRIPTS,
@@ -42,12 +42,12 @@ _HOST_INJECTED_TOOL_ARG_NAMES = frozenset({"conversation_id", "_progress_dict", 
 # 已从 schema 移除的 action；旧模型若仍传入则宿主剥离，避免 BadToolArguments
 _SESSION_DROP_LEGACY_ACTION_SCRIPTS = frozenset(
     {
-        "session_send.py",
-        "session_multisend.py",
-        "session_broadcast.py",
-        "session_list.py",
-        "session_wait.py",
-        "session_create.py",
+        "session_send",
+        "session_multisend",
+        "session_broadcast",
+        "session_list",
+        "session_wait",
+        "session_create",
     }
 )
 

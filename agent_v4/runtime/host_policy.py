@@ -142,7 +142,7 @@ class HostPolicy:
                 "error": {"type": "AuditOnly", "message": audit_block_msg},
             }
         if current_mode == "plan":
-            if script == "replace_in_file.py":
+            if script == "replace_in_file":
                 _dr = exec_args.get("dry_run", True)
                 if _dr is False or _dr == 0:
                     return {

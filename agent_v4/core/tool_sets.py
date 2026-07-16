@@ -5,21 +5,21 @@ from __future__ import annotations
 # 宿主写门控范围（Plan/Execute/Audit/预览质量）
 WRITE_GATED_SCRIPTS: frozenset = frozenset(
     {
-        "file_ops.py",
-        "python_inline.py",
-        "write_file.py",
-        "read_write.py",
-        "replace_in_file.py",
-        "replace_undo.py",
-        "apply_patch.py",
-        "run_command.py",
-        "delete_file.py",
+        "file_ops",
+        "python_inline",
+        "write_file",
+        "read_write",
+        "replace_in_file",
+        "file_undo",
+        "apply_patch",
+        "run_command",
+        "delete_file",
     }
 )
 
 # 必须先 dry_run 预览再真写的路径类工具（⊆ WRITE_GATED）
 PREVIEW_REQUIRED_SCRIPTS: frozenset = frozenset(
-    {"write_file.py", "replace_in_file.py", "read_write.py", "apply_patch.py"}
+    {"write_file", "replace_in_file", "read_write", "apply_patch"}
 )
 
 # 宿主质量诊断跟踪的写路径（与 PREVIEW 对齐）

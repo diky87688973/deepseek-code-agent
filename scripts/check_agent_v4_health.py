@@ -187,42 +187,42 @@ def check_catalog_param_policy() -> None:
     cat = json.loads((ROOT / "tools" / "tool_list_agent.json").read_text(encoding="utf-8"))
     keep_restrict = frozenset(
         {
-            "write_file.py",
-            "read_write.py",
-            "delete_file.py",
-            "file_ops.py",
-            "replace_in_file.py",
-            "replace_undo.py",
-            "apply_patch.py",
-            "archive.py",
-            "run_command.py",
-            "python_inline.py",
+            "write_file",
+            "read_write",
+            "delete_file",
+            "file_ops",
+            "replace_in_file",
+            "file_undo",
+            "apply_patch",
+            "archive",
+            "run_command",
+            "python_inline",
         }
     )
     no_run_type = frozenset(
         {
-            "read_file.py",
-            "glob_files.py",
-            "grep_files.py",
-            "find_in_file.py",
-            "regex_locate.py",
-            "file_search.py",
-            "git_workspace.py",
-            "web_fetch.py",
-            "web_fetch_render.py",
-            "unified_diagnose.py",
-            "env_probe.py",
-            "ip_geolocate.py",
-            "open_meteo_weather.py",
-            "data_table.py",
-            "text_diff.py",
-            "image_ocr.py",
-            "session_send.py",
-            "session_multisend.py",
-            "session_broadcast.py",
-            "session_wait.py",
-            "session_list.py",
-            "session_create.py",
+            "read_file",
+            "glob_files",
+            "grep_files",
+            "find_in_file",
+            "regex_locate",
+            "file_search",
+            "git_workspace",
+            "web_fetch",
+            "web_fetch_render",
+            "unified_diagnose",
+            "env_probe",
+            "ip_geolocate",
+            "open_meteo_weather",
+            "data_table",
+            "text_diff",
+            "image_ocr",
+            "session_send",
+            "session_multisend",
+            "session_broadcast",
+            "session_wait",
+            "session_list",
+            "session_create",
         }
     )
     for t in cat.get("tools") or []:
@@ -232,9 +232,9 @@ def check_catalog_param_policy() -> None:
             errors.append(f"{name}: 只读/检索类不应含 --restrict_to_workspace（见 workspace_safety）")
         if "--run_type" in flags and name in no_run_type:
             errors.append(f"{name}: 只读类 catalog 不应含 --run_type")
-        if name == "glob_files.py" and "--pattern" in flags:
+        if name in ("glob_files", "glob_files.py") and "--pattern" in flags:
             errors.append("glob_files.py: 禁止 --pattern 别名，仅用 --glob_pattern")
-        if name in ("data_table.py", "image_ocr.py") and "--source" in flags:
+        if name in ("data_table", "data_table.py", "image_ocr", "image_ocr.py") and "--source" in flags:
             errors.append(f"{name}: 表格/图片路径须用 --path，勿用 --source")
 
 
@@ -247,11 +247,10 @@ def check_catalog_agent_main_alignment() -> None:
 
     for t in cat.get("tools", []):
         fn = str(t.get("name", ""))
-        if not fn.endswith(".py"):
+        if not fn:
             continue
-        mod_name = fn[:-3]
         try:
-            mod = importlib.import_module(mod_name)
+            mod = importlib.import_module(fn)
         except Exception as exc:
             errors.append(f"{fn}: import {exc}")
             continue
@@ -287,7 +286,7 @@ def check_session_tools_contract() -> None:
     by_name = {str(t.get("name") or ""): t for t in cat.get("tools") or []}
 
     # session_wait 为宿主协作挂起工具，可不进 catalog（与既有约定一致）
-    catalog_optional = frozenset({"session_wait.py"})
+    catalog_optional = frozenset({"session_wait"})
 
     for fname in session_names:
         text = (tools_dir / fname).read_text(encoding="utf-8", errors="replace")
@@ -298,9 +297,10 @@ def check_session_tools_contract() -> None:
             text,
         ):
             errors.append(f"tools/{fname}: 含 try/import agent_common 双轨（应单行 import agent_common as ac）")
-        entry = by_name.get(fname)
+        fstem = fname[:-3] if fname.endswith(".py") else fname
+        entry = by_name.get(fname) or by_name.get(fstem)
         if not entry:
-            if fname in catalog_optional:
+            if fname in catalog_optional or fstem in catalog_optional:
                 continue
             errors.append(f"tools/{fname}: 未在 tool_list_agent.json 注册")
             continue
