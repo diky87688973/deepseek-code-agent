@@ -334,19 +334,43 @@
   function renderUnifiedDiffBodyAsCardsHtml(body) {
     var sections = splitUnifiedDiffSections(body);
     if (!sections.length) return "";
-    if (sections.length === 1) {
-      var pr = parseUnifiedDiffBodyForRows(body);
-      if (pr.oldT !== "" || pr.newT !== "") {
-        return buildChatDiffCardHtml(pr.oldT, pr.newT, diffFileNameFromBody(body));
-      }
-      return "";
-    }
     var html = "";
     for (var si = 0; si < sections.length; si++) {
       var sec = sections[si];
-      var pr2 = parseUnifiedDiffBodyForRows(sec);
-      if (pr2.oldT === "" && pr2.newT === "") continue;
-      html += buildChatDiffCardHtml(pr2.oldT, pr2.newT, diffFileNameFromBody(sec));
+      var lines = sec.replace(/\r/g, "").split("\n");
+      var fn = diffFileNameFromBody(sec);
+      for (var fi = 0; fi < lines.length; fi++) {
+        var L = lines[fi];
+        if (L.indexOf("--- ") === 0 || L.indexOf("+++ ") === 0) {
+          var mp = L.match(/[ab][\/](.+)/);
+          if (mp) { fn = mp[1]; break; }
+        }
+      }
+      var add = 0, del = 0;
+      for (var li = 0; li < lines.length; li++) {
+        var L = lines[li];
+        if (L.indexOf("--- ") === 0 || L.indexOf("+++ ") === 0) continue;
+        var c = L.charAt(0);
+        if (c === "+") add++; else if (c === "-") del++;
+      }
+      var cap = '<div class="chat-diff-cap">' + escapeHtml(fn) + ' · diff' + (del > 0 ? ' <span class="chat-diff-neg">-' + del + '</span>' : '') + (add > 0 ? ' <span class="chat-diff-pos">+' + add + '</span>' : '') + '</div>';
+      var box = '<div class="diff-unified diff-surface-adaptive">';
+      for (var li = 0; li < lines.length; li++) {
+        var L = lines[li];
+        var ch0 = L.charAt(0);
+        if (ch0 === "-" || ch0 === "+") {
+          if (L.indexOf("--- ") === 0 || L.indexOf("+++ ") === 0) continue;
+          box += '<div class="' + (ch0 === "-" ? "d-del" : "d-add") + '">' + diffRowInnerHtml({ t: ch0, l: L.replace(/^[-+]\s?/, "") }) + '</div>';
+        } else if (/^@@/.test(L)) {
+          box += '<div class="d-meta">' + escapeHtml(L) + '</div>';
+        } else if (ch0 === " ") {
+          box += '<div class="d-eq">' + diffRowInnerHtml({ t: " ", l: L.replace(/^\s/, "") }) + '</div>';
+        } else if (L.trim()) {
+          box += '<div class="d-eq">' + diffRowInnerHtml({ t: " ", l: L }) + '</div>';
+        }
+      }
+      box += '</div>';
+      html += '<div class="chat-diff-card">' + cap + box + '</div>';
     }
     return html;
   }
