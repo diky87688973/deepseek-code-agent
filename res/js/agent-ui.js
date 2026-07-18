@@ -556,7 +556,7 @@ t=t.replace(/!\[([^\]]*)\]\(([a-zA-Z]:[\/\\]AI_DATA_ROOT[\/\\]workspace[\/\\]([^
 // file:/// 工作区路径 → 转 /kling-tasks/ 静态路由
 t=t.replace(/!\[([^\]]*)\]\(file:\/\/\/[a-zA-Z]:[\/\\]AI_DATA_ROOT[\/\\]workspace[\/\\]([^\s)]+)\)/g,function(_,alt,p){var localPath='D:\\AI_DATA_ROOT\\workspace\\'+p.replace(/\//g,'\\');if(/\.(mp4|mov|webm|avi)(\?|$)/i.test(p))return '<video src="/workspace/'+p+'" controls style="max-width:100%;border-radius:6px;margin:4px 0;max-height:480px;background:#000;" title="'+localPath+'" alt="'+localPath+'"></video>';return '<img src="/workspace/'+p+'" alt="'+localPath+'" loading="lazy" style="max-width:300px;height:auto" title="'+localPath+'" />';});
 t=t.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+|\/[^\s)]+|[a-zA-Z]:[\/\\][^\s)]+)\)/g,function(_,alt,url){if(/\.(mp4|mov|webm|avi)(\?|$)/i.test(url))return '<video src="'+url+'" controls style="max-width:100%;border-radius:6px;margin:4px 0;max-height:480px;background:#000;"></video>';return '<img src="'+url+'" alt="'+alt+'" loading="lazy" style="max-width:300px;height:auto" />';});t=t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,function(_,label,url){return '<a href="'+url+'" target="_blank" rel="noopener noreferrer">'+label+'</a>';});
-t=t.replace(/`([^`]+)`/g,'<code>$1</code>');
+t=t.replace(/(`+?)([\s\S]*?)\1(?!`)/g,'<code>$2</code>');
 t=t.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
 t=t.replace(/__([^_]+)__/g,'<strong>$1</strong>');
 t=t.replace(/~~([^~]+)~~/g,'<del>$1</del>');
@@ -679,7 +679,7 @@ function isUnifiedDiffLine(line){
 var s=String(line||"");
 if(!s)return false;
 if(/^---\s/.test(s)||/^\+\+\+\s/.test(s)||/^@@\s/.test(s))return true;
-if(/^[-+ ]/.test(s))return true;
+if(/^[-+]/.test(s))return true;
 return false;
 }
 function shouldStartUnifiedDiffBlock(lines,i){
@@ -743,9 +743,20 @@ var after=rest.slice(m.index+m[0].length);
 var trimmed=after.replace(/^\r?\n/,"");
 if(!trimmed.trim())return m.index;
 if(/^```(?:diff|patch)\b/i.test(trimmed))return m.index;
-var firstLine=(trimmed.split(/\r?\n/)[0]||"").trim();
+var lines=trimmed.split(/\r?\n/);
+var line0=lines[0]||"";
+var firstLine=line0.trim();
 if(/^---\s/.test(firstLine)||/^\+\+\+\s/.test(firstLine)||/^@@\s/.test(firstLine))continue;
-if(/^[-+ ]/.test(firstLine))continue;
+// 只有多行连续以 -/+ 开头才认为是 diff 内容，避免单行误判
+if(/^[-+]/.test(firstLine)){
+for(var di=1;di<Math.min(lines.length,4);di++){
+var l=(lines[di]||"").trim();
+if(!l)break;
+if(l.charAt(0)==="-"||l.charAt(0)==="+")continue;
+return m.index;
+}
+continue;
+}
 return m.index;
 }
 return -1;
@@ -766,6 +777,8 @@ if(cur.length)sections.push(cur.join("\n"));
 return sections.filter(function(s){return String(s).trim();});
 }
 function renderUnifiedDiffBodyAsCardsHtml(body){
+// 快速检查：没有任何 diff 标记行的内容不渲染为 diff 卡片
+if(!/^---\s/m.test(body)&&!/^\+\+\+\s/m.test(body)&&!/^@@\s/m.test(body))return "";
 var sections=splitUnifiedDiffSections(body);
 if(!sections.length)return "";
 var html="";
@@ -794,7 +807,7 @@ var L=lines[li];
 var ch0=L.charAt(0);
 if(ch0==="-"||ch0==="+"){
 if(L.indexOf("--- ")===0||L.indexOf("+++ ")===0)continue;
-box+='<div class="'+(ch0==="-"? 'd-del' : 'd-add')+'">'+diffRowInnerHtml({t:ch0,l:L.replace(/^[-+]\s?/,"")})+'</div>';}
+box+='<div class="'+(ch0==="-"? 'd-del' : 'd-add')+'">'+diffRowInnerHtml({t:ch0,l:L.substring(1)})+'</div>';}
 else if(/^@@/.test(L)){
 box+='<div class="d-meta">'+escapeHtml(L)+'</div>';}
 else if(ch0===" "){
@@ -813,6 +826,9 @@ var i=0;
 while(i<src.length){
 var open=src.indexOf("```",i);
 if(open<0){visit("text",src.slice(i));break;}
+// 只认行首的 ```，行内的 ``` 当作普通文本跳过
+var lineStart=src.lastIndexOf("\n",open)+1;
+if(open>lineStart){visit("text",src.slice(i,open+3));i=open+3;continue;}
 if(open>i)visit("text",src.slice(i,open));
 var langEnd=src.indexOf("\n",open+3);
 if(langEnd<0){visit("text",src.slice(open));break;}
@@ -1447,8 +1463,8 @@ var L=lines[i]==null?"":String(lines[i]);var cls=unifiedDiffRowClass(L);
 var el=document.createElement("div");
 el.className=cls;
 if(cls==="d-meta"){el.textContent=L;}
-else if(L.charAt(0)==="-"){el.innerHTML=diffRowInnerHtml({t:"-",l:L.replace(/^-\s?/,"")});}
-else if(L.charAt(0)==="+"){el.innerHTML=diffRowInnerHtml({t:"+",l:L.replace(/^\+\s?/,"")});}
+else if(L.charAt(0)==="-"){el.innerHTML=diffRowInnerHtml({t:"-",l:L.substring(1)});}
+else if(L.charAt(0)==="+"){el.innerHTML=diffRowInnerHtml({t:"+",l:L.substring(1)});}
 else{el.innerHTML=diffRowInnerHtml({t:" ",l:L.replace(/^\s/,"")});}
 container.appendChild(el);}}
 // 全局滚动代理 — document 捕获阶段统一处理所有 scroll，无需对元素逐个注册

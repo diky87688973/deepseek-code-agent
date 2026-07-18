@@ -54,7 +54,7 @@
     t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function (_, label, url) {
       return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + label + "</a>";
     });
-    t = t.replace(/`([^`]+)`/g, "<code>$1</code>");
+    t = t.replace(/(`+?)([\s\S]*?)\1(?!`)/g, "<code>$2</code>");
     t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
     t = t.replace(/__([^_]+)__/g, "<strong>$1</strong>");
     t = t.replace(/~~([^~]+)~~/g, "<del>$1</del>");
@@ -251,7 +251,7 @@
     var s = String(line || "");
     if (!s) return false;
     if (/^---\s/.test(s) || /^\+\+\+\s/.test(s) || /^@@\s/.test(s)) return true;
-    if (/^[-+ ]/.test(s)) return true;
+    if (/^[-+]/.test(s)) return true;
     return false;
   }
   function shouldStartUnifiedDiffBlock(lines, i) {
@@ -297,16 +297,25 @@
     return "<pre><code>" + escapeHtml(body) + "</code></pre>";
   }
   function findDiffFenceCloseIndex(rest) {
-    var reLine = /^[ \t]*```[ \t]*$/gm,
-      m;
+    var reLine = /^[ \t]*```[ \t]*$/gm, m;
     while ((m = reLine.exec(rest)) !== null) {
       var after = rest.slice(m.index + m[0].length);
       var trimmed = after.replace(/^\r?\n/, "");
       if (!trimmed.trim()) return m.index;
       if (/^```(?:diff|patch)\b/i.test(trimmed)) return m.index;
-      var firstLine = (trimmed.split(/\r?\n/)[0] || "").trim();
+      var lines = trimmed.split(/\r?\n/);
+      var line0 = lines[0] || "";
+      var firstLine = line0.trim();
       if (/^---\s/.test(firstLine) || /^\+\+\+\s/.test(firstLine) || /^@@\s/.test(firstLine)) continue;
-      if (/^[-+ ]/.test(firstLine)) continue;
+      if (/^[-+]/.test(firstLine)) {
+        for (var di = 1; di < Math.min(lines.length, 4); di++) {
+          var l = (lines[di] || "").trim();
+          if (!l) break;
+          if (l.charAt(0) === "-" || l.charAt(0) === "+") continue;
+          return m.index;
+        }
+        continue;
+      }
       return m.index;
     }
     return -1;
@@ -332,6 +341,8 @@
     });
   }
   function renderUnifiedDiffBodyAsCardsHtml(body) {
+    // 快速检查：没有任何 diff 标记行的内容不渲染为 diff 卡片
+    if (!/^---\s/m.test(body) && !/^\+\+\+\s/m.test(body) && !/^@@\s/m.test(body)) return "";
     var sections = splitUnifiedDiffSections(body);
     if (!sections.length) return "";
     var html = "";
@@ -360,7 +371,7 @@
         var ch0 = L.charAt(0);
         if (ch0 === "-" || ch0 === "+") {
           if (L.indexOf("--- ") === 0 || L.indexOf("+++ ") === 0) continue;
-          box += '<div class="' + (ch0 === "-" ? "d-del" : "d-add") + '">' + diffRowInnerHtml({ t: ch0, l: L.replace(/^[-+]\s?/, "") }) + '</div>';
+          box += '<div class="' + (ch0 === "-" ? "d-del" : "d-add") + '">' + diffRowInnerHtml({ t: ch0, l: L.substring(1) }) + '</div>';
         } else if (/^@@/.test(L)) {
           box += '<div class="d-meta">' + escapeHtml(L) + '</div>';
         } else if (ch0 === " ") {
@@ -379,10 +390,10 @@
     var i = 0;
     while (i < src.length) {
       var open = src.indexOf("```", i);
-      if (open < 0) {
-        visit("text", src.slice(i));
-        break;
-      }
+      if (open < 0) { visit("text", src.slice(i)); break; }
+      // 只认行首的 ```，行内的 ``` 当作普通文本跳过
+      var lineStart = src.lastIndexOf("\n", open) + 1;
+      if (open > lineStart) { visit("text", src.slice(i, open + 3)); i = open + 3; continue; }
       if (open > i) visit("text", src.slice(i, open));
       var langEnd = src.indexOf("\n", open + 3);
       if (langEnd < 0) {
