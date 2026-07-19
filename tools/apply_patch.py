@@ -20,6 +20,7 @@ def agent_main(
     restrict_to_workspace: bool = False,
     run_type: str = "",
     confirm_id: str = "",
+    cancel_previous: bool = False,
 ) -> dict:
     try:
         rt = str(run_type or "").strip().lower()
@@ -104,8 +105,10 @@ def agent_main(
         # 生成 confirm_id 供后续免参数提交
         _confirm_id = ""
         if dry_run:
-            from agent_v4.live_state import create_confirm_id, has_pending_confirm_for_path
-            if has_pending_confirm_for_path(str(r)):
+            from agent_v4.live_state import create_confirm_id, has_pending_confirm_for_path, invalidate_confirm_ids_for_path
+            if cancel_previous:
+                invalidate_confirm_ids_for_path(str(r))
+            elif has_pending_confirm_for_path(str(r)):
                 return {"ok": False, "data": None, "error": {"type": "PendingPreviewExists", "message": "该文件已有未提交的预览，请先 review_conclusion(confirm_id=..., cancel_preview=True) 取消，或 review_conclusion(confirm_id=...) 提交后再操作。"}}
             _confirm_id = create_confirm_id("apply_patch", {
                 "path": str(r),

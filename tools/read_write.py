@@ -29,6 +29,7 @@ def agent_main(
     restrict_to_workspace: bool = False,
     run_type: str = "",
     confirm_id: str = "",
+    cancel_previous: bool = False,
 ) -> dict:
     """
     语义等同 shell 管道：read 侧得到的正文原样写入 dest_path。
@@ -117,8 +118,13 @@ def agent_main(
             raise FileExistsError(f"create_only：文件已存在 {fp}")
 
         if dry_run:
-            from agent_v4.live_state import create_confirm_id, has_pending_confirm_for_path
-            if (source_path and has_pending_confirm_for_path(str(source_path))) or (dest_path and has_pending_confirm_for_path(str(dest_path))):
+            from agent_v4.live_state import create_confirm_id, has_pending_confirm_for_path, invalidate_confirm_ids_for_path
+            if cancel_previous:
+                if source_path:
+                    invalidate_confirm_ids_for_path(str(source_path))
+                if dest_path:
+                    invalidate_confirm_ids_for_path(str(dest_path))
+            elif (source_path and has_pending_confirm_for_path(str(source_path))) or (dest_path and has_pending_confirm_for_path(str(dest_path))):
                 return {"ok": False, "data": None, "error": {"type": "PendingPreviewExists", "message": "该文件已有未提交的预览，请先 review_conclusion(confirm_id=..., cancel_preview=True) 取消，或 review_conclusion(confirm_id=...) 提交后再操作。"}}
             w = _write_main(
                 path=dest_path,
@@ -166,11 +172,14 @@ def agent_main(
 
         # 真写：直接落盘，不调 _write_main（避免 ConfirmIdRequired 冲突）
         mod_id: Optional[str] = None
-        if backup and existed:
+        if existed:
             original = ac.read_file_text(fp, enc_w)
-            mod_id = ac.create_file_backup(
-                fp, original, enc_w, "read_write", ""
-            )
+            if backup:
+                mod_id = ac.create_file_backup(
+                    fp, original, enc_w, "read_write", ""
+                )
+        else:
+            original = ""
         ac.write_unicode_file(fp, content, encoding=enc_w)
         from agent_v4.live_state import invalidate_confirm_ids_for_path
         invalidate_confirm_ids_for_path(str(fp))

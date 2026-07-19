@@ -1149,6 +1149,12 @@
           "type": "string",
           "required": false,
           "description": "仅对 dry_run=false（提交）有效。提交时只需传此参数 + dry_run=false，所有其他参数从预览存储恢复，不要传。预览时（dry_run=true）不需要此参数。"
+        },
+        {
+          "flag": "--cancel_previous",
+          "type": "boolean",
+          "required": false,
+          "description": "为 true 时创建新预览前自动作废同一文件的旧预览，避免被 PendingPreviewExists 拦截。"
         }
       ],
       "examples": [
@@ -1286,6 +1292,12 @@
           "type": "string",
           "required": false,
           "description": "仅对 dry_run=false（提交）有效。提交时只需传此参数 + dry_run=false，所有其他参数从预览存储恢复，不要传。预览时（dry_run=true）不需要此参数。"
+        },
+        {
+          "flag": "--cancel_previous",
+          "type": "boolean",
+          "required": false,
+          "description": "为 true 时创建新预览前自动作废同一文件的旧预览，避免被 PendingPreviewExists 拦截。"
         }
       ],
       "examples": [
@@ -1721,6 +1733,12 @@
           "type": "string",
           "required": false,
           "description": "仅对 dry_run=false（提交）有效。提交时只需传此参数 + dry_run=false，所有编辑参数从预览存储恢复，不要传。预览时（dry_run=true）不需要此参数。"
+        },
+        {
+          "flag": "--cancel_previous",
+          "type": "boolean",
+          "required": false,
+          "description": "为 true 时创建新预览前自动作废同一文件的旧预览，避免被 PendingPreviewExists 拦截。"
         }
       ],
       "examples": [
@@ -2000,6 +2018,12 @@
           "type": "string",
           "required": false,
           "description": "仅对 dry_run=false（提交）有效。提交时只需传此参数 + dry_run=false，所有其他参数从预览存储恢复，不要传。预览时（dry_run=true）不需要此参数。"
+        },
+        {
+          "flag": "--cancel_previous",
+          "type": "boolean",
+          "required": false,
+          "description": "为 true 时创建新预览前自动作废同一文件的旧预览，避免被 PendingPreviewExists 拦截。"
         }
       ],
       "examples": [
