@@ -19,6 +19,7 @@ _CATALOG_HINTS_SYSTEM_CACHE: Optional[str] = None
 _HOST_DRY_RUN_NOTICE_ZH = (
     "【宿主提示】本次为预览（dry_run=true），磁盘未被修改。"
     "确认写入请传 dry_run: false（命令行对应 --commit），并满足当前会话模式（如 Execute）与执行清单等要求。"
+    "注意检查 diff 中的 @@ 行号，后续编辑以新行号为准，勿凭记忆。"
 )
 
 _AUDIT_WRITE_BLOCK_MSG = (

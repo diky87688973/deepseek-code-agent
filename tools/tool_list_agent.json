@@ -42,7 +42,7 @@
     {
       "name": "review_conclusion",
       "path": "tools/review_conclusion.py",
-      "purpose": "review_conclusion：写盘后提交 diff review 结论。支持三种用途：① 提交 review 结论（必填 file_name+conclusion），满足宿主跨文件编辑门禁；② 解锁二阶提交（传 confirm_id），使 write_file/replace_in_file/read_write/apply_patch 的 dry_run=false 能通过；③ 取消预览（传 confirm_id+cancel_preview=true），释放预览锁。dry_run=true 仅校验。",
+      "purpose": "review_conclusion：写盘后提交 diff review 结论。支持三种用途：① 提交 review 结论（必填 file_name+conclusion），满足宿主跨文件编辑门禁；② 解锁二阶提交（传 confirm_id），使 write_file/replace_in_file/read_write/apply_patch 的 dry_run=false 能通过；③ 取消预览（传 confirm_id+cancel_preview=true），释放预览锁。dry_run=true 仅校验。注意：用途②解锁 confirm_id 后，下一个 tool 必须立即 dry_run=false 提交，中间不插其他操作。",
       "stdout_output": "{ok,data:{reviewed,file_name,message}}",
       "args": [
         {"flag": "--conclusion", "type": "string", "required": true, "description": "review 结论文本，至少30字，必须给出真实验证结果与证据（如：read_file 确认内容正确、unified_diagnose/编译检查通过、测试通过），不能只写「验证通过」。"},
@@ -1568,7 +1568,7 @@
           "flag": "--old_text",
           "type": "string",
           "required": false,
-          "description": "字面旧片段；与 new_text 成对；若仅用 rules 可省略首对。"
+          "description": "字面旧片段；与 new_text 成对；若仅用 rules 可省略首对。注意该字勿含转义字符(如:\\n)，宿主会拒绝含转义符的调用"
         },
         {
           "flag": "--new_text",
@@ -1739,6 +1739,12 @@
           "type": "boolean",
           "required": false,
           "description": "为 true 时创建新预览前自动作废同一文件的旧预览，避免被 PendingPreviewExists 拦截。"
+        },
+        {
+          "flag": "--auto_newline",
+          "type": "boolean",
+          "required": false,
+          "description": "行替换模式且 new_text 后仍有内容行时自动补换行防止黏连；非行替换或后置无行时此参数无效。"
         }
       ],
       "examples": [
@@ -1911,21 +1917,21 @@
     {
       "name": "file_undo",
       "path": "tools/file_undo.py",
-      "purpose": "file_undo：文件版本化备份回滚——撤销改动**必须**使用本工具，禁止手动反向改写。action=list + path 列历史；action=undo + mod_id 回滚。回滚前会自动备份当前文件（可逆）。",
-      "stdout_output": "{ok,data:{backups,mod_id,restored_path,...}}",
+      "purpose": "file_undo：文件版本化备份回滚——撤销改动**必须**使用本工具，禁止手动反向改写。action=list + path 列历史；action=undo + mod_id 回滚；action=diff + mod_id（+ 可选 path）比对当前文件与备份版本的差异。回滚前会自动备份当前文件（可逆）。",
+      "stdout_output": "{ok,data:{backups,mod_id,restored_path,diff_text,...}}",
       "args": [
         {
           "flag": "--action",
           "type": "enum",
           "required": true,
-          "values": ["list", "undo"],
-          "description": "action=list：列出指定文件的历史备份；action=undo：回滚到指定 mod_id。"
+          "values": ["list", "undo", "diff"],
+          "description": "action=list：列出指定文件的历史备份；action=undo：回滚到指定 mod_id；action=diff：比对当前文件与指定备份版本的差异。"
         },
         {
           "flag": "--mod_id",
           "type": "string",
           "required": false,
-          "description": "action=undo 时的备份流水号。"
+          "description": "action=undo 或 action=diff 时的备份流水号。"
         },
         {
           "flag": "--path",

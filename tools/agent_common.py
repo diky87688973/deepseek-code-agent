@@ -35,11 +35,16 @@ def _ensure_backup_root() -> Path:
 
 
 def ok(data: Optional[dict]) -> dict:
-    return {"ok": True, "data": data, "error": None}
+    r = {"ok": True, "data": data}
+    if data is None:
+        r["data"] = None
+    return r
 
 
 def err(exc: Exception) -> dict:
-    return {"ok": False, "data": None, "error": {"type": exc.__class__.__name__, "message": str(exc)}}
+    r = {"ok": False, "error": {"type": exc.__class__.__name__, "message": str(exc)}}
+    return r
+
 
 
 def _strip_outer_quotes(s: str) -> str:
@@ -510,7 +515,7 @@ def span_region_rowcols(
 
 def generate_mod_id(path: Path) -> str:
     """生成全局唯一修改流水号：{文件名}_{时间戳}_{4位随机}"""
-    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', path.stem)
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', path.name)
     ts = time.strftime("%Y%m%d_%H%M%S", time.localtime())
     rand = ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
     return f"{safe_name}_{ts}_{rand}"
@@ -564,8 +569,12 @@ def list_backups(fp: Path) -> List[dict]:
     if not root.is_dir():
         return []
     target = str(fp.resolve())
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', fp.name)
+    prefix = f"{safe_name}_"
     records = []
     for d in sorted(root.iterdir(), key=lambda p: p.name, reverse=True):
+        if not d.name.startswith(prefix):
+            continue
         meta_file = d / "metadata.json"
         if meta_file.is_file():
             try:

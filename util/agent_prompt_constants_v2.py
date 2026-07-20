@@ -450,10 +450,20 @@ def resolve_user_rules_system_prompt(
         if not p.is_absolute():
             p = Path(data_root) / file_raw
         try:
-            if p.is_file():
-                text = p.read_text(encoding="utf-8").strip()
-                if text:
-                    parts.append(text)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            if not p.is_file():
+                p.write_text("", encoding="utf-8")
+            text = p.read_text(encoding="utf-8").strip()
+            _drive_head = (
+                f"## 自驱更新说明\n\n"
+                f"本规则文件路径：{p}\n"
+                f"你可以在适当时机直接更新此文件来持续迭代你的行为规则，\n"
+                f"新增、覆盖或合并规则条目均可。修改前请列出改动让用户确认后再写入。\n"
+            )
+            if text:
+                parts.append(_drive_head + text)
+            else:
+                parts.append(_drive_head)
         except OSError:
             pass
     parts.insert(0, AGENT_USER_RULES_DEFAULT.strip())

@@ -907,6 +907,21 @@ cap+='</div>';
 var box='<div class="diff-unified diff-surface-adaptive">'+buildDiffRowsHtml(oldT,newT)+'</div>';
 return '<div class="chat-diff-card">'+cap+box+'</div>';
 }
+function renderSimpleDiffCard(inner,lang){
+// 无 unified diff 头的简化 diff 代码块 → 渲染为 diff 卡片
+var lines=String(inner||'').split('\n');
+var add=0,del=0;
+for(var _i=0;_i<lines.length;_i++){var _c=lines[_i].charAt(0);if(_c==='+')add++;else if(_c==='-')del++;}
+var cap='<div class="chat-diff-cap">'+escapeHtml(lang||'diff')+(del?' <span class="chat-diff-neg">-'+del+'</span>':'')+(add?' <span class="chat-diff-pos">+'+add+'</span>':'')+'</div>';
+var box='<div class="diff-unified diff-surface-adaptive">';
+for(var _i=0;_i<lines.length;_i++){var L=lines[_i];var ch0=L.charAt(0);
+if(ch0==='-'){box+='<div class="d-del">'+diffRowInnerHtml({t:'-',l:L.substring(1)})+'</div>';}
+else if(ch0==='+'){box+='<div class="d-add">'+diffRowInnerHtml({t:'+',l:L.substring(1)})+'</div>';}
+else if(ch0===' '){box+='<div class="d-eq">'+diffRowInnerHtml({t:' ',l:L.replace(/^ /,'')})+'</div>';}
+else if(L.trim()){box+='<div class="d-eq">'+diffRowInnerHtml({t:' ',l:L})+'</div>';}}
+box+='</div>';
+return '<div class="chat-diff-card">'+cap+box+'</div>';
+}
 function renderMarkdown(md){
 const text=String(md||'').replace(/\r\n/g,'\n');
 let html='';
@@ -920,7 +935,7 @@ var cards=renderUnifiedDiffBodyAsCardsHtml(inner);
 if(cards){
 html+=cards;
 }else{
-var _hc=hljsCodeClass(lang);html+='<pre><code'+(_hc?' class="'+_hc+'"':'')+(lang?' data-lang="'+escapeHtml(lang)+'"':'')+'>'+highlightCode(inner,lang)+'</code></pre>';
+html+=renderSimpleDiffCard(inner,lang);
 }
 }else{
 var _hc2=hljsCodeClass(lang);html+='<pre><code'+(_hc2?' class="'+_hc2+'"':'')+(lang?' data-lang="'+escapeHtml(lang)+'"':'')+'>'+highlightCode(inner,lang)+'</code></pre>';
@@ -1408,11 +1423,13 @@ if(s.indexOf("review_conclusion")>=0){
 const fn=String(argGet(args,"file_name")||"").trim();
 return {main:"Review",fname:fn};}
 if(s.indexOf("file_undo")>=0){
+const ac=String(argGet(args,"action")||"").trim();
 const fp=pathLeaf(String(argGet(args,"path")||""))||"";
 let ts="";
 const mid=String(argGet(args,"mod_id")||"").trim();
 if(mid){const parts=mid.split("_");if(parts.length>=3)ts=parts.slice(-2,-1)[0]||"";if(ts.length>=6)ts=ts.slice(0,2)+":"+ts.slice(2,4)+":"+ts.slice(4,6);}
-return {main:"回滚文件"+(fp?" · "+fp:"")+(ts?" to "+ts:""),fname:""};}
+const label=ac==="diff"?"版本比较":"回滚文件";
+return {main:label,fname:fp?fp+(ts?" to "+ts:""):(ts?"to "+ts:"")};}
 if(s.indexOf("session_send")>=0){
 const tid=String(argGet(args,"target_id")||"").trim().slice(0,12);
 return {main:"多Agent协作"+(tid?" · to "+tid:""),fname:""};}
@@ -1573,6 +1590,24 @@ const _cap=document.createElement("p");_cap.textContent="unified diff 预览";
 const _box=document.createElement("div");_box.className="diff-unified diff-surface-adaptive";
 renderUnifiedDiffRows(_box,arr);
 o.previewSlot.appendChild(_cap);o.previewSlot.appendChild(_box);}
+}catch(_e){}
+return;}
+if(sc.indexOf("file_undo")>=0){
+o.previewSlot.innerHTML="";o.previewSlot.style.display="none";
+try{
+const _fu=JSON.parse(ev.preview||"{}");
+const _fuAct=_fu&&_fu.data&&_fu.data.action;
+const _fuDt=_fu&&_fu.data&&typeof _fu.data.diff_text==="string"?_fu.data.diff_text:"";
+if(_fuAct==="diff"&&_fuDt.trim()){
+o.previewSlot.style.display="block";
+const cap=document.createElement("p");cap.textContent="版本比较 diff";
+const wrap=document.createElement("div");
+wrap.innerHTML=renderUnifiedDiffBodyAsCardsHtml(_fuDt);
+if(!wrap.innerHTML.trim()){const box=document.createElement("div");box.className="diff-unified diff-surface-adaptive";renderUnifiedDiffRows(box,_fuDt.split(/\r?\n/));wrap.appendChild(box);}
+o.previewSlot.appendChild(cap);o.previewSlot.appendChild(wrap);
+var _fd=document.createElement("div");_fd.className="b a";_fd.innerHTML=wrap.innerHTML;
+if(streamAssistantEl){streamAssistantEl.after(_fd);streamAssistantEl=null;streamAssistantText="";}else{msgs.appendChild(_fd);}
+scrollMsgsToBottom();}
 }catch(_e){}
 return;}
 if(sc.indexOf("replace_in_file")>=0){
@@ -1978,6 +2013,14 @@ if(ev.user_confirm_required){o.tag.textContent="待确认";o.tag.className="tag 
 o.resLb.style.display="block";o.resPb.style.display="block";if(ev.user_confirm_required){try{var _pj=JSON.parse(ev.preview||"{}");var _em=_pj&&_pj.error&&_pj.error.message?String(_pj.error.message):"";var _em2=_em.indexOf("\n\n--help:")>=0?_em.split("\n\n--help:")[0].trim():_em;var slim={ok:_pj.ok,data:_pj.data,error:_pj.error?{code:_pj.error.code,type:_pj.error.type,message:_em2,hint:_pj.error.hint,retryable:_pj.error.retryable}:null};o.resPb.textContent=JSON.stringify(slim,null,2);}catch(e){o.resPb.textContent=ev.preview||"";}}else{try{var _pj2=JSON.parse(ev.preview||"{}");o.resPb.textContent=JSON.stringify(_pj2,null,2);}catch(e){o.resPb.textContent=ev.preview||"";}}
 fillToolPreview(o,ev);
 try{var _pp=typeof ev.preview==="string"?JSON.parse(ev.preview):ev.preview;var _so=_pp&&_pp.data&&_pp.data.stdout;if(_so&&typeof _so==="string"&&_so.trim()){if(o.chatRunCard&&o.chatRunCard.parentNode){updateChatRunCardOutput(o,_so);}else{ensureChatRunCard(o);updateChatRunCardOutput(o,_so);}}}catch(_e3){}
+// file_undo：从结果数据补充路径到标题
+try{var _fuP=typeof ev.preview==="string"?JSON.parse(ev.preview):ev.preview;_fuP=_fuP&&_fuP.data;}catch(_fuE){_fuP=null;}
+if(_fuP&&o.script&&o.script.toLowerCase().indexOf("file_undo")>=0){
+var _fuAct=String(o.args&&o.args.action||_fuP.action||"").trim();
+var _fuPath=_fuP.restored_path||_fuP.path||"";
+if(_fuPath&&!_fuPath.endsWith("\\")&&!_fuPath.endsWith("/")){
+var _fn=pathLeaf(_fuPath)||"";
+if(_fn){var _card=findStepCardForToolCall(tid);if(_card){var _tx=_card.querySelector(".step-title-wrap");if(_tx){var _txM=_tx.querySelector(":scope > span:first-child");var _txF=_tx.querySelector(":scope > .step-fname");var _ts="";var _mid=String(o.args&&o.args.mod_id||"").trim();if(_mid){var _pts=_mid.split("_");if(_pts.length>=3)_ts=_pts.slice(-2,-1)[0]||"";if(_ts.length>=6)_ts=_ts.slice(0,2)+":"+_ts.slice(2,4)+":"+_ts.slice(4,6);}if(_txM&&!_txF){_txF=document.createElement("span");_txF.className="step-fname";_tx.appendChild(_txF);}if(_txF){_txF.textContent=_fn+(_ts?" to "+_ts:"");}}}}}}
 if(isStreamOutputToolScript(o.script))finalizeChatRunCard(o,ok);
 if(ev.user_confirm_required)openUserConfirmModalFromToolEnd(ev);toolOpen.delete(tid);}
 

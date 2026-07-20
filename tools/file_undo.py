@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+import json
+
 import agent_common as ac
 
 
@@ -57,7 +59,6 @@ def agent_main(
 
             # 2. 写入备份内容
             ac.write_unicode_file(fp, backup_content, encoding=encoding)
-
             return ac.ok({
                 "action": "undo",
                 "mod_id": mod_id,
@@ -66,8 +67,45 @@ def agent_main(
                 "message": f"已回滚备份 {mod_id}，回滚前当前文件已备份为 {new_mod_id}",
             })
 
+        elif action == "diff":
+            if not mod_id:
+                raise ValueError("action=diff 时须提供 mod_id")
+            original_path, backup_content, encoding = ac.restore_backup(mod_id)
+            if not path:
+                path = original_path
+            fp = ac.resolve_path(path, allow_outside_workspace=not restrict_to_workspace)
+            if not fp.is_file():
+                raise FileNotFoundError(f"文件不存在: {fp}")
+            current = ac.read_file_text(fp, encoding)
+            import difflib
+            diff_lines = list(difflib.unified_diff(
+                backup_content.splitlines(keepends=True),
+                current.splitlines(keepends=True),
+                fromfile=f"备份/{mod_id[:12]}",
+                tofile=str(fp.name),
+            ))
+            diff_text = "".join(diff_lines)
+            # 读取备份元数据中的时间戳用于 step_title
+            _bak_dir = ac.backup_dir_for_mod(mod_id)
+            _meta_file = _bak_dir / "metadata.json"
+            _ts = ""
+            try:
+                _meta = json.loads(_meta_file.read_text(encoding="utf-8"))
+                _raw_ts = str(_meta.get("timestamp") or "")
+                if len(_raw_ts) >= 16:
+                    _ts = _raw_ts[11:16]
+            except Exception:
+                pass
+            return ac.ok({
+                "action": "diff",
+                "mod_id": mod_id,
+                "path": str(fp.resolve()),
+                "backup_time": _ts,
+                "diff_text": diff_text[:16000] + ("…" if len(diff_text) > 16000 else ""),
+            })
+
         else:
-            raise ValueError(f"不支持的 action: {action}，仅支持 list 和 undo")
+            raise ValueError(f"不支持的 action: {action}，仅支持 list、undo 和 diff")
 
     except Exception as e:
         return ac.err(e)

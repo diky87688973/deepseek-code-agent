@@ -1278,5 +1278,10 @@ def preview_tool_result(script_name: str, result: dict, text_limit: int = 12000)
                 slim_dm = dm[:text_limit] + "\n…"
             slim = {"ok": True, "data": {"summary": sm, "diff_markdown": slim_dm}}
             return json.dumps(slim, ensure_ascii=False)
+        if "file_undo" in sn and d.get("action") == "diff" and isinstance(d.get("diff_text"), str):
+            dt = d["diff_text"]
+            slim_dt = dt if len(dt) <= text_limit else dt[:text_limit] + "\n…"
+            slim = {"ok": True, "data": {"action": "diff", "diff_text": slim_dt}}
+            return json.dumps(slim, ensure_ascii=False)
     return preview_payload(result)
 

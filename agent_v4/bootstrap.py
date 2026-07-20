@@ -158,7 +158,7 @@ import agent_common as _agent_common_mod
 
 _todo_list_mod.configure_storage(DATA_ROOT / "cache" / "todo_lists")
 _delete_file_mod.configure_trash_root(RECYCLE_ROOT)
-_agent_common_mod.configure_file_backup_root(DATA_ROOT / "temp" / "replace_backup")
+_agent_common_mod.configure_file_backup_root(DATA_ROOT / "temp" / "file_backup")
 # ── Agent 会话加载 ──
 try:
     from agent_v4.live_state import load_agent_sessions

@@ -22,17 +22,24 @@ def _validate_line_replace_trailing_newline(
     has_following_lines: bool,
     line_start: int,
     line_end: int,
-) -> None:
-    """行替换：后面仍有行时，非空 new_text 必须以换行结尾，否则下一行会黏连。"""
+    auto_newline: bool = False,
+) -> Tuple[str, bool]:
+    """行替换检查：后置有行时 new_text 必须以换行结尾，否则黏连。
+    返回 (new_text, auto_appended)。
+    auto_newline=true 时仅在「后置有行且在行替换模式」下自动补换行，防止黏连。
+    """
     if not has_following_lines or not new_text or _text_ends_with_newline(new_text):
-        return
+        return new_text, False
+    if auto_newline:
+        return new_text + "\n", True
     next_line = line_end + 1
     raise ValueError(
         f"行替换 new_text 末尾缺少换行符（第 {line_start}–{line_end} 行）。"
         f"其后仍有第 {next_line} 行及之后的内容；若不在 new_text 末尾写入换行符，"
         f"新内容的最后一行将与下一行黏连在同一物理行上。"
         f"请先 read_file(path, line_start={line_start}, line_end={line_end}) "
-        f"对照该区间 content 的换行形态，或在 new_text 末尾补上 \\n 后再提交。"
+        f"对照该区间 content 的换行形态，或在 new_text 末尾补上 \\n 后再提交；"
+        f"或传 auto_newline=true 让宿主仅在行替换有后置行时自动补 \\n。"
     )
 
 
@@ -240,6 +247,7 @@ def agent_main(
     run_type: str = "",
     confirm_id: str = "",
     cancel_previous: bool = False,
+    auto_newline: bool = False,
 ) -> dict:
     try:
         if rules is not None and isinstance(rules, str):
@@ -252,6 +260,7 @@ def agent_main(
                 },
             }
         rt = str(run_type or "").strip().lower()
+        _appended = False
         want_write = not dry_run
         if want_write and rt == "plan":
             return {"ok": False, "data": None, "error": {"type": "ModeConflict", "message": "当前为 Plan 模式，不允许写文件"}}
@@ -409,11 +418,12 @@ def agent_main(
                     continue
                 before = "".join(lines_kd[:s])
                 after = "".join(lines_kd[e + 1:])
-                _validate_line_replace_trailing_newline(
+                nt, _appended = _validate_line_replace_trailing_newline(
                     nt,
                     has_following_lines=bool(after),
                     line_start=ls,
                     line_end=le,
+                    auto_newline=auto_newline,
                 )
                 new_body = before + nt + after
                 counts_per_rule.append(1)
@@ -439,11 +449,12 @@ def agent_main(
             else:
                 before = "".join(lines_keepends[:ls])
                 after = "".join(lines_keepends[le + 1:])
-                _validate_line_replace_trailing_newline(
+                rep, _appended = _validate_line_replace_trailing_newline(
                     rep,
                     has_following_lines=bool(after),
                     line_start=int(line_start),
                     line_end=int(line_end),
+                    auto_newline=auto_newline,
                 )
                 new_body = before + rep + after
                 counts_per_rule = [1 if new_body != original else 0]
@@ -555,6 +566,7 @@ def agent_main(
                     "confirm_id": _confirm_id,
                     "warnings": warnings,
                     "diff_text": diff_text[:16000] + ("…" if len(diff_text) > 16000 else ""),
+                    "auto_appended_newline": _appended,
                 }
             )
 
@@ -581,6 +593,7 @@ def agent_main(
                 "mod_id": mod_id,
                 "warnings": warnings,
                 "diff_text": diff_text[:16000] + ("…" if len(diff_text) > 16000 else ""),
+                "auto_appended_newline": _appended,
             }
         )
     except Exception as e:

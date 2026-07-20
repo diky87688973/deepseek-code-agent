@@ -572,7 +572,21 @@
     cap += "</div>";
     var box = '<div class="diff-unified diff-surface-adaptive">' + buildDiffRowsHtml(oldT, newT) + "</div>";
     return '<div class="chat-diff-card">' + cap + box + "</div>";
-  }
+}
+function renderSimpleDiffCard(inner,lang){
+var lines=String(inner||'').split('\n');
+var add=0,del=0;
+for(var _i=0;_i<lines.length;_i++){var _c=lines[_i].charAt(0);if(_c==='+')add++;else if(_c==='-')del++;}
+var cap='<div class="chat-diff-cap">'+escapeHtml(lang||'diff')+(del?' <span class="chat-diff-neg">-'+del+'</span>':'')+(add?' <span class="chat-diff-pos">+'+add+'</span>':'')+'</div>';
+var box='<div class="diff-unified diff-surface-adaptive">';
+for(var _i=0;_i<lines.length;_i++){var L=lines[_i];var ch0=L.charAt(0);
+if(ch0==='-'){box+='<div class="d-del">'+diffRowInnerHtml({t:'-',l:L.substring(1)})+'</div>';}
+else if(ch0==='+'){box+='<div class="d-add">'+diffRowInnerHtml({t:'+',l:L.substring(1)})+'</div>';}
+else if(ch0===' '){box+='<div class="d-eq">'+diffRowInnerHtml({t:' ',l:L.replace(/^ /,'')})+'</div>';}
+else if(L.trim()){box+='<div class="d-eq">'+diffRowInnerHtml({t:' ',l:L})+'</div>';}}
+box+='</div>';
+return '<div class="chat-diff-card">'+cap+box+'</div>';
+}
   function renderMarkdown(md) {
     var text = String(md || "").replace(/\r\n/g, "\n");
     var html = "";
@@ -589,14 +603,7 @@
         if (cards) {
           html += cards;
         } else {
-          var _hc = hljsCodeClass(lang);
-          html +=
-            "<pre><code" +
-            (_hc ? ' class="' + escapeHtml(_hc) + '"' : "") +
-            (lang ? ' data-lang="' + escapeHtml(lang) + '"' : "") +
-            ">" +
-            highlightCode(inner, lang) +
-            "</code></pre>";
+          html += renderSimpleDiffCard(inner, lang);
         }
       } else {
         var _hc2 = hljsCodeClass(lang);

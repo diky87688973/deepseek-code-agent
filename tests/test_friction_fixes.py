@@ -66,7 +66,7 @@ class TestReplaceInFileRaw(unittest.TestCase):
     def test_backup_uses_versioned_store_without_bak_file(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            ac.configure_file_backup_root(root / "replace_backup")
+            ac.configure_file_backup_root(root / "file_backup")
             fp = root / "app.py"
             fp.write_text("alpha\n", encoding="utf-8")
             r = replace_in_file.agent_main(
@@ -91,7 +91,7 @@ class TestReplaceInFileRaw(unittest.TestCase):
             data = r.get("data") or {}
             self.assertTrue(data.get("mod_id"), data)
             self.assertFalse(fp.with_suffix(fp.suffix + ".bak").exists())
-            self.assertTrue((root / "replace_backup" / data["mod_id"] / "original").is_file())
+            self.assertTrue((root / "file_backup" / data["mod_id"] / "original").is_file())
 
 
 class TestReadFileRaw(unittest.TestCase):
