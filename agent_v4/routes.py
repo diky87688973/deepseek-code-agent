@@ -15,6 +15,7 @@ from agent_v4 import agent_core as core
 from agent_v4 import route_helpers as rh
 from agent_v4.live_state import get_conversation_run_lock
 from agent_v4.http_schemas import (
+    ChatAutonomousIn,
     ChatIn,
     ChatStopIn,
     ChatTitleIn,
@@ -299,7 +300,27 @@ def chat_stop(inp: ChatStopIn) -> Dict[str, Any]:
     if not cid:
         raise HTTPException(400, "empty conversation_id")
     stopped = core._request_conversation_stop(cid, str(inp.run_id or "").strip())
+    # 停止时关闭自主模式
+    try:
+        from agent_v4.core.turn_runner import _AUTONOMOUS_MODE
+        _AUTONOMOUS_MODE.pop(cid, None)
+    except Exception:
+        pass
     return {"ok": True, "conversation_id": cid, "stopped": stopped}
+
+
+@router.post("/api/chat/autonomous")
+def chat_autonomous(body: ChatAutonomousIn) -> Dict[str, Any]:
+    cid = str(body.conversation_id or "").strip()
+    if not cid:
+        raise HTTPException(400, "empty conversation_id")
+    enabled = bool(body.enabled)
+    from agent_v4.core.turn_runner import _AUTONOMOUS_MODE
+    if enabled:
+        _AUTONOMOUS_MODE[cid] = True
+    else:
+        _AUTONOMOUS_MODE.pop(cid, None)
+    return {"ok": True, "conversation_id": cid, "enabled": enabled}
 
 
 @router.get("/api/events/stream")

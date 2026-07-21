@@ -55,6 +55,11 @@ class ChatStopIn(BaseModel):
     run_id: Optional[str] = Field(default=None, description="Active run id to stop")
 
 
+class ChatAutonomousIn(BaseModel):
+    conversation_id: str = Field(..., description="Conversation id")
+    enabled: bool = Field(default=False, description="Enable autonomous mode")
+
+
 class ChatTitleIn(BaseModel):
     conversation_id: str = Field(..., description="Thread id to title")
 

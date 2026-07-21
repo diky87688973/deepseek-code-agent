@@ -73,6 +73,8 @@ def agent_main(
             stored = consume_confirm_id(cid_str)
             if stored is None:
                 return {"ok": False, "data": None, "error": {"type": "InvalidConfirmId", "message": "confirm_id 无效或已过期，请重新 dry_run=true 预览"}}
+            if stored.get("action") != "read_write":
+                return {"ok": False, "data": None, "error": {"type": "CrossToolConfirmId", "message": f"该 confirm_id 由 {stored.get('action','?')} 创建，read_write 无法消费，请使用创建该 ID 的原始工具提交"}}
             sp = stored.get("params", {})
             source_path = sp.get("source_path", source_path)
             dest_path = sp.get("dest_path", dest_path)

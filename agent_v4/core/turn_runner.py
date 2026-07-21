@@ -8,6 +8,9 @@ for _k, _v in vars(_core_base).items():
     if not _k.startswith("__"):
         globals()[_k] = _v
 
+# 自主模式开关：key=conversation_id, value=bool
+_AUTONOMOUS_MODE: Dict[str, bool] = {}
+
 def _append_incoming_session_message(target_id: str, user_msg: Dict[str, Any]) -> bool:
     """追加 peer 入站消息。若因 wait 恢复已启动 turn 则返回 True。"""
     cid = str(target_id or "").strip()
@@ -202,6 +205,7 @@ def start_background_agent_turn(
                     },
                 )
                 return
+            _auto_ac = None
             for ev in run_agent_turn(
                 cid,
                 user_text,
@@ -211,7 +215,10 @@ def start_background_agent_turn(
                 run_id=run_id,
                 attachments=_att_payload or None,
             ):
-                publish_conversation_event(cid, ev)
+                if ev.get("type") == "auto_continue":
+                    _auto_ac = ev
+                else:
+                    publish_conversation_event(cid, ev)
         except Exception as exc:
             import traceback
 
@@ -239,6 +246,16 @@ def start_background_agent_turn(
                 print(f"WARN: resume peer turn failed cid={cid}: {exc}", file=sys.stderr, flush=True)
             finally:
                 _clear_turn_start_message_ids(cid)
+        # 自动激活：task_sleep 定时器始终生效；默认仅自主模式下自动继续
+        if _auto_ac is not None:
+            _sec = _auto_ac.get("sleep_seconds", 0)
+            if _sec > 0:
+                _rem = _auto_ac.get("reminder", "") if isinstance(_auto_ac, dict) else ""
+                threading.Timer(_sec, start_background_agent_turn, args=[cid, _rem]).start()
+            elif _sec < 0:
+                _AUTONOMOUS_MODE.pop(cid, None)
+        elif _AUTONOMOUS_MODE.get(cid, False) and not _CONVERSATION_STOP_FLAGS.pop(cid, None):
+            start_background_agent_turn(cid, "[自动激活] 请继续执行任务")
 
     threading.Thread(target=_run, daemon=True, name=f"agent-turn-{cid[:8]}").start()
     return run_id

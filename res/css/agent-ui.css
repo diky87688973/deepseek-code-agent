@@ -120,6 +120,7 @@ button.sec{background:#444;color:#ccc}
 .mode-plus.plan:hover{background:rgba(139,106,45,.12)}
 .mode-plus.execute{background:transparent;border-color:#7a5ca8;color:#d8c3ff}
 .mode-plus.execute:hover{background:rgba(122,92,168,.16)}
+.mode-plus.active,.mode-plus.active:hover{background:transparent;border-color:#b8860b;color:#e8c98a}
 .mode-menu{position:absolute;left:0;bottom:calc(100% + 6px);display:flex;flex-direction:column;width:max-content;min-width:0;padding:6px 8px;background:#1a1e24;border:1px solid #3a3f47;border-radius:10px;box-shadow:0 10px 24px rgba(0,0,0,.42);z-index:40}
 .reasoning-btn{border-color:#555!important}.reasoning-btn:hover{border-color:#888!important}
 .reasoning-menu{position:absolute;bottom:calc(100% + 6px);left:68px;background:#1a1f28;border:1px solid #333;border-radius:8px;padding:4px;min-width:200px;z-index:1000;box-shadow:0 8px 24px rgba(0,0,0,.4)}

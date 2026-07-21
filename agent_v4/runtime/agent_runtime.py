@@ -2,7 +2,7 @@
 """AgentRuntime：turn 主循环（只 yield，不 publish SSE）。"""
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from agent_v4.core import base as _core_base
 from agent_v4.core import host_quality as _host_quality
@@ -126,6 +126,7 @@ class AgentRuntime:
         def _emit(ev):
             """投递给生成器契约；由 turn_runner 唯一 publish。不缓冲。"""
             return ev
+        _auto_continue: Dict[str, Tuple[str, Union[int, str], str]] = {}
 
         yield _emit({
             "type": "conversation",
@@ -604,6 +605,18 @@ class AgentRuntime:
                             )
                         _log_agent_console_tool(conversation_id, api_name, script, exec_args, result)
                         print(f"[SSE_DEBUG] yielding tool_end for script={script} ok={result.get('ok')}", flush=True)
+                        if script == "task_sleep" and isinstance(result, dict) and result.get("ok"):
+                            _auto = result.get("data", {})
+                            _auto_continue[conversation_id] = ("sleep", _auto.get("seconds", 0), _auto.get("reminder", ""))
+                        elif script == "task_autonomous" and isinstance(result, dict) and result.get("ok"):
+                            _auto_data = result.get("data", {})
+                            _enabled = bool(_auto_data.get("enabled", False))
+                            from agent_v4.core.turn_runner import _AUTONOMOUS_MODE
+                            if _enabled:
+                                _AUTONOMOUS_MODE[conversation_id] = True
+                            else:
+                                _AUTONOMOUS_MODE.pop(conversation_id, None)
+                                _auto_continue[conversation_id] = ("done", 0)
                         _te_tool_end: Dict[str, Any] = {
                             "type": "tool_end",
                             "api_name": api_name,
@@ -930,5 +943,13 @@ class AgentRuntime:
         _save_conversation(conversation_id, messages)
         yield _emit(_context_layout_event(conversation_id, messages))
         _CONVERSATION_PREVIEWED.pop(conversation_id, None)
-        yield _emit({"type": "done"})
+        _ac = _auto_continue.pop(conversation_id, None)
+        if _ac and _ac[0] == "sleep":
+            yield _emit({"type": "done"})
+            yield _emit({"type": "auto_continue", "sleep_seconds": _ac[1], "reminder": _ac[2] if len(_ac) > 2 else ""})
+        elif _ac and _ac[0] == "done":
+            yield _emit({"type": "done"})
+            yield _emit({"type": "auto_continue", "sleep_seconds": -1})
+        else:
+            yield _emit({"type": "done"})
 

@@ -118,6 +118,8 @@ def agent_main(
             from agent_v4.live_state import consume_confirm_id
             info = consume_confirm_id(_cid)
             if info and info.get("confirmed"):
+                if info.get("action") != "copy":
+                    return {"ok": False, "data": None, "error": {"type": "CrossToolConfirmId", "message": f"该 confirm_id 由 {info.get('action','?')} 创建，skill_manage 无法消费"}}
                 import shutil
                 conflict_path = Path(result["conflict"])
                 if src_path.is_file():

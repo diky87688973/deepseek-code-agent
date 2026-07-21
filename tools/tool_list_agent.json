@@ -4055,6 +4055,46 @@
           }
         }
       ]
+    },
+    {
+      "name": "task_sleep",
+      "path": "tools/task_sleep.py",
+      "purpose": "task_sleep：暂停自主执行。宿主收到后停止自动激活，N 秒后重新激活。适合等待子 agent 产出、定时检查等任务间等待场景。reminder 参数用于设定唤醒后发给模型的提醒文案。",
+      "stdout_output": "{ok,data:{action:sleep,seconds:N,reminder:...}}",
+      "args": [
+        {
+          "flag": "--seconds",
+          "type": "int",
+          "required": true,
+          "description": "暂停秒数，1~86400（24小时）。"
+        },
+        {
+          "flag": "--reminder",
+          "type": "string",
+          "required": false,
+          "description": "唤醒后的提醒文案，模型自动生成，最长500字。到时间后宿主将此文本作为用户消息发给模型，提示要继续做什么。"
+        }
+      ]
+    },
+    {
+      "name": "task_autonomous",
+      "path": "tools/task_autonomous.py",
+      "purpose": "task_autonomous：切换自主模式。enabled=true 开启后每轮对话结束宿主自动继续叫醒对话并恢复工具调用次数，模型可借此完成复杂多轮次的任务；仅当任务彻底完结或遇卡点需要人工确认则可以自行关闭自主模式: enabled=false 关闭并结束本轮。summary 可选参数填写结束摘要。",
+      "stdout_output": "{ok,data:{action:autonomous,enabled:bool,summary:...}}",
+      "args": [
+        {
+          "flag": "--enabled",
+          "type": "boolean",
+          "required": true,
+          "description": "true=开启自主模式，false=关闭"
+        },
+        {
+          "flag": "--summary",
+          "type": "string",
+          "required": false,
+          "description": "关闭自主模式时的结束摘要，≤200 字。"
+        }
+      ]
     }
   ]
 }

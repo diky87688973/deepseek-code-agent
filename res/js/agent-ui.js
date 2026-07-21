@@ -344,11 +344,13 @@ function renderChatTabs(){if(!chatTabs)return;var sig=conversationTabs.map(funct
 function switchConversationTab(id){id=normalizeConversationId(id);if(!id)return;saveActiveConversationView();var t=findConversationTab(id);if(!t)return;t.todoUnread=false;activeConversationId=id;sessionId=id;conv=id;storeConversationId(id);restoreConversationView(t);renderChatTabs();persistConversationLayout();loadConversationHistory(t);}
 function createConversationTab(){saveActiveConversationView();var t=makeConversationTab(newConversationId());conversationTabs.push(t);activeConversationId=t.id;sessionId=t.id;conv=t.id;storeConversationId(t.id);restoreConversationView(t);renderChatTabs();persistConversationLayout();}
 function closeConversationTab(id){id=normalizeConversationId(id);if(conversationTabs.length<=1)return;var idx=-1;for(var i=0;i<conversationTabs.length;i++){if(conversationTabs[i].id===id){idx=i;break;}}if(idx<0)return;if(isTabBusy(conversationTabs[idx])){alert("该会话正在响应或等待确认，请完成后再关闭。");return;}var wasActive=id===activeConversationId;var _closedT=conversationTabs[idx];conversationTabs.splice(idx,1);if(_closedT&&_closedT.conversationPane&&conversationMount&&_closedT.conversationPane.parentNode===conversationMount){try{conversationMount.removeChild(_closedT.conversationPane);}catch(_eM){}}if(wasActive){var next=conversationTabs[Math.max(0,idx-1)]||conversationTabs[0];activeConversationId=next.id;sessionId=next.id;conv=next.id;storeConversationId(next.id);restoreConversationView(next);}renderChatTabs();persistConversationLayout();}
-const modePlus=document.getElementById("modePlus"),modeMenu=document.getElementById("modeMenu"),modeChip=document.getElementById("modeChip"),modeChipText=document.getElementById("modeChipText"),modeChipClear=document.getElementById("modeChipClear"),goBtn=document.getElementById("go"),stopTaskBtn=document.getElementById("stopTask"),chatMoreBtn=document.getElementById("chatMoreBtn"),chatSessionMenu=document.getElementById("chatSessionMenu");
+const modePlus=document.getElementById("modePlus"),modeMenu=document.getElementById("modeMenu"),modeChip=document.getElementById("modeChip"),modeChipText=document.getElementById("modeChipText"),modeChipClear=document.getElementById("modeChipClear"),goBtn=document.getElementById("go"),stopTaskBtn=document.getElementById("stopTask"),autoToggleBtn=document.getElementById("autoToggle"),chatMoreBtn=document.getElementById("chatMoreBtn"),chatSessionMenu=document.getElementById("chatSessionMenu");
+var _autoEnabled=false;
+function updateAutoToggleUI(){if(!autoToggleBtn)return;if(_autoEnabled){autoToggleBtn.classList.add("active");autoToggleBtn.title="自主模式：已开启";}else{autoToggleBtn.classList.remove("active");autoToggleBtn.title="自主模式：开启后模型自动继续执行";}}
 let selectedMode="auto";let selectedModel="deepseek-v4-flash";const allowedModels=["deepseek-v4-pro","deepseek-v4-flash","glm-5.2","local-model"];
 let slashSelectedIndex=0;
-function updateTaskControls(){var t=getActiveTab();var canStop=!!(t&&t.abortController);if(goBtn){goBtn.classList.toggle("hidden",canStop);goBtn.disabled=!canStop&&isConversationBusy();}if(stopTaskBtn){stopTaskBtn.classList.toggle("hidden",!canStop);stopTaskBtn.disabled=!canStop;}}
-function stopCurrentTask(){var t=getActiveTab();if(!t||!t.abortController)return;t.stopRequested=true;var rid=String(t.activeRunId||"");try{fetch("/api/chat/stop",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({conversation_id:t.id,run_id:rid})}).catch(function(){});}catch(_e){}try{t.abortController.abort();}catch(_e2){}withConversationContext(t.id,function(){markCurrentTurnStoped();resetTurnState();hideChatLoading();add("a","任务已停止。");});t.abortController=null;t.activeRunId="";updateTaskControls();renderChatTabs();}
+function updateTaskControls(){var t=getActiveTab();var canStop=!!(t&&t.abortController)||_autoEnabled;if(goBtn){goBtn.classList.toggle("hidden",canStop);goBtn.disabled=!canStop&&isConversationBusy();}if(stopTaskBtn){stopTaskBtn.classList.toggle("hidden",!canStop);stopTaskBtn.disabled=!canStop;}}
+function stopCurrentTask(){var t=getActiveTab();var cid=t?t.id:getActiveConversationId();if(!t||!t.abortController){if(_autoEnabled&&cid){_autoEnabled=false;updateAutoToggleUI();fetch("/api/chat/autonomous",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({conversation_id:cid,enabled:false})}).catch(function(){});withConversationContext(cid,function(){markCurrentTurnStoped();resetTurnState();hideChatLoading();add("a","自主模式已停止。");});updateTaskControls();}return;}t.stopRequested=true;var rid=String(t.activeRunId||"");try{fetch("/api/chat/stop",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({conversation_id:t.id,run_id:rid})}).catch(function(){});}catch(_e){}try{t.abortController.abort();}catch(_e2){}_autoEnabled=false;updateAutoToggleUI();try{fetch("/api/chat/autonomous",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({conversation_id:t.id,enabled:false})}).catch(function(){});}catch(_e3){}withConversationContext(t.id,function(){markCurrentTurnStoped();resetTurnState();hideChatLoading();add("a","任务已停止。");});t.abortController=null;t.activeRunId="";updateTaskControls();renderChatTabs();}
 
 /* ---- @ 文件选择器 ---- */
 var atSelectedIndex=-1;var atRestoreSelectPath=null;function atNormPath(s){return String(s||"").replace(/\\/g,"/").toLowerCase();}function getAtPop(){return document.getElementById("atPop");}function getAtList(){return document.getElementById("atList");}function getAtCurPath(){return document.getElementById("atCurPath");}function getAtUpBtn(){return document.getElementById("atUpBtn");}
@@ -2022,7 +2024,10 @@ if(_fuPath&&!_fuPath.endsWith("\\")&&!_fuPath.endsWith("/")){
 var _fn=pathLeaf(_fuPath)||"";
 if(_fn){var _card=findStepCardForToolCall(tid);if(_card){var _tx=_card.querySelector(".step-title-wrap");if(_tx){var _txM=_tx.querySelector(":scope > span:first-child");var _txF=_tx.querySelector(":scope > .step-fname");var _ts="";var _mid=String(o.args&&o.args.mod_id||"").trim();if(_mid){var _pts=_mid.split("_");if(_pts.length>=3)_ts=_pts.slice(-2,-1)[0]||"";if(_ts.length>=6)_ts=_ts.slice(0,2)+":"+_ts.slice(2,4)+":"+_ts.slice(4,6);}if(_txM&&!_txF){_txF=document.createElement("span");_txF.className="step-fname";_tx.appendChild(_txF);}if(_txF){_txF.textContent=_fn+(_ts?" to "+_ts:"");}}}}}}
 if(isStreamOutputToolScript(o.script))finalizeChatRunCard(o,ok);
-if(ev.user_confirm_required)openUserConfirmModalFromToolEnd(ev);toolOpen.delete(tid);}
+if(ev.user_confirm_required)openUserConfirmModalFromToolEnd(ev);
+// task_autonomous 同步按钮状态
+if(ok&&o.script==="task_autonomous"){_autoEnabled=!!(o.args&&o.args.enabled);updateAutoToggleUI();}
+toolOpen.delete(tid);}
 
 async function sendChatMessage(){
 if(!ta)return;
@@ -2192,7 +2197,11 @@ initModePicker();
 initReasoningPicker();
 initKbAndSlashUi();
 if(goBtn)goBtn.addEventListener("click",function(){void sendChatMessage();});
-if(stopTaskBtn)stopTaskBtn.addEventListener("click",stopCurrentTask);
+if(stopTaskBtn)stopTaskBtn.addEventListener("click",function(){_autoEnabled=false;updateAutoToggleUI();stopCurrentTask();});
+if(autoToggleBtn)autoToggleBtn.addEventListener("click",function(){
+var cid=getActiveConversationId();if(!cid)return;
+_autoEnabled=!_autoEnabled;updateAutoToggleUI();
+fetch("/api/chat/autonomous",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({conversation_id:cid,enabled:_autoEnabled})}).catch(function(){});});
 var nwTopEl=document.getElementById("nwTop");
 if(nwTopEl)nwTopEl.addEventListener("click",function(){createConversationTab();});
 var hdrIm=document.getElementById("hdrImmersiveBtn");
