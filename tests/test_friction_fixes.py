@@ -93,6 +93,41 @@ class TestReplaceInFileRaw(unittest.TestCase):
             self.assertFalse(fp.with_suffix(fp.suffix + ".bak").exists())
             self.assertTrue((root / "file_backup" / data["mod_id"] / "original").is_file())
 
+    def test_line_ranges_auto_newline_survives_confirm(self) -> None:
+        """回归：auto_newline 预览通过后，confirm 提交必须仍生效（存储/恢复白名单对称）。"""
+        with tempfile.TemporaryDirectory() as td:
+            fp = Path(td) / "mod.md"
+            fp.write_text("# t\n\na\nb\nc\n\nd\ne\nf\n", encoding="utf-8")
+            r = replace_in_file.agent_main(
+                path=str(fp),
+                line_ranges=[
+                    {"line_start": 3, "line_end": 3, "new_text": "a2"},
+                    {"line_start": 4, "line_end": 4, "new_text": "b2\nb3"},   # 后置有行且无换行结尾
+                    {"line_start": 8, "line_end": 8, "new_text": "f2"},       # 后置有行且无换行结尾
+                ],
+                auto_newline=True,
+                dry_run=True,
+            )
+            self.assertTrue(r.get("ok"), r)
+            data = r.get("data") or {}
+            self.assertTrue(data.get("auto_appended_newline"), data)
+            cid = data.get("confirm_id", "")
+            self.assertTrue(cid, data)
+            from tools import review_conclusion
+            rc = review_conclusion.agent_main(
+                conclusion="test: unlock confirm_id for auto_newline line_ranges regression.",
+                file_name="mod.md", confirm_id=cid, dry_run=False,
+            )
+            self.assertTrue(rc.get("ok"), rc)
+            r = replace_in_file.agent_main(confirm_id=cid, dry_run=False)
+            self.assertTrue(r.get("ok"), r)
+            body = fp.read_text(encoding="utf-8")
+            self.assertIn("a2", body)
+            self.assertIn("b3", body)
+            self.assertIn("f2", body)
+            self.assertIn("b2\nb3\n", body)   # b3 后有换行（auto_newline 生效，未与下一行黏连）
+            self.assertIn("f2\n", body)       # f2 后有换行（auto_newline 生效）
+
 
 class TestReadFileRaw(unittest.TestCase):
     def test_raw_returns_content_lines_and_hash(self) -> None:

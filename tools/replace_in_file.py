@@ -311,6 +311,10 @@ def agent_main(
             start_column = sp.get("start_column", start_column)
             end_column = sp.get("end_column", end_column)
             replace_all = sp.get("replace_all", replace_all)
+            auto_newline = sp.get("auto_newline", auto_newline)
+            encoding = sp.get("encoding", encoding)
+            expected_replacements = sp.get("expected_replacements", expected_replacements)
+            restrict_to_workspace = sp.get("restrict_to_workspace", restrict_to_workspace)
             # confirm_id 隐含已审查，强制写入
             dry_run = False
 
@@ -552,6 +556,10 @@ def agent_main(
                     "start_column": start_column,
                     "end_column": end_column,
                     "replace_all": replace_all,
+                    "auto_newline": auto_newline,
+                    "encoding": encoding,
+                    "expected_replacements": expected_replacements,
+                    "restrict_to_workspace": restrict_to_workspace,
                 }, require_diff_review=True)
             return ac.ok(
                 {
