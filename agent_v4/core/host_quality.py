@@ -70,6 +70,7 @@ class QualityState:
     turn_wrote: bool = False
     claim_fixed_blocked: bool = False  # 有写入未验证时限制空口「已修复」
     large_delete_flag: bool = False
+    diag_fail_flag: bool = False  # 非大删除类诊断红灯（py 语法/结构/编译/javac 失败），须修复后由写后报告解除
 
 
 def get_quality_state(cid: str) -> QualityState:
@@ -453,11 +454,16 @@ def mark_review_done(cid: str) -> None:
     st = get_quality_state(cid)
     st.reviewed_ok = True
     st.pending_review_paths.clear()
-    # 红灯未清时保留 fixable_paths，避免 review 后无法再改同一文件修诊断
+    # review 即确认「大删除为有意改动」：仅解除大删除红灯（死锁出口）
+    # diag_fail_flag（py 语法/结构/编译/javac 失败）不因 review 解除——那需要真正修复代码
+    if st.large_delete_flag:
+        st.large_delete_flag = False
+        st.last_diagnose_summary = ""
+    # 红灯 = 大删除待确认 OR 诊断失败待修复；两者独立，各自有解除路径
+    st.pending_diagnose_red = st.large_delete_flag or st.diag_fail_flag
     if not st.pending_diagnose_red:
         st.fixable_paths.clear()
         st.claim_fixed_blocked = False
-        st.large_delete_flag = False
 
 
 def mark_apply_patch_review_done(cid: str) -> None:
@@ -516,6 +522,7 @@ def build_post_write_quality_report(
             })
             if not diag_ok:
                 any_red = True
+                st.diag_fail_flag = True
                 st.last_diagnose_summary = _summarize_diagnose(slim)
                 actions.append("先修复 auto_diagnose 中的 error，再扩大改动")
         except Exception as exc:
@@ -539,6 +546,7 @@ def build_post_write_quality_report(
         })
         if not struct_ok:
             any_red = True
+            st.diag_fail_flag = True
             actions.append("先修复 structure_integrity 失败项")
 
     # Python 编译
@@ -553,6 +561,7 @@ def build_post_write_quality_report(
         })
         if not impact_ok:
             any_red = True
+            st.diag_fail_flag = True
             actions.append("先修复 py_compile 错误")
 
     # Java：检测 JDK，可用则 javac，否则督办降级
@@ -580,6 +589,7 @@ def build_post_write_quality_report(
                     "results": jres,
                 })
                 any_red = True
+                st.diag_fail_flag = True
                 actions.append("先根据 javac 输出修复语法错误")
             elif soft_fail:
                 any_degraded = True
@@ -652,12 +662,21 @@ def build_post_write_quality_report(
     })
     actions.append("请调用 review_conclusion(dry_run=false) 提交 review 结论")
 
-    st.pending_diagnose_red = any_red
+    # 诊断红灯维护：本次写后有诊断失败（非大删除）→ 置 diag_fail_flag
+    if any_red and not st.large_delete_flag and (py_paths or java_paths or impact or struct_hits):
+        st.diag_fail_flag = True
     if any_red and not st.last_diagnose_summary:
         fails = [c for c in checks if c.get("status") == "fail"]
         st.last_diagnose_summary = json.dumps(fails, ensure_ascii=False)[:1500]
     if not any_red and not st.large_delete_flag:
+        # 本次写后无红灯：若实际做过诊断（py/结构/编译/javac），说明已修复，清 diag_fail_flag；
+        # 若只写了 yaml 等无诊断文件，保留 diag_fail_flag（历史红灯仍需修复）
+        if py_paths or java_paths or impact or struct_hits:
+            st.diag_fail_flag = False
         st.last_diagnose_summary = ""
+
+    # 红灯 = 大删除待确认 OR 诊断失败待修复（与 mark_review_done 同口径）
+    st.pending_diagnose_red = st.large_delete_flag or st.diag_fail_flag
 
     overall = "red" if any_red else ("degraded" if any_degraded else "green")
     report = {

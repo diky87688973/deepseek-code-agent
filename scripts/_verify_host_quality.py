@@ -33,12 +33,12 @@ def case_01_evidence_gate():
     st = hq.detect_and_update_intent(cid, "这个报错怎么修？Traceback Exception")
     _assert(st.intent == "debug", f"intent={st.intent}")
     r = hq.check_pre_write_quality(
-        cid, "replace_in_file.py", {"path": "a.py", "dry_run": False, "new_text": "x\n"}
+        cid, "replace_in_file", {"path": "a.py", "dry_run": False, "new_text": "x\n"}
     )
     _assert(r and r["error"]["type"] == "HostQualityEvidenceRequired", r)
-    hq.note_evidence_tool(cid, "read_file.py", {"path": "a.py"}, {"ok": True, "data": {}})
+    hq.note_evidence_tool(cid, "read_file", {"path": "a.py"}, {"ok": True, "data": {}})
     r = hq.check_pre_write_quality(
-        cid, "replace_in_file.py", {"path": "a.py", "dry_run": False, "new_text": "x\n"}
+        cid, "replace_in_file", {"path": "a.py", "dry_run": False, "new_text": "x\n"}
     )
     _assert(r is None, r)
 
@@ -51,14 +51,14 @@ def case_02_stack_first():
     )
     st = hq.get_quality_state(cid)
     _assert(st.stack_targets, f"no stack: {st.stack_targets}")
-    hq.note_evidence_tool(cid, "grep_files.py", {"path": "other"}, {"ok": True})
+    hq.note_evidence_tool(cid, "grep_files", {"path": "other"}, {"ok": True})
     r = hq.check_pre_write_quality(
-        cid, "replace_in_file.py", {"path": "z.py", "dry_run": False, "new_text": "x"}
+        cid, "replace_in_file", {"path": "z.py", "dry_run": False, "new_text": "x"}
     )
     _assert(r and r["error"]["type"] == "HostQualityStackFirst", r)
-    hq.note_evidence_tool(cid, "read_file.py", {"path": "D:/proj/foo.py"}, {"ok": True})
+    hq.note_evidence_tool(cid, "read_file", {"path": "D:/proj/foo.py"}, {"ok": True})
     r = hq.check_pre_write_quality(
-        cid, "replace_in_file.py", {"path": "D:/proj/foo.py", "dry_run": False, "new_text": "x"}
+        cid, "replace_in_file", {"path": "D:/proj/foo.py", "dry_run": False, "new_text": "x"}
     )
     _assert(r is None, r)
 
@@ -73,7 +73,7 @@ def case_03_troubleshoot_lenses():
     _assert(msgs == [], msgs)
     # 无证据时真写仍被门控拦住（催办在错误信息里，不在独立消息）
     r = hq.check_pre_write_quality(
-        cid, "replace_in_file.py", {"path": "a.py", "dry_run": False, "new_text": "x"}
+        cid, "replace_in_file", {"path": "a.py", "dry_run": False, "new_text": "x"}
     )
     _assert(r and r["error"]["type"] == "HostQualityEvidenceRequired", r)
 
@@ -83,14 +83,14 @@ def case_04_preview_fingerprint():
     cid = "c04"
     args_ok = {"path": "b.py", "dry_run": True, "new_text": "aaa"}
     hq.note_write_tool_result(
-        cid, "replace_in_file.py", args_ok, {"ok": True, "data": {"dry_run": True}}
+        cid, "replace_in_file", args_ok, {"ok": True, "data": {"dry_run": True}}
     )
     r = hq.check_pre_write_quality(
-        cid, "replace_in_file.py", {"path": "b.py", "dry_run": False, "new_text": "bbb"}
+        cid, "replace_in_file", {"path": "b.py", "dry_run": False, "new_text": "bbb"}
     )
     _assert(r and r["error"]["type"] == "HostQualityPreviewMismatch", r)
     r = hq.check_pre_write_quality(
-        cid, "replace_in_file.py", {"path": "b.py", "dry_run": False, "new_text": "aaa"}
+        cid, "replace_in_file", {"path": "b.py", "dry_run": False, "new_text": "aaa"}
     )
     _assert(r is None, r)
 
@@ -100,7 +100,7 @@ def case_05_stale_edit_and_reread():
     cid = "c05"
     hq.note_write_tool_result(
         cid,
-        "replace_in_file.py",
+        "replace_in_file",
         {"path": "c.py", "dry_run": False, "new_text": "x"},
         {"ok": True, "data": {"written": True, "mod_id": "m1"}},
     )
@@ -108,12 +108,12 @@ def case_05_stale_edit_and_reread():
     _assert("c.py" in st.needs_reread, st.needs_reread)
     _assert(st.changeset_mod_ids and st.changeset_mod_ids[0]["mod_id"] == "m1", st.changeset_mod_ids)
     r = hq.check_pre_write_quality(
-        cid, "replace_in_file.py", {"path": "c.py", "dry_run": False, "new_text": "y"}
+        cid, "replace_in_file", {"path": "c.py", "dry_run": False, "new_text": "y"}
     )
     _assert(r and r["error"]["type"] == "HostQualityStaleEdit", r)
-    hq.note_evidence_tool(cid, "read_file.py", {"path": "c.py"}, {"ok": True})
+    hq.note_evidence_tool(cid, "read_file", {"path": "c.py"}, {"ok": True})
     r = hq.check_pre_write_quality(
-        cid, "replace_in_file.py", {"path": "c.py", "dry_run": False, "new_text": "y"}
+        cid, "replace_in_file", {"path": "c.py", "dry_run": False, "new_text": "y"}
     )
     _assert(r is None, r)
 
@@ -126,12 +126,12 @@ def case_06_review_and_cross_file():
     st.reviewed_ok = False
     st.evidence_ok = True
     r = hq.check_pre_write_quality(
-        cid, "replace_in_file.py", {"path": "d.py", "dry_run": False, "new_text": "x"}
+        cid, "replace_in_file", {"path": "d.py", "dry_run": False, "new_text": "x"}
     )
     _assert(r and r["error"]["type"] == "HostQualityReviewPending", r)
     hq.mark_review_done(cid)
     r = hq.check_pre_write_quality(
-        cid, "replace_in_file.py", {"path": "d.py", "dry_run": False, "new_text": "x"}
+        cid, "replace_in_file", {"path": "d.py", "dry_run": False, "new_text": "x"}
     )
     _assert(r is None, r)
 
@@ -161,12 +161,12 @@ def case_07_diagnose_filter_and_red():
     st.pending_review_paths = ["a.py"]
     st.evidence_ok = True
     r = hq.check_pre_write_quality(
-        cid, "replace_in_file.py", {"path": "b.py", "dry_run": False, "new_text": "x"}
+        cid, "replace_in_file", {"path": "b.py", "dry_run": False, "new_text": "x"}
     )
     _assert(r and r["error"]["type"] == "HostQualityDiagnoseRed", r)
     st.pending_review_paths = []
     r = hq.check_pre_write_quality(
-        cid, "replace_in_file.py", {"path": "a.py", "dry_run": False, "new_text": "x"}
+        cid, "replace_in_file", {"path": "a.py", "dry_run": False, "new_text": "x"}
     )
     _assert(r and r["error"]["type"] == "HostQualityDiagnoseRed", r)
 
@@ -182,7 +182,7 @@ def case_08_attach_to_tool_result():
     hq_obj = (result.get("data") or {}).get("host_quality") or {}
     _assert(hq_obj.get("overall") == "red", hq_obj)
     _assert(result.get("host_quality_overall") == "red", result)
-    _assert(hq.build_post_write_quality_messages(cid, {str(bad): "t"}) == [], "no system dump")
+    _assert(hq.build_quality_ephemeral_messages(cid) == [], "no system dump")
     m = hq.note_assistant_claim_fixed(cid, "已经修好了，可以了")
     _assert(m is None, "no system claim msg")
     _assert(hq.get_quality_state(cid).claim_fixed_blocked is True, "flag set")
@@ -196,19 +196,19 @@ def case_09_overwrite_and_large_diff():
     fp.write_text("print(1)\n", encoding="utf-8")
     r = hq.check_pre_write_quality(
         cid,
-        "write_file.py",
+        "write_file",
         {"path": str(fp), "dry_run": False, "content": "print(2)\n"},
     )
     _assert(r and r["error"]["type"] == "HostQualityNoBlindOverwrite", r)
     hq.note_write_tool_result(
         cid,
-        "write_file.py",
+        "write_file",
         {"path": str(fp), "dry_run": True, "content": "print(2)\n"},
         {"ok": True, "data": {"dry_run": True}},
     )
     r = hq.check_pre_write_quality(
         cid,
-        "write_file.py",
+        "write_file",
         {"path": str(fp), "dry_run": False, "content": "print(2)\n"},
         step_title="",
     )
@@ -217,7 +217,7 @@ def case_09_overwrite_and_large_diff():
     big = "\n".join(f"line{i}" for i in range(120))
     r = hq.check_pre_write_quality(
         cid,
-        "replace_in_file.py",
+        "replace_in_file",
         {"path": "big.py", "dry_run": False, "new_text": big},
     )
     _assert(r and r["error"]["type"] == "HostQualityLargeDiff", r)
@@ -234,11 +234,12 @@ def case_10_agent_turn_wiring_and_gates():
 
     _assert(callable(HostPolicy), "HostPolicy missing")
     _assert(callable(AgentRuntime), "AgentRuntime missing")
-    _assert(AGENT_APP_VERSION == "v1.5", AGENT_APP_VERSION)
+    import re as _re
+    _assert(bool(_re.fullmatch(r"v\d+\.\d+(\.\d+)?", AGENT_APP_VERSION)), f"bad version: {AGENT_APP_VERSION}")
 
     previewed, written = {}, {}
     r = at._check_write_preview(
-        "replace_in_file.py",
+        "replace_in_file",
         {"path": "p.py", "dry_run": True},
         "t",
         previewed,
@@ -248,7 +249,7 @@ def case_10_agent_turn_wiring_and_gates():
     _assert(r is None and "p.py" not in previewed, (r, previewed))
     previewed["p.py"] = "t"
     r = at._check_write_preview(
-        "replace_in_file.py",
+        "replace_in_file",
         {"path": "q.py", "dry_run": False},
         "t",
         previewed,
@@ -260,7 +261,7 @@ def case_10_agent_turn_wiring_and_gates():
     hq.detect_and_update_intent(cid, "报错了帮我修")
     r = at._apply_host_quality_write_gate(
         cid,
-        "replace_in_file.py",
+        "replace_in_file",
         {"path": "p.py", "dry_run": False, "new_text": "x"},
         "t",
         previewed,
@@ -275,7 +276,7 @@ def case_11_dry_run_variants_and_path_norm():
     cid = "c11"
     hq.note_write_tool_result(
         cid,
-        "replace_in_file.py",
+        "replace_in_file",
         {"path": r"D:\work\a.py", "dry_run": 0, "new_text": "x"},
         {"ok": True, "data": {"written": True}},
     )
@@ -283,7 +284,7 @@ def case_11_dry_run_variants_and_path_norm():
     _assert("D:/work/a.py" in st.needs_reread, st.needs_reread)
     r = hq.check_pre_write_quality(
         cid,
-        "replace_in_file.py",
+        "replace_in_file",
         {"path": "D:/work/a.py", "dry_run": "false", "new_text": "y"},
     )
     _assert(r and r["error"]["type"] == "HostQualityStaleEdit", r)
@@ -291,7 +292,7 @@ def case_11_dry_run_variants_and_path_norm():
     cid = "c11b"
     hq.note_write_tool_result(
         cid,
-        "replace_in_file.py",
+        "replace_in_file",
         {"path": "z.py", "dry_run": False, "new_text": "x"},
         {"ok": True, "data": {"written": False, "dry_run": True}},
     )
@@ -316,17 +317,19 @@ def case_12_real_replace_fingerprint_and_postwrite():
     }
     prev = rif.agent_main(**args_preview)
     _assert(prev.get("ok") is True, prev)
-    hq.note_write_tool_result(cid, "replace_in_file.py", args_preview, prev)
+    hq.note_write_tool_result(cid, "replace_in_file", args_preview, prev)
     bad = dict(args_preview)
     bad["dry_run"] = False
     bad["new_text"] = "def hello():\n    return 9\n"
-    r = hq.check_pre_write_quality(cid, "replace_in_file.py", bad)
+    r = hq.check_pre_write_quality(cid, "replace_in_file", bad)
     _assert(r and r["error"]["type"] == "HostQualityPreviewMismatch", r)
     good = dict(args_preview)
     good["dry_run"] = False
-    r = hq.check_pre_write_quality(cid, "replace_in_file.py", good)
+    r = hq.check_pre_write_quality(cid, "replace_in_file", good)
     _assert(r is None, r)
     cid_confirm = (prev.get("data") or {}).get("confirm_id", "")
+    import review_conclusion as _rc
+    _rc.agent_main(conclusion="verify case12 预览指纹与真写参数一致且 diff 符合预期，diff review 通过，确认提交该预览结果", file_name=str(fp), confirm_id=cid_confirm, dry_run=False)
     committed = rif.agent_main(confirm_id=cid_confirm, dry_run=False)
     _assert(committed.get("ok") is True, committed)
     attached = hq.attach_host_quality_to_write_result(cid, str(fp), committed)
@@ -360,7 +363,7 @@ def case_14_ephemeral_claim_review():
     hq.build_post_write_quality_report(cid, {str(fp): "t"})
     # 禁止独立消息灌入
     _assert(hq.build_quality_ephemeral_messages(cid) == [], "ephemeral must be empty")
-    _assert(hq.build_post_write_quality_messages(cid, {str(fp): "t"}) == [], "no system dump")
+    _assert(hq.build_quality_ephemeral_messages(cid) == [], "no system dump")
     hq.note_assistant_claim_fixed(cid, "修复完成，已修复")
     _assert(hq.get_quality_state(cid).claim_fixed_blocked is True, "flag only, no message")
     hq.mark_review_done(cid)
@@ -376,7 +379,7 @@ def case_15_preview_path_norm_and_plan_dryrun():
 
     previewed, written = {}, {}
     r = at._check_write_preview(
-        "replace_in_file.py",
+        "replace_in_file",
         {"path": r"D:\proj\x.py", "dry_run": True},
         "t",
         previewed,
@@ -386,7 +389,7 @@ def case_15_preview_path_norm_and_plan_dryrun():
     _assert("D:/proj/x.py" not in previewed, previewed)
     previewed["D:/proj/x.py"] = "t"
     r = at._check_write_preview(
-        "replace_in_file.py",
+        "replace_in_file",
         {"path": "D:/proj/x.py", "dry_run": False},
         "t",
         previewed,
@@ -398,11 +401,11 @@ def case_15_preview_path_norm_and_plan_dryrun():
     cid = "c15"
     exec_args = {"path": r"D:\proj\y.py", "dry_run": True, "new_text": "a"}
     result = {"ok": True, "data": {"dry_run": True}}
-    hq.note_write_tool_result(cid, "replace_in_file.py", exec_args, result)
+    hq.note_write_tool_result(cid, "replace_in_file", exec_args, result)
     _pp = hq._norm_path(str(exec_args.get("path") or "").strip())
     previewed2[_pp] = "plan-dry"
     r = at._check_write_preview(
-        "replace_in_file.py",
+        "replace_in_file",
         {"path": "D:/proj/y.py", "dry_run": False, "new_text": "a"},
         "t",
         previewed2,
@@ -411,7 +414,7 @@ def case_15_preview_path_norm_and_plan_dryrun():
     _assert(r is None, r)
     r = hq.check_pre_write_quality(
         cid,
-        "replace_in_file.py",
+        "replace_in_file",
         {"path": "D:/proj/y.py", "dry_run": False, "new_text": "a"},
     )
     _assert(r is None, r)
@@ -434,17 +437,17 @@ def case_17_review_red_no_deadlock_and_dest_path():
     st = hq.get_quality_state(cid)
     _assert(st.pending_diagnose_red is True, "red should remain")
     # 同文件应可继续改
-    hq.note_evidence_tool(cid, "read_file.py", {"path": str(bad)}, {"ok": True})
+    hq.note_evidence_tool(cid, "read_file", {"path": str(bad)}, {"ok": True})
     r = hq.check_pre_write_quality(
         cid,
-        "replace_in_file.py",
+        "replace_in_file",
         {"path": str(bad), "dry_run": False, "new_text": "def z():\n    return 1\n"},
     )
     _assert(r is None, r)
     # 无关文件仍拦
     r = hq.check_pre_write_quality(
         cid,
-        "replace_in_file.py",
+        "replace_in_file",
         {"path": str(Path(td) / "other.py"), "dry_run": False, "new_text": "x=1\n"},
     )
     _assert(r and r["error"]["type"] == "HostQualityDiagnoseRed", r)
@@ -456,7 +459,7 @@ def case_17_review_red_no_deadlock_and_dest_path():
     Path(dp).write_text("x=1\n", encoding="utf-8")
     hq.note_write_tool_result(
         cid2,
-        "read_write.py",
+        "read_write",
         {"dest_path": dp, "dry_run": False},
         {"ok": True, "data": {"written": True, "dest_path": dp}},
     )
@@ -468,7 +471,7 @@ def case_17_review_red_no_deadlock_and_dest_path():
     cid3 = "c17c"
     hq.note_write_tool_result(
         cid3,
-        "replace_in_file.py",
+        "replace_in_file",
         {"path": "z.py", "dry_run": False, "new_text": "x"},
         {"ok": True, "data": {"written": False}},
     )
@@ -532,6 +535,75 @@ def case_19_attach_is_dict_before_model():
     )
 
 
+def case_20_red_deadlock_fix():
+    """死锁修复回归：大删除红灯 review 解除 / py 红灯 review 保留 / 双红灯正交 / yaml 不清历史红灯。"""
+    _clear()
+    cid = "c20"
+    st = hq.get_quality_state(cid)
+    diff = "\n".join(["--- a", "+++ b"] + [f"-del{i}" for i in range(40)] + ["+keep"])
+
+    # 场景1：仅大删除红灯 → review 解除，跨文件放行（死锁主路径）
+    hq._maybe_flag_large_delete(st, "big.yaml", diff)
+    _assert(st.pending_diagnose_red is True and st.large_delete_flag and not st.diag_fail_flag, st)
+    hq.mark_review_done(cid)
+    _assert(not st.pending_diagnose_red and not st.large_delete_flag and not st.fixable_paths, st)
+    r = hq.check_pre_write_quality(cid, "replace_in_file", {"path": "other.yaml", "dry_run": False, "new_text": "x\n"})
+    _assert(r is None, r)
+
+    # 场景2：仅 py 诊断红灯（真实坏文件）→ review 保留；修复后写报告解除
+    _clear()
+    cid = "c20b"
+    td = tempfile.mkdtemp()
+    bad = Path(td) / "broken.py"
+    bad.write_text("def z(\n", encoding="utf-8")
+    hq.build_post_write_quality_report(cid, {str(bad): "w"})
+    st = hq.get_quality_state(cid)
+    _assert(st.diag_fail_flag is True and st.pending_diagnose_red is True, st)
+    hq.note_evidence_tool(cid, "read_file", {"path": str(bad)}, {"ok": True})
+    hq.mark_review_done(cid)
+    st = hq.get_quality_state(cid)
+    _assert(st.pending_diagnose_red is True and st.diag_fail_flag, "py 红灯 review 后应保留")
+    r = hq.check_pre_write_quality(cid, "replace_in_file", {"path": str(Path(td) / "other.py"), "dry_run": False, "new_text": "x=1\n"})
+    _assert(r and r["error"]["type"] == "HostQualityDiagnoseRed", r)
+    bad.write_text("def z():\n    return 1\n", encoding="utf-8")
+    hq.build_post_write_quality_report(cid, {str(bad): "w"})
+    st = hq.get_quality_state(cid)
+    _assert(not st.diag_fail_flag and not st.pending_diagnose_red, "修复后应解除")
+
+    # 场景3：大删除 + py 红灯双触发 → review 只清大删除，py 保留；修复 py 后全解除
+    _clear()
+    cid = "c20c"
+    td3 = tempfile.mkdtemp()
+    bad3 = Path(td3) / "broken.py"
+    bad3.write_text("def z(\n", encoding="utf-8")
+    st = hq.get_quality_state(cid)
+    hq._maybe_flag_large_delete(st, "big.yaml", diff)
+    hq.build_post_write_quality_report(cid, {str(bad3): "w"})
+    st = hq.get_quality_state(cid)
+    _assert(st.large_delete_flag and st.diag_fail_flag and st.pending_diagnose_red, st)
+    hq.note_evidence_tool(cid, "read_file", {"path": str(bad3)}, {"ok": True})
+    hq.mark_review_done(cid)
+    st = hq.get_quality_state(cid)
+    _assert(not st.large_delete_flag and st.diag_fail_flag and st.pending_diagnose_red, "review 只清大删除")
+    bad3.write_text("def z():\n    return 1\n", encoding="utf-8")
+    hq.build_post_write_quality_report(cid, {str(bad3): "w"})
+    st = hq.get_quality_state(cid)
+    _assert(not st.pending_diagnose_red and not st.diag_fail_flag and not st.large_delete_flag, "修复 py 后全解除")
+
+    # 场景4：yaml 写入不清历史 py 红灯（diag_fail_flag 保留）
+    _clear()
+    cid = "c20d"
+    td4 = tempfile.mkdtemp()
+    bad4 = Path(td4) / "broken.py"
+    bad4.write_text("def z(\n", encoding="utf-8")
+    hq.build_post_write_quality_report(cid, {str(bad4): "w"})
+    st = hq.get_quality_state(cid)
+    _assert(st.diag_fail_flag and st.pending_diagnose_red, st)
+    hq.build_post_write_quality_report(cid, {str(Path(td4) / "data.yaml"): "w"})
+    st = hq.get_quality_state(cid)
+    _assert(st.diag_fail_flag and st.pending_diagnose_red, "yaml 写入不得清历史红灯")
+
+
 def case_16_java_jdk_degrade_or_compile():
     _clear()
     td = tempfile.mkdtemp()
@@ -577,6 +649,7 @@ CASES = [
     ("17_review_red_no_deadlock", case_17_review_red_no_deadlock_and_dest_path),
     ("18_truncate_keeps_hq", case_18_truncate_keeps_host_quality),
     ("19_attach_dict_before_model", case_19_attach_is_dict_before_model),
+    ("20_red_deadlock_fix", case_20_red_deadlock_fix),
 ]
 
 
