@@ -2,6 +2,7 @@
 """AgentRuntime：turn 主循环（只 yield，不 publish SSE）。"""
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from agent_v4.core import base as _core_base
@@ -211,6 +212,11 @@ class AgentRuntime:
                 "temperature": 0.2,
                 "tools": otools_sorted,
             }
+            # 会话身份：OpenAI 标准 user 字段，供 provider 适配层做 KV 缓存/内容安全隔离；
+            # 会话 id 可能含 . : 等非 DeepSeek user_id 合法字符，仅保留 [a-zA-Z0-9_-]
+            _uid = re.sub(r"[^a-zA-Z0-9_-]", "", str(conversation_id or ""))[:512]
+            if _uid:
+                body["user"] = _uid
             yield _emit({"type": "llm_request", "round": _round + 1, "params": {"model": em, "thinking": True, "reasoning_effort": reff, "temperature": 0.2, "messagesCount": len(messages_for_llm), "toolsCount": len(otools_sorted), "hasTools": True}})
             last_choice_message: Optional[Dict[str, Any]] = None
             try:
@@ -865,6 +871,10 @@ class AgentRuntime:
                 "thinking": {"type": "enabled"},
                 "temperature": 0.2,
             }
+            # 与主循环同会话身份：同一会话的 wrap 收尾请求也带 user（provider 适配层统一转 user_id）
+            _uid_w = re.sub(r"[^a-zA-Z0-9_-]", "", str(conversation_id or ""))[:512]
+            if _uid_w:
+                wrap_body["user"] = _uid_w
             yield _emit({"type": "llm_request", "round": MAX_TOOL_ROUNDS + 1, "params": {"model": em, "thinking": True, "reasoning_effort": reff, "temperature": 0.2, "messagesCount": len(wrap_messages), "toolsCount": 0, "hasTools": False}})
             last_choice_message_wrap: Optional[Dict[str, Any]] = None
             try:

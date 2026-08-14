@@ -138,9 +138,12 @@ def adapt_request_body(payload: dict, provider: str) -> dict:
     """对请求体做 provider 专属适配（返回修改后的 payload 副本）。
 
     - local_model: 浏览器页面不支持 tools/thinking/reasoning_effort
-    - 其余 provider 无需剥离（GLM-5.2 也支持 thinking / reasoning_effort）
+    - deepseek: 会话身份走非标 user_id（KVCache/内容安全/调度隔离），由 OpenAI 标准 user 转换而来
+    - 其余 provider 无需剥离（GLM-5.2 也支持 thinking / reasoning_effort；user 为标准字段保留透传）
     """
     out = dict(payload)
+    if "user" in out and provider == "deepseek":
+        out["user_id"] = out.pop("user")
     if provider == "local_model":
         out.pop("tools", None)
         out.pop("reasoning_effort", None)
