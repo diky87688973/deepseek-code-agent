@@ -261,7 +261,7 @@ def _is_placeholder_conversation_title(title: str) -> bool:
     t = str(title or "").strip()
     if not t or t == "新会话" or t == "生成标题中…":
         return True
-    if re.match(r"^会话\s+[A-Za-z0-9._:-]{8}$", t):
+    if re.match(r"^会话\s+[A-Za-z0-9_-]{8}$", t):
         return True
     return False
 

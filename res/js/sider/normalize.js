@@ -4,7 +4,7 @@
   w.IMM = w.IMM || {};
   function normalizeConversationId(id) {
     id = String(id || "").trim();
-    return /^[A-Za-z0-9._:-]{8,128}$/.test(id) ? id : "";
+    return /^[A-Za-z0-9_-]{8,128}$/.test(id) ? id : "";
   }
   function newConversationId() {
     if (w.crypto && w.crypto.randomUUID) return w.crypto.randomUUID();

@@ -6,7 +6,7 @@ import re
 import uuid
 from typing import Optional
 
-_CID_RE = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
+_CID_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 
 
 def parse_conversation_id(s: Optional[str]) -> Optional[str]:

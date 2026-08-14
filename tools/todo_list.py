@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -27,8 +28,13 @@ def configure_storage(directory: Path) -> None:
         pass
 
 
+def _valid_cid(cid: str) -> bool:
+    """会话 id 格式防御：仅接受 [A-Za-z0-9_-]{8,128}（与会话存储校验一致，防止非法 cid 拼路径）。"""
+    return bool(re.fullmatch(r"[A-Za-z0-9_-]{8,128}", str(cid or "").strip()))
+
+
 def _persist(cid: str) -> None:
-    if not _storage_dir or not cid:
+    if not _storage_dir or not _valid_cid(cid):
         return
     try:
         lst = session_lists.get(cid)
@@ -43,7 +49,7 @@ def _persist(cid: str) -> None:
 
 
 def _load(cid: str) -> None:
-    if not cid or cid in session_lists or not _storage_dir:
+    if not _valid_cid(cid) or cid in session_lists or not _storage_dir:
         return
     try:
         fp = _storage_dir / f"{cid}.json"

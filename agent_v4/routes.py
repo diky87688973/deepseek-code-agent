@@ -27,9 +27,30 @@ from agent_v4.http_schemas import (
 )
 from agent_v4.version import AGENT_APP_VERSION
 from util.http_pipeline_v2 import resolve_client_ip_from_request
+from util.session_store_v2 import parse_conversation_id
 from agent_v4.live_state import open_global_sse_channel, next_global_sse_event, is_global_sse_current
 
 router = APIRouter()
+
+
+def _require_cid(raw: Any) -> str:
+    """会话 id 必填校验：空或非法均 400。"""
+    cid = parse_conversation_id(raw)
+    if not cid:
+        raise HTTPException(400, "invalid conversation_id")
+    return cid
+
+
+def _optional_cid(raw: Any) -> str:
+    """会话 id 可选：空返回 ""；非空必须合法，否则 400。"""
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    cid = parse_conversation_id(s)
+    if not cid:
+        raise HTTPException(400, "invalid conversation_id")
+    return cid
+
 
 _IMMERSIVE_HTML = core.AGENT_ROOT / "res" / "html" / "agent-immersive.html"
 _IMMERSIVE_HTML_BODY = (
@@ -72,7 +93,7 @@ def favicon() -> Response:
 
 @router.get("/api/model-pricing")
 def model_pricing(conversation_id: str = "", model: str = "") -> Any:
-    return core.get_model_pricing_snapshot(conversation_id, model)
+    return core.get_model_pricing_snapshot(_optional_cid(conversation_id), model)
 
 
 @router.get("/api/usage-accumulator")
@@ -88,9 +109,7 @@ def usage_accumulator_put(body: UsageAccumIn) -> Dict[str, bool]:
 
 @router.get("/api/chat/history")
 def chat_history(conversation_id: str = "") -> Dict[str, Any]:
-    cid = str(conversation_id or "").strip()
-    if not cid:
-        raise HTTPException(400, "empty conversation_id")
+    cid = _require_cid(conversation_id)
     stored, layout_messages = core.messages_for_history_api(cid)
     context_layout = rh.context_layout_event(cid, layout_messages)
     todo_list = None
@@ -125,7 +144,7 @@ def chat_sessions() -> Dict[str, Any]:
         title_files = list(core.SESSION_DIR.glob("*.title")) + list(core.SESSION_DIR.glob("*/*.title"))
         for tf in title_files:
             cid = tf.stem
-            if not re.match(r"^[A-Za-z0-9._:-]{8,128}$", cid) or cid in seen_ids:
+            if not parse_conversation_id(cid) or cid in seen_ids:
                 continue
             seen_ids.add(cid)
             title = tf.read_text(encoding="utf-8").strip()[:80] if tf.is_file() else ""
@@ -144,7 +163,7 @@ def chat_sessions() -> Dict[str, Any]:
         json_files = list(core.SESSION_DIR.glob("*.json")) + list(core.SESSION_DIR.glob("*/*.json"))
         for fp in json_files:
             cid = fp.stem
-            if not re.match(r"^[A-Za-z0-9._:-]{8,128}$", cid) or cid in seen_ids:
+            if not parse_conversation_id(cid) or cid in seen_ids:
                 continue
             seen_ids.add(cid)
             messages = core.CONVERSATIONS.get(cid)
@@ -175,9 +194,7 @@ def chat_sessions() -> Dict[str, Any]:
 
 @router.post("/api/chat/title")
 def chat_title(body: ChatTitleIn) -> Dict[str, Any]:
-    cid = str(body.conversation_id or "").strip()
-    if not cid:
-        raise HTTPException(400, "empty conversation_id")
+    cid = _require_cid(body.conversation_id)
     core._ensure_conversation_loaded(cid)
     existing = core._load_conversation_title(cid)
     if existing and not core._is_placeholder_conversation_title(existing):
@@ -205,13 +222,13 @@ def chat_ui_state_put(body: ChatUiStateIn) -> Dict[str, bool]:
     tabs: List[Dict[str, str]] = []
     for t in body.tabs or []:
         cid = str(t.get("id") or "").strip()
-        if not re.match(r"^[A-Za-z0-9._:-]{8,128}$", cid):
+        if not parse_conversation_id(cid):
             continue
         title = str(t.get("title") or "").strip()
         tabs.append({"id": cid, "title": title[:80]})
     tabs = tabs[-core.UI_RESTORE_MAX_TABS:]
-    active = str(body.active_conversation_id or "").strip()
-    if not re.match(r"^[A-Za-z0-9._:-]{8,128}$", active):
+    active = _optional_cid(body.active_conversation_id)
+    if not active:
         active = tabs[0]["id"] if tabs else ""
     elif tabs and not any(t["id"] == active for t in tabs):
         tabs = (
@@ -226,7 +243,7 @@ def chat_ui_state_put(body: ChatUiStateIn) -> Dict[str, bool]:
 
 @router.get("/api/reasoning-effort")
 async def reasoning_effort_get(request: Request) -> Dict[str, Any]:
-    cid = str(request.query_params.get("conversation_id") or "").strip()
+    cid = _optional_cid(request.query_params.get("conversation_id"))
     return {
         "ok": True,
         "reasoning_effort": core._get_reasoning_effort(cid),
@@ -240,7 +257,7 @@ async def reasoning_effort_set(request: Request) -> Dict[str, Any]:
         body = await request.json()
     except Exception:
         return {"ok": False, "error": "invalid JSON"}
-    cid = str(body.get("cid") or body.get("conversation_id") or "").strip()
+    cid = _optional_cid(body.get("cid") or body.get("conversation_id"))
     effort = str(body.get("effort") or "").strip().lower()
     if not cid:
         return {"ok": False, "error": "conversation_id required"}
@@ -262,9 +279,7 @@ def kb_files() -> Dict[str, Any]:
 
 @router.get("/api/kb/checked")
 def kb_checked_get(conversation_id: str = "") -> Dict[str, Any]:
-    cid = str(conversation_id or "").strip()
-    if not cid:
-        raise HTTPException(400, "empty conversation_id")
+    cid = _require_cid(conversation_id)
     with core._KB_CHECKED_LOCK:
         state = core._KB_CHECKED_STATE.get(cid, set())
     return {"ok": True, "checked": sorted(state)}
@@ -272,9 +287,7 @@ def kb_checked_get(conversation_id: str = "") -> Dict[str, Any]:
 
 @router.put("/api/kb/checked")
 def kb_checked_put(body: KbCheckedIn) -> Dict[str, Any]:
-    cid = str(body.conversation_id or "").strip()
-    if not cid:
-        raise HTTPException(400, "empty conversation_id")
+    cid = _require_cid(body.conversation_id)
     raw_paths = set(body.checked or [])
     accepted: Set[str] = set()
     for rel in raw_paths:
@@ -296,9 +309,7 @@ def kb_checked_put(body: KbCheckedIn) -> Dict[str, Any]:
 
 @router.post("/api/chat/stop")
 def chat_stop(inp: ChatStopIn) -> Dict[str, Any]:
-    cid = str(inp.conversation_id or "").strip()
-    if not cid:
-        raise HTTPException(400, "empty conversation_id")
+    cid = _require_cid(inp.conversation_id)
     stopped = core._request_conversation_stop(cid, str(inp.run_id or "").strip())
     # 停止时关闭自主模式
     try:
@@ -311,9 +322,7 @@ def chat_stop(inp: ChatStopIn) -> Dict[str, Any]:
 
 @router.post("/api/chat/autonomous")
 def chat_autonomous(body: ChatAutonomousIn) -> Dict[str, Any]:
-    cid = str(body.conversation_id or "").strip()
-    if not cid:
-        raise HTTPException(400, "empty conversation_id")
+    cid = _require_cid(body.conversation_id)
     enabled = bool(body.enabled)
     from agent_v4.core.turn_runner import _AUTONOMOUS_MODE
     if enabled:
@@ -381,7 +390,8 @@ def chat_send(inp: ChatIn, request: Request) -> Dict[str, Any]:
                 _injected.append(f"\n\n【警告：无法读取 @{_fp}：{_e}】")
         if _injected:
             text = "".join(_injected) + "\n\n---\n用户消息：" + text
-    cid = str(inp.conversation_id or "").strip() or core._new_conversation_id()
+    cid_raw = str(inp.conversation_id or "").strip()
+    cid = _optional_cid(cid_raw) if cid_raw else core._new_conversation_id()
     mode = str(inp.mode or "").strip().lower()
     if mode not in {"", "auto", "plan", "execute"}:
         raise HTTPException(400, "invalid mode")
@@ -431,7 +441,7 @@ def chat_attachment_get(conversation_id: str = "", id: str = ""):
     """本机会话截图缩略图（非公网）。"""
     from agent_v4.core.attachments import read_attachment_file
 
-    path, err = read_attachment_file(conversation_id, id)
+    path, err = read_attachment_file(_optional_cid(conversation_id), id)
     if err or path is None:
         raise HTTPException(404, err or "not found")
     media = "image/jpeg"
@@ -446,10 +456,10 @@ def chat_attachment_get(conversation_id: str = "", id: str = ""):
 @router.post("/api/chat/command-input")
 def chat_command_input_submit(inp: ChatCommandInputIn) -> Dict[str, Any]:
     """向执行中的 run_command 子进程发送 stdin（用于 winget 等交互确认）。"""
-    cid = inp.conversation_id.strip()
+    cid = _require_cid(inp.conversation_id)
     tid = inp.tool_call_id.strip()
     text = inp.input.strip()
-    if not cid or not tid:
+    if not tid:
         raise HTTPException(400, "conversation_id and tool_call_id required")
     if not text:
         raise HTTPException(400, "empty input")
@@ -463,10 +473,8 @@ def chat_command_input_submit(inp: ChatCommandInputIn) -> Dict[str, Any]:
 
 @router.post("/api/chat/user-confirm")
 def chat_user_confirm_submit(inp: ChatUserConfirmIn, request: Request) -> Dict[str, Any]:
-    cid = inp.conversation_id.strip()
+    cid = _require_cid(inp.conversation_id)
     conf = inp.confirm.strip()
-    if not cid:
-        raise HTTPException(400, "empty conversation_id")
     pending = core.PENDING_USER_CONFIRM.get(cid)
     if not pending:
         raise HTTPException(400, "no pending user confirmation for this conversation")
@@ -657,7 +665,7 @@ def health() -> Dict[str, Any]:
 @router.put("/api/tts/state")
 def tts_state_set(body: Dict[str, Any]) -> Dict[str, bool]:
     """设置会话 TTS 开关。body: {"conversation_id": str, "enabled": bool}"""
-    cid = str(body.get("conversation_id") or "").strip()
+    cid = _optional_cid(body.get("conversation_id"))
     if not cid:
         return {"ok": False}
     try:
