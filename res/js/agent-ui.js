@@ -1260,6 +1260,12 @@ return escapeHtml(t);
 }
 function buildToolTitleParts(script,args){
 const s=(script+"").toLowerCase();
+// confirm_id 提交时请求参数纯净（无 path），但预览已把 confirm_id→path 记入缓存；
+// 此处仅构造展示视图（副本），不修改原始 args，展示策略与预览/ review 一致（从 args 取路径）
+const cid=argGet(args,"confirm_id");
+if(cid&&!argGet(args,"path")&&!argGet(args,"source_path")&&!argGet(args,"dest_path")){
+const dp=(window.confirmPathCache&&window.confirmPathCache[String(cid).trim()])||"";
+if(dp){const merged=Object.assign({},args);merged.path=dp;args=merged;}}
 if(s.indexOf("read_file")>=0){
 const path=String(argGet(args,"path")||"").trim();
 const leaf=pathLeaf(path)||"（未指定 path）";
@@ -1280,9 +1286,8 @@ const leaf=pathLeaf(path)||"（未指定 path）";
 const dr=argGet(args,"dry_run");
 const dry=dr!==false&&dr!==0;
 const co=!!argGet(args,"create_only");
-const tag=dry?"（dry_run 预览）":"（写入）";
 const cx=co?" · create_only":"";
-return {main:dry?"预览修改":"提交修改",fname:leaf+tag+cx};}
+return {main:dry?"预览修改":"提交修改",fname:leaf+cx};}
 if(s.indexOf("replace_in_file")>=0){
 const path=String(argGet(args,"path")||"").trim();
 const leaf=pathLeaf(path)||"（未指定 path）";
@@ -1296,7 +1301,7 @@ let mode="字面替换",extra="";
 if(rs!=null&&re!=null){mode="区间";extra=" §"+rs+"–"+re;}
 else if(ls!=null&&le!=null&&sc!=null&&ec!=null){mode="矩形";extra=" L"+ls+":"+sc+"–"+le+":"+ec;}
 else if(Array.isArray(rules)&&rules.length)mode="规则×"+rules.length;
-return {main:dry?"预览修改":"提交修改",fname:leaf+" · "+mode+extra+(dry?" · dry_run":"")};}
+return {main:dry?"预览修改":"提交修改",fname:leaf+" · "+mode+extra};}
 if(s.indexOf("grep_files")>=0){
 const root=String(argGet(args,"path")||"").trim();
 const leaf=pathLeaf(root)||root.slice(0,36)+(root.length>36?"…":"");
@@ -1320,12 +1325,12 @@ if(ls!=null&&le!=null)rng=" L"+ls+"–"+le;
 else if(chs!=null||che!=null)rng=" §"+(chs!=null?chs:0)+"–"+(che!=null?che:"");
 const dr=argGet(args,"dry_run");
 const dry=dr!==false&&dr!==0;
-return {main:dry?"预览修改":"提交修改",fname:(src||"?")+(dst?" → "+dst:"")+rng+(dry?" · dry_run":"")};}
+return {main:dry?"预览修改":"提交修改",fname:(src||"?")+(dst?" → "+dst:"")+rng};}
 if(s.indexOf("delete_file")>=0){
 const leaf=pathLeaf(String(argGet(args,"path")||""))||"（未指定 path）";
 const dr=argGet(args,"dry_run");
 const dry=dr!==false&&dr!==0;
-return {main:dry?"预览删除":"删除文件",fname:leaf+(dry?" · dry_run":"")};}
+return {main:dry?"预览删除":"删除文件",fname:leaf};}
 if(s.indexOf("apply_patch")>=0){
 const root=pathLeaf(String(argGet(args,"path")||""))||".";
 const dr=argGet(args,"dry_run");
@@ -1333,7 +1338,7 @@ const dry=dr!==false&&dr!==0;
 const pf=baseNameOnly(String(argGet(args,"patch_file")||""));
 const pt=String(argGet(args,"patch_text")||"");
 const hint=pf|| (pt?"内联补丁":"补丁");
-return {main:dry?"预览修改":"提交修改",fname:root+" · "+hint+(dry?" · dry_run":"")};}
+return {main:dry?"预览修改":"提交修改",fname:root+" · "+hint};}
 if(s.indexOf("run_command")>=0){
 const cwd=pathLeaf(String(argGet(args,"cwd")||""));
 const cmd=String(argGet(args,"command")||"").replace(/\s+/g," ").trim().slice(0,72);
@@ -2014,6 +2019,11 @@ pendingToolTags.push({tag:o.tag,ok:!!ok||!!ev.user_confirm_required});
 if(ev.user_confirm_required){o.tag.textContent="待确认";o.tag.className="tag tag-run";}
 o.resLb.style.display="block";o.resPb.style.display="block";if(ev.user_confirm_required){try{var _pj=JSON.parse(ev.preview||"{}");var _em=_pj&&_pj.error&&_pj.error.message?String(_pj.error.message):"";var _em2=_em.indexOf("\n\n--help:")>=0?_em.split("\n\n--help:")[0].trim():_em;var slim={ok:_pj.ok,data:_pj.data,error:_pj.error?{code:_pj.error.code,type:_pj.error.type,message:_em2,hint:_pj.error.hint,retryable:_pj.error.retryable}:null};o.resPb.textContent=JSON.stringify(slim,null,2);}catch(e){o.resPb.textContent=ev.preview||"";}}else{try{var _pj2=JSON.parse(ev.preview||"{}");o.resPb.textContent=JSON.stringify(_pj2,null,2);}catch(e){o.resPb.textContent=ev.preview||"";}}
 fillToolPreview(o,ev);
+// 预览结果含 confirm_id：记入缓存，供 confirm_id 提交时展示文件名（与预览/review 同策略，不依赖额外事件字段）
+try{var _cp=typeof ev.preview==="string"?JSON.parse(ev.preview):ev.preview;_cp=_cp&&_cp.data;_cp=_cp&&_cp.confirm_id?_cp:null;}catch(_cpE){_cp=null;}
+if(_cp){
+var _cpPath=String((o.args&&(o.args.path||o.args.dest_path||o.args.source_path))||(_cp.path||_cp.dest_path||_cp.source_path)||"").trim();
+if(_cpPath){window.confirmPathCache=window.confirmPathCache||{};window.confirmPathCache[String(_cp.confirm_id).trim()]=_cpPath;}}
 try{var _pp=typeof ev.preview==="string"?JSON.parse(ev.preview):ev.preview;var _so=_pp&&_pp.data&&_pp.data.stdout;if(_so&&typeof _so==="string"&&_so.trim()){if(o.chatRunCard&&o.chatRunCard.parentNode){updateChatRunCardOutput(o,_so);}else{ensureChatRunCard(o);updateChatRunCardOutput(o,_so);}}}catch(_e3){}
 // file_undo：从结果数据补充路径到标题
 try{var _fuP=typeof ev.preview==="string"?JSON.parse(ev.preview):ev.preview;_fuP=_fuP&&_fuP.data;}catch(_fuE){_fuP=null;}
