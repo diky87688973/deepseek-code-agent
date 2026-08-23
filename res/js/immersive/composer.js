@@ -28,8 +28,8 @@
   var atRestoreSelectPath = null;
 
   IMM.selectedMode = "auto";
-  IMM.selectedModel = "deepseek-v4-flash";
-  IMM.allowedModels = ["deepseek-v4-pro", "deepseek-v4-flash"];
+  IMM.selectedModel = "";
+  IMM.allowedModels = ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "glm-5.2", "glm-5v-turbo", "local-model"];
 
   function normalizeMode(m) {
     m = String(m || "").toLowerCase();
@@ -456,6 +456,23 @@
     syncModelSubmenuHighlight();
     persistUiState();
   }
+
+  function renderModelChoices() {
+    var sub = document.getElementById("immModelSubmenu");
+    if (!sub) return;
+    sub.innerHTML = "";
+    (IMM.allowedModels || []).forEach(function (m) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "imm-mode-item imm-model-choice";
+      b.setAttribute("data-model", m);
+      b.textContent = m;
+      sub.appendChild(b);
+    });
+    syncModelSubmenuHighlight();
+  }
+  IMM.renderModelChoices = renderModelChoices;
+  IMM.applyModel = applyModel;
 
   function getReasonEffort() {
     var cur = reasonMenu && reasonMenu.querySelector(".reasoning-choice.reasoning-current");

@@ -20,6 +20,7 @@ class ScenarioInjection:
         ephemeral_attachment_tail,
         find_pending_requires_reply_peer_message,
         ephemeral_requires_reply_priority,
+        vision_ok: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """requires_reply 与截图提示可并存；应答 RR / 看图后按状态重建，避免互相覆盖清空。"""
         parts = []  # type: List[str]
@@ -33,7 +34,7 @@ class ScenarioInjection:
             if _c:
                 parts.append(_c)
         _cur_atts = get_turn_attachments(conversation_id) or attachments
-        if _cur_atts and not looked_screenshot:
+        if _cur_atts and not looked_screenshot and not vision_ok:
             if vision_nudge_text:
                 parts.append(vision_nudge_text)
             else:

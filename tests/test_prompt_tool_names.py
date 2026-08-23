@@ -214,7 +214,7 @@ def _find_shorthand_issues_in_text(text: str) -> List[str]:
         (r"文件名\s*glob\b", "文件名 glob"),
         (r"\b的\s*glob\b", "的 glob"),
         (r"\b层\s*glob\b", "层 glob"),
-        (r"\bTodo\b", "Todo"),
+        (r"(?<!\.)\bTodo\b(?!\.)", "Todo"),
     ):
         m = re.search(pat, text)
         if m:

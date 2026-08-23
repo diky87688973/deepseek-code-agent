@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import base64
+import io
 import re
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from agent_v4.bootstrap import SESSION_DIR
+from agent_v4.bootstrap import SESSION_DIR, VISION_EMBED_MAX_BYTES, VISION_EMBED_MAX_SIDE
 
 _TURN_ATTACHMENTS: Dict[str, List[Dict[str, Any]]] = {}
 
@@ -96,8 +97,11 @@ def save_chat_images(cid: str, images: List[Any]) -> List[Dict[str, Any]]:
     return out
 
 
-def format_user_attachment_footer(atts: List[Dict[str, Any]]) -> str:
+def format_user_attachment_footer(atts: List[Dict[str, Any]], vision: bool = False) -> str:
     if not atts:
+        return ""
+    if vision:
+        # 视觉模型：图片已嵌入消息，无需 footer 提示与 id/path 文本（省 token）
         return ""
     lines = ["", "[附件截图] 你看不到像素；须调用 look_screenshot 查看。"]
     for a in atts:
@@ -134,8 +138,10 @@ def ephemeral_attachment_tail(atts: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {"role": "system", "content": content}
 
 
-def should_force_look_screenshot(user_text: str, atts: List[Dict[str, Any]], looked: bool) -> bool:
-    if looked or not atts:
+def should_force_look_screenshot(
+    user_text: str, atts: List[Dict[str, Any]], looked: bool, vision: bool = False
+) -> bool:
+    if vision or looked or not atts:
         return False
     t = str(user_text or "").strip()
     if not t or t in ("请查看图片", "请查看截图"):
@@ -230,3 +236,98 @@ def read_attachment_file(cid: str, att_id: str) -> Tuple[Optional[Path], Optiona
         if cand.is_file():
             return cand, None
     return None, "not found"
+
+
+# ── 视觉嵌图：附件 → OpenAI image_url 块（本地缩放 + base64）──
+try:
+    from PIL import Image as _PILImage
+
+    _HAS_PIL = True
+except ImportError:
+    _PILImage = None
+    _HAS_PIL = False
+
+
+def _image_mime_for_path(path: Path) -> str:
+    suf = path.suffix.lower()
+    if suf == ".png":
+        return "image/png"
+    if suf == ".webp":
+        return "image/webp"
+    if suf == ".gif":
+        return "image/gif"
+    return "image/jpeg"
+
+
+def _resize_image_bytes(path: Path, max_side: int) -> Tuple[bytes, str]:
+    """本地缩放长边至 max_side（官方推理前自动缩放约 800×800，先缩省请求体且不损失效果）。
+    仅对 PIL 可解码的 PNG/JPEG/WebP 缩放；失败或动图原样返回。返回 (bytes, mime)。"""
+    if not _HAS_PIL or max_side <= 0:
+        return path.read_bytes(), _image_mime_for_path(path)
+    suf = path.suffix.lower()
+    if suf not in (".png", ".jpg", ".jpeg", ".webp"):
+        return path.read_bytes(), _image_mime_for_path(path)
+    img = None
+    try:
+        img = _PILImage.open(path)
+        img.load()
+        if max(img.size) <= max_side:
+            return path.read_bytes(), _image_mime_for_path(path)
+        img.thumbnail((max_side, max_side))
+        buf = io.BytesIO()
+        fmt = "PNG" if suf == ".png" else ("WEBP" if suf == ".webp" else "JPEG")
+        img.save(buf, format=fmt)
+        return buf.getvalue(), _image_mime_for_path(path)
+    except Exception:
+        return path.read_bytes(), _image_mime_for_path(path)
+    finally:
+        if img is not None:
+            try:
+                img.close()
+            except Exception:
+                pass
+
+
+def build_embedded_image_blocks(
+    atts: List[Dict[str, Any]],
+    *,
+    max_bytes: int = 0,
+    max_side: int = 0,
+) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """把附件编码为 OpenAI image_url 块（data URL），供视觉模型直接嵌入 user 消息。
+
+    返回 (blocks, skipped_ids)：blocks 元素为 {att_id, mime, url}；
+    累计 base64 超过 max_bytes（0 表示不限制）后，剩余附件转 skipped（调用方应转文本占位）。
+    """
+    budget = int(max_bytes or VISION_EMBED_MAX_BYTES)
+    side = int(max_side or VISION_EMBED_MAX_SIDE)
+    blocks: List[Dict[str, Any]] = []
+    skipped: List[str] = []
+    used = 0
+    for a in atts or []:
+        if not isinstance(a, dict):
+            continue
+        aid = str(a.get("id") or "").strip()
+        pp = Path(str(a.get("path") or ""))
+        try:
+            raw, mime = _resize_image_bytes(pp, side)
+        except OSError:
+            skipped.append(aid or "?")
+            continue
+        if not raw:
+            skipped.append(aid or "?")
+            continue
+        b64 = base64.b64encode(raw).decode("ascii")
+        if budget > 0 and used + len(b64) > budget:
+            skipped.append(aid or "?")
+            continue
+        used += len(b64)
+        blocks.append({"att_id": aid, "mime": mime, "url": f"data:{mime};base64,{b64}"})
+    return blocks, skipped
+
+
+def image_placeholder_text(ids: List[str]) -> str:
+    """附件转文本占位（非视觉模型 / 预算不足 / 远记忆折叠 / 摘要剥离时使用）。"""
+    if not ids:
+        return ""
+    return "[图片: " + ", ".join(str(x) for x in ids) + "]"

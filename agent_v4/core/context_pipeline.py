@@ -7,7 +7,14 @@ from agent_v4.core.shared_state import *  # noqa: F403
 
 def _approx_tokens_message(m: Dict[str, Any]) -> int:
     content = m.get("content")
-    if isinstance(content, (dict, list)):
+    if isinstance(content, list):
+        # 图片块不按字符估算（base64 会虚高数万倍），统一按单图 token 上限计
+        _parts = [p for p in content if not (isinstance(p, dict) and p.get("type") == "image_url")]
+        try:
+            c = json.dumps(_parts, ensure_ascii=False)
+        except (TypeError, ValueError):
+            c = str(_parts)
+    elif isinstance(content, dict):
         try:
             c = json.dumps(content, ensure_ascii=False)
         except (TypeError, ValueError):
@@ -25,6 +32,8 @@ def _approx_tokens_message(m: Dict[str, Any]) -> int:
             n += _approx_tokens_text(json.dumps(tc, ensure_ascii=False))
         except (TypeError, ValueError):
             n += 16
+    # 图片：按官方单图 token 上限计（_attachments 引用或 content 数组中的 image_url 块）
+    n += _count_image_blocks(m) * IMAGE_TOKENS_PER_IMAGE
     return n
 
 def _approx_tokens_text(s: str) -> int:
@@ -45,7 +54,87 @@ def _build_api_messages_for_model(persisted: List[Dict[str, Any]], conversation_
     # 须先 tryLoadPending（见 run_agent_turn）再进入此处组包。
     cm = _context_manager_v2(conversation_id)
     cm.rebuild_from_persisted(persisted, _build_context_segments, conversation_id)
-    return cm.flatten_to_api_messages(_sanitize_tool_pairing_for_api)
+    flat = cm.flatten_to_api_messages(_sanitize_tool_pairing_for_api)
+    # 视觉嵌图出口：按会话模型能力把 user 消息的 _attachments 转 image_url 块（或文本占位）
+    return _embed_vision_blocks_for_api(flat, effective_model(conversation_id))
+
+
+def _count_image_blocks(m: Dict[str, Any]) -> int:
+    """统计消息携带的图片块数：_attachments 引用（持久化形态）或 content 数组中的 image_url 块。"""
+    n = 0
+    atts = m.get("_attachments")
+    if isinstance(atts, list):
+        n += len([a for a in atts if isinstance(a, dict)])
+    content = m.get("content")
+    if isinstance(content, list):
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "image_url":
+                n += 1
+    return n
+
+
+def _embed_vision_blocks_for_api(
+    api_messages: List[Dict[str, Any]], model: str
+) -> List[Dict[str, Any]]:
+    """组包出口：视觉模型把 user 消息的 _attachments 嵌入为 image_url 块；非视觉模型转文本占位。
+
+    持久化 user 消息 content 为纯文本（图片引用在 _attachments），此处按模型能力转换：
+    - 视觉模型：content 转数组 [text 块, image_url 块...]，本地缩放 + base64，超预算转占位；
+    - 非视觉模型：图片转占位文本（避免历史带图触发上游 400）。
+    远期 pure 窗口的图片已在折叠时剥离（_fold_pure_window_for_api），此处只处理近期窗口。
+    """
+    from util.agent_model_provider import model_supports_vision
+    from agent_v4.core.attachments import build_embedded_image_blocks, image_placeholder_text
+
+    vision_ok = model_supports_vision(model)
+    out: List[Dict[str, Any]] = []
+    for m in api_messages:
+        atts = m.get("_attachments") if m.get("role") == "user" else None
+        if not isinstance(atts, list) or not atts:
+            out.append(m)
+            continue
+        mm = {k: v for k, v in m.items() if k != "_attachments"}
+        text = _normalize_attachment_footer(str(mm.get("content") or ""), vision_ok)
+        if not vision_ok:
+            ids = [str(a.get("id") or "?") for a in atts if isinstance(a, dict)]
+            ph = image_placeholder_text(ids) or "[图片: 附件]"
+            mm["content"] = (text.rstrip() + ph) if text else ph
+            out.append(mm)
+            continue
+        blocks, skipped = build_embedded_image_blocks(atts)
+        content_arr: List[Dict[str, Any]] = []
+        if text:
+            content_arr.append({"type": "text", "text": text})
+        for b in blocks:
+            content_arr.append({"type": "image_url", "image_url": {"url": b["url"]}})
+        if skipped:
+            content_arr.append({"type": "text", "text": image_placeholder_text(skipped)})
+        if not content_arr:
+            # 极端兜底：文本与图片块都为空时给出占位，避免空 content 触发上游 400
+            content_arr.append({"type": "text", "text": "[图片: 附件]"})
+        mm["content"] = content_arr
+        out.append(mm)
+    return out
+
+
+# 发送侧 footer 文案按当前模型能力修正（历史消息 footer 可能来自另一能力时代，避免提示自相矛盾）
+_ATTACH_FOOTER_LOOK_HINT = "你看不到像素；须调用 look_screenshot 查看。"
+_ATTACH_FOOTER_EMBEDDED = "图片已嵌入本轮 user 消息，可直接查看。"
+
+
+def _normalize_attachment_footer(text: str, vision_ok: bool) -> str:
+    """发送侧处理附件 footer：视觉模型整段删除（图片已嵌入，footer 无价值）；
+    非视觉模型保留（id/path 是 look_screenshot 调用参数）。"""
+    if not text:
+        return text
+    if vision_ok:
+        idx = text.find("[附件截图]")
+        if idx >= 0:
+            return text[:idx].rstrip()
+        return text
+    if _ATTACH_FOOTER_EMBEDDED in text:
+        return text.replace(_ATTACH_FOOTER_EMBEDDED, _ATTACH_FOOTER_LOOK_HINT)
+    return text
 
 def _build_auto_load_skill_messages() -> List[str]:
     """构建 auto_load skill 的 system 消息列表。"""
@@ -365,7 +454,17 @@ def _fold_pure_window_for_api(msgs: List[Dict[str, Any]]) -> List[Dict[str, Any]
         if msgs[i].get("role") != "user":
             i += 1
             continue
-        out.append(_strip_internal_message_for_api(msgs[i]))
+        _folded_user = _strip_internal_message_for_api(msgs[i])
+        _fold_atts = _folded_user.pop("_attachments", None)
+        if isinstance(_fold_atts, list) and _fold_atts:
+            from agent_v4.core.attachments import image_placeholder_text
+
+            _ids = [str(a.get("id") or "?") for a in _fold_atts if isinstance(a, dict)]
+            if _ids:
+                _folded_user["content"] = (
+                    str(_folded_user.get("content") or "").rstrip() + image_placeholder_text(_ids)
+                )
+        out.append(_folded_user)
         i += 1
         chunk: List[Dict[str, Any]] = []
         while i < len(msgs) and msgs[i].get("role") != "user":
@@ -846,7 +945,29 @@ def _strip_tool_trace_for_summary(msgs: List[Dict[str, Any]]) -> List[Dict[str, 
         if r == "tool":
             continue
         if r == "user":
-            out.append({"role": "user", "content": str(m.get("content") or "")})
+            from agent_v4.core.attachments import image_placeholder_text
+
+            _c = m.get("content")
+            _img_ids: List[str] = []
+            if isinstance(_c, list):
+                _texts = []
+                for _part in _c:
+                    if isinstance(_part, dict):
+                        if _part.get("type") == "text":
+                            _texts.append(str(_part.get("text") or ""))
+                        elif _part.get("type") == "image_url":
+                            _img_ids.append("<image>")
+                    elif isinstance(_part, str):
+                        _texts.append(_part)
+                _c = "\n".join(_texts)
+            else:
+                _c = str(_c or "")
+            _atts = m.get("_attachments")
+            if isinstance(_atts, list) and _atts:
+                _img_ids.extend(str(a.get("id") or "?") for a in _atts if isinstance(a, dict))
+            if _img_ids:
+                _c = str(_c).rstrip() + image_placeholder_text(_img_ids)
+            out.append({"role": "user", "content": _c})
         elif r == "assistant":
             out.append(
                 {
@@ -875,7 +996,8 @@ def _summarize_messages_slice_with_llm(slice_msgs: List[Dict[str, Any]], cid: st
         "6) 脉络连贯：关注「用户要什么 → 做了什么 → 得到什么结论」的因果链，不要只罗列事实；对每个关键结论尽量保留。\n"
         "7) 禁止编造：不得引入记录中未出现的文件名、结论或数字；不确定处请写「未在记录中明确」。\n"
         "8) 若剔除噪声后确实无可保留的实质信息：请仅输出「摘要为空」五个字（不要加标点或换行），"
-        "使全文总字符数少于 10；不要输出其它占位或解释。"
+        "使全文总字符数少于 10；不要输出其它占位或解释。\n"
+        "9) 涉及图片/截图时：历史记录中图片以 [图片: 附件id] 占位标注，请在摘要中简要记录图片的存在、内容主题与用户意图。"
     )
     reff = _get_reasoning_effort(cid)
     th_type = "enabled" if SUMMARY_THINKING_ENABLED else "disabled"

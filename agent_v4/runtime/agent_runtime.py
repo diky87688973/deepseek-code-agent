@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from util.agent_model_provider import model_supports_vision
 from agent_v4.core import base as _core_base
 from agent_v4.core import host_quality as _host_quality
 from agent_v4.runtime.host_policy import (
@@ -43,6 +44,13 @@ class AgentRuntime:
         catalog = load_catalog()
         otools, script_by_api = catalog_to_openai_tools(catalog)
         otools_sorted = sorted(otools, key=_openai_tools_sort_key)
+        # 视觉模型：图片已嵌入 user 消息，look_screenshot 从工具列表移除，防止模型多余调用浪费轮次
+        _vision_ok = model_supports_vision(effective_model(conversation_id))
+        if _vision_ok:
+            otools_sorted = [
+                t for t in otools_sorted
+                if not (isinstance(t.get("function"), dict) and t["function"].get("name") == "look_screenshot")
+            ]
         mode = _resolve_conversation_mode(
             conversation_id, "" if resume_after_user_confirm else user_text, mode_hint=mode_hint
         )
@@ -73,7 +81,7 @@ class AgentRuntime:
             set_turn_attachments(conversation_id, _atts)
             _user_content = str(user_text or "")
             if _atts:
-                _user_content = _user_content + format_user_attachment_footer(_atts)
+                _user_content = _user_content + format_user_attachment_footer(_atts, _vision_ok)
             _user_msg: Dict[str, Any] = {
                 "role": "user",
                 "content": _user_content,
@@ -177,6 +185,7 @@ class AgentRuntime:
                 ephemeral_attachment_tail=ephemeral_attachment_tail,
                 find_pending_requires_reply_peer_message=_find_pending_requires_reply_peer_message,
                 ephemeral_requires_reply_priority=_ephemeral_requires_reply_priority,
+                vision_ok=_vision_ok,
             )
             ctx.ephemeral_tail = _turn_rr_state["tail"]
             ctx.looked_screenshot = _looked_screenshot
@@ -839,7 +848,9 @@ class AgentRuntime:
             # 有截图却未 look_screenshot：轻量打回一轮（与 RR 提示合并，不互相覆盖）
             if (
                 not _vision_nudge_used
-                and should_force_look_screenshot(user_text, get_turn_attachments(conversation_id) or _atts, _looked_screenshot)
+                and should_force_look_screenshot(
+                    user_text, get_turn_attachments(conversation_id) or _atts, _looked_screenshot, _vision_ok
+                )
             ):
                 _vision_nudge_used = True
                 _vision_nudge_text = self.scenario.vision_nudge_content()

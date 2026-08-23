@@ -42,7 +42,7 @@
       abortController: null,
       activeRunId: "",
       selectedMode: "auto",
-      selectedModel: "deepseek-v4-flash",
+      selectedModel: "",
       historyLoaded: false,
       lastContextLayout: null,
     };

@@ -9,7 +9,11 @@
       var j = await r.json();
       var hdr = document.getElementById("immHdrModel");
       if (hdr && j.model) hdr.textContent = "模型: " + j.model;
-      if (j.allowed_models && j.allowed_models.length) IMM.allowedModels = j.allowed_models.slice();
+      if (j.allowed_models && j.allowed_models.length) {
+        IMM.allowedModels = j.allowed_models.slice();
+        if (typeof IMM.renderModelChoices === "function") IMM.renderModelChoices();
+      }
+      if (j.model && typeof IMM.applyModel === "function") IMM.applyModel(j.model);
     } catch (e) {}
   }
 

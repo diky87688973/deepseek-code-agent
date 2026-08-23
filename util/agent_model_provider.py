@@ -153,3 +153,35 @@ def adapt_request_body(payload: dict, provider: str) -> dict:
         out.pop("stream_options", None)
         out["max_tokens"] = 65536
     return out
+
+
+# ── 视觉能力判断 ──
+_VISION_MODEL_DEFAULT = frozenset(
+    {
+        "deepseek-v4-flash-vision-exp",
+        "glm-4v",
+        "glm-4v-plus",
+        "glm-4v-flash",
+        "glm-4.5v",
+        "glm-5v",
+        "glm-5v-turbo",
+    }
+)
+
+
+def model_supports_vision(model_name: str) -> bool:
+    """判断模型是否支持图片输入。
+
+    规则：名称含 vision 一律支持；否则查白名单（AGENT_VISION_MODELS，逗号分隔），
+    白名单为空时回退内置默认集合（DeepSeek / GLM 视觉模型）。
+    """
+    m = str(model_name or "").strip().lower()
+    if not m:
+        return False
+    if "vision" in m:
+        return True
+    raw = str(_AGENT_CONFIG.get("AGENT_VISION_MODELS") or "").strip()
+    if raw:
+        whitelist = {x.strip().lower() for x in raw.replace(",", " ").split() if x.strip()}
+        return m in whitelist
+    return m in _VISION_MODEL_DEFAULT

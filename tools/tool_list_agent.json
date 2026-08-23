@@ -4001,7 +4001,7 @@
     {
       "name": "look_screenshot",
       "path": "tools/look_screenshot.py",
-      "purpose": "look_screenshot：用独立视觉模型查看本轮用户截图。主模型看不到像素。prompt 必填（≤4000字）；path / paths / attachment_ids 三个参数可同时使用，但必须至少传一个（见系统提示）；三个参数合计图片总数不超过 4 张（如 path 传 1 张 + paths 传 2 张 = 共 3 张）；超出或任一条定位失败均直接报错。单文件≤8MB；仅本会话 attachments 下的 jpg/png/webp/gif。prompt 须表达用户意图并导向答案。",
+      "purpose": "look_screenshot：用独立视觉模型查看本轮用户截图。仅当主模型看不到像素时使用该工具独立识别。prompt 必填（≤4000字）；path / paths / attachment_ids 三个参数可同时使用，但必须至少传一个（见系统提示）；三个参数合计图片总数不超过 4 张（如 path 传 1 张 + paths 传 2 张 = 共 3 张）；超出或任一条定位失败均直接报错。单文件≤8MB；仅本会话 attachments 下的 jpg/png/webp/gif。prompt 须表达用户意图并导向答案。",
       "stdout_output": "{ok,data:{description,vision_model,prompt,paths,attachment_ids}}",
       "args": [
         {

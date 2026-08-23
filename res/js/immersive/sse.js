@@ -499,7 +499,7 @@
             conversation_id: confirmCid,
             confirm: finalTxt,
             mode: col.s.selectedMode || IMM.selectedMode || "auto",
-            model: col.s.selectedModel || IMM.selectedModel || "deepseek-v4-flash",
+            model: col.s.selectedModel || IMM.selectedModel || "",
           }),
         });
         if (!r.ok) {
