@@ -174,9 +174,9 @@ def _read_ini(path: Path) -> Dict[str, Any]:
     cp.read(path, encoding="utf-8")
 
     result: Dict[str, Any] = {}
-    # 黑名单：这些节由独立模块自行读取（如 multimodal_proxy.py），config_loader 不负责识别
+    # 黑名单：这些节由独立模块自行读取（如 model_gateway.py），config_loader 不负责识别
     # 如需新增，直接追加节名到此集合即可
-    _IGNORED_SECTIONS = frozenset({"multimodal_proxy"})
+    _IGNORED_SECTIONS = frozenset({"model_gateway"})
     for section in cp.sections():
         if section in _IGNORED_SECTIONS:
             continue

@@ -312,10 +312,10 @@ def _compute_context_layout_payload(conversation_id: str, persisted: List[Dict[s
     )
     t_skill = _approx_tokens_text(skill_registry) + sum(_approx_tokens_text(c) for c in (auto_load_skills or []))
     t_kb = sum(_approx_tokens_text(k) for k in (kb_parts or []))
-    t_summary = sum(_approx_tokens_message(m) for m in summaries)
-    t_pure = sum(_approx_tokens_message(m) for m in pure_folded)
-    t_full = sum(_approx_tokens_message(m) for m in full_pre) + sum(_approx_tokens_message(m) for m in full_suf)
-    t_mode = _approx_tokens_message(mode_tail)
+    t_summary = sum(_cached_tokens_message(m) for m in summaries)
+    t_pure = sum(_cached_tokens_message(m) for m in pure_folded)
+    t_full = sum(_cached_tokens_message(m) for m in full_pre) + sum(_cached_tokens_message(m) for m in full_suf)
+    t_mode = _cached_tokens_message(mode_tail)
     mgr = _get_skill_manager()
     skill_count = mgr.registry_count
     auto_load_count = mgr.auto_load_count
@@ -454,6 +454,7 @@ def _fold_pure_window_for_api(msgs: List[Dict[str, Any]]) -> List[Dict[str, Any]
         if msgs[i].get("role") != "user":
             i += 1
             continue
+        _round_start = i
         _folded_user = _strip_internal_message_for_api(msgs[i])
         _fold_atts = _folded_user.pop("_attachments", None)
         if isinstance(_fold_atts, list) and _fold_atts:
@@ -470,6 +471,16 @@ def _fold_pure_window_for_api(msgs: List[Dict[str, Any]]) -> List[Dict[str, Any]
         while i < len(msgs) and msgs[i].get("role") != "user":
             chunk.append(msgs[i])
             i += 1
+        # 末尾进行中的一轮（工具链未收尾）不折叠：保持完整链进入 API 请求
+        if i >= len(msgs) and (
+            not chunk
+            or chunk[-1].get("role") != "assistant"
+            or bool(chunk[-1].get("tool_calls"))
+        ):
+            out[-1] = _strip_internal_message_for_api(msgs[_round_start])
+            for _rm in chunk:
+                out.append(_strip_internal_message_for_api(_rm))
+            continue
         last_asst: Optional[Dict[str, Any]] = None
         for rm in chunk:
             if rm.get("role") == "assistant":
@@ -573,7 +584,7 @@ def _maybe_schedule_summarization(cid: str, messages: List[Dict[str, Any]]) -> N
         if alive is not None and time.time() >= alive:
             SUMMARY_IN_PROGRESS.pop(cid, None)
             alive = None
-        total_tokens = cm.total_token_estimate(_approx_tokens_message)
+        total_tokens = cm.total_token_estimate(_cached_tokens_message)
         if total_tokens <= cm.summary_token_threshold:
             return
         if alive is not None:
@@ -617,6 +628,169 @@ def _maybe_schedule_summarization(cid: str, messages: List[Dict[str, Any]]) -> N
 
     threading.Thread(target=_run, daemon=True).start()
 
+
+def _budget_failure(cid: str, used: int) -> Optional[str]:
+    """超过配置的压缩阈值时给出失败原因，供调用方快速失败；未超返回 None。
+
+    失败线用 [context] summary_token_threshold（配置里声明的可运行上限），而不是模型硬上限：
+    token 估算按字符比例近似（AGENT_TOKEN_ESTIMATE_EN/ZH_PER_CHAR），本身带偏差，
+    配置阈值正是留给这份偏差的余量；贴着模型上限跑，一旦低估就会被上游直接拒绝。
+    """
+    try:
+        limit = int(_context_manager_v2(cid).summary_token_threshold)
+    except Exception:
+        limit = int(CONTEXT_SUMMARY_TOKEN_THRESHOLD)
+    if int(used) < limit:
+        return None
+    return (
+        f"会话上下文已达上限：估算 {int(used)} tokens，配置上限 {limit} tokens"
+        f"（[context] summary_token_threshold）。"
+        f"已尝试压缩仍无法降到上限内（单个 user 轮内的工具调用按轮粒度不可压缩）。"
+        f"请新建会话继续，或调整 [context] 的 summary_token_threshold / full_user_rounds / pure_user_rounds。"
+    )
+
+
+# ── 消息 token 估算缓存 ──────────────────────────────────────────
+# total_token_estimate 是逐字符 Python 循环；工具轮次里每轮都对整个上下文重跑一遍，
+# 已算过的消息纯属重复劳动。持久化消息是追加式的（压缩只删不改），按内容指纹缓存即可。
+# 注意：_build_context_segments 产出的是 _strip_internal_message_for_api 的副本，
+# 副本没有 _agent_message_id，所以缓存键必须基于内容而不是消息 id。
+_MSG_TOKEN_CACHE: Dict[int, int] = {}
+_MSG_TOKEN_CACHE_MAX = 20000
+
+
+def _tokens_cache_key(m: Dict[str, Any]) -> Optional[int]:
+    """按参与估算的字段生成缓存键（全是 C 速度操作，不碰逐字符循环）。"""
+    if not isinstance(m, dict):
+        return None
+    try:
+        content = m.get("content")
+        if isinstance(content, (list, dict)):
+            c = json.dumps(content, ensure_ascii=False)
+        else:
+            c = str(content or "")
+        rc = m.get("reasoning_content")
+        tc = m.get("tool_calls")
+        att = m.get("_attachments")
+        return hash((
+            c,
+            str(rc) if isinstance(rc, str) else "",
+            json.dumps(tc, ensure_ascii=False) if isinstance(tc, list) and tc else "",
+            len(att) if isinstance(att, list) else 0,
+        ))
+    except (TypeError, ValueError):
+        return None
+
+
+def _cached_tokens_message(m: Dict[str, Any]) -> int:
+    """带缓存的消息 token 估算；估算公式与 _approx_tokens_message 完全一致。"""
+    key = _tokens_cache_key(m)
+    if key is None:
+        return _approx_tokens_message(m)
+    hit = _MSG_TOKEN_CACHE.get(key)
+    if hit is not None:
+        return hit
+    n = _approx_tokens_message(m)
+    if len(_MSG_TOKEN_CACHE) >= _MSG_TOKEN_CACHE_MAX:
+        _MSG_TOKEN_CACHE.clear()
+    _MSG_TOKEN_CACHE[key] = n
+    return n
+
+
+def _recount_context_tokens(cid: str, messages: List[Dict[str, Any]]) -> int:
+    """压缩后重新估算当前上下文 token。"""
+    try:
+        cm = _context_manager_v2(cid)
+        cm.rebuild_from_persisted(messages, _build_context_segments, cid)
+        return cm.total_token_estimate(_cached_tokens_message)
+    except Exception:
+        return 0
+
+
+def _ensure_context_within_budget(
+    cid: str, messages: List[Dict[str, Any]]
+) -> Tuple[bool, Optional[str]]:
+    """LLM 请求前同步压缩：先合并已完成的 pending 摘要；仍超阈值则同步生成摘要并当场合并。
+
+    返回 (messages 是否被修改, 超限失败原因 or None)。
+    第二个值非空表示压缩后仍超过硬上限，调用方应快速失败，而不是把超限请求打到上游等报错卡死。
+    摘要失败时原样放行，不阻断请求。
+    """
+    if not cid or not messages:
+        return False, None
+    changed = _merge_pending_excerpts_for_conversation(cid, messages)
+    cm = _context_manager_v2(cid)
+    cm.rebuild_from_persisted(messages, _build_context_segments, cid)
+    used = cm.total_token_estimate(_cached_tokens_message)
+    threshold = cm.summary_token_threshold
+    if used <= threshold:
+        return changed, _budget_failure(cid, used)
+    rng = cm.dialogue_summary_excerpt_half_open(messages)
+    if rng is None:
+        _n_user = sum(1 for _m in messages if _m.get("role") == "user")
+        _n_round = len({str(_m.get("_agent_round_id") or "") for _m in messages} - {""})
+        print(
+            f"[ctx] 超阈值但无可摘要区间: tokens={used}/{threshold} messages={len(messages)} "
+            f"user轮={_n_user} round数={_n_round} "
+            f"full_rounds={CONTEXT_FULL_USER_ROUNDS} pure_rounds={CONTEXT_PURE_USER_ROUNDS}"
+            f"{'  ← 只有一轮且超阈值：按轮粒度无法压缩' if _n_round <= 1 else ''}",
+            file=sys.stderr, flush=True,
+        )
+        return changed, _budget_failure(cid, used)
+    s_adj, e_adj = int(rng[0]), int(rng[1])
+    if s_adj >= e_adj:
+        print(f"[ctx] 区间为空: tokens={used}/{threshold} rng={rng}", file=sys.stderr, flush=True)
+        return changed, _budget_failure(cid, used)
+    excerpt_src = messages[s_adj:e_adj]
+    excerpt_round_ids = _round_ids_from_messages(excerpt_src)
+    if not excerpt_round_ids:
+        return changed, _budget_failure(cid, used)
+    with _SUMMARY_STATE_LOCK:
+        alive = SUMMARY_IN_PROGRESS.get(cid)
+        if alive is not None and time.time() >= alive:
+            SUMMARY_IN_PROGRESS.pop(cid, None)
+            alive = None
+        if alive is not None:
+            return changed, _budget_failure(cid, used)
+        SUMMARY_IN_PROGRESS[cid] = time.time() + SUMMARY_IN_PROGRESS_TTL_SEC
+    try:
+        slice_copy = _strip_tool_trace_for_summary(copy.deepcopy(excerpt_src))
+        text = _summarize_messages_slice_with_llm(slice_copy, cid)
+        if not str(text or "").strip():
+            return changed, _budget_failure(cid, used)
+        ts = int(time.time() * 1000)
+        EXCERPTS_DIR.mkdir(parents=True, exist_ok=True)
+        path = EXCERPTS_DIR / f"{cid}_{ts}.md"
+        meta = {
+            "round_ids": excerpt_round_ids,
+            "conversation_id": cid,
+            "end_exclusive": True,
+            "start_idx": s_adj,
+            "end_idx": e_adj,
+        }
+        header = "---\n" + json.dumps({"agent_excerpt_meta": meta}, ensure_ascii=False) + "\n---\n\n"
+        path.write_text(header + text, encoding="utf-8")
+        _n_before = len(messages)
+        if _merge_one_excerpt_file(path, messages, cid):
+            _mark_excerpt_merged(path)
+            CONVERSATIONS[cid] = messages
+            _save_conversation(cid, messages)
+            used = _recount_context_tokens(cid, messages)
+            print(
+                f"[ctx] 请求前压缩完成: 消息 {_n_before}->{len(messages)} 条 "
+                f"区间=[{s_adj},{e_adj}) 压缩后 tokens={used} 阈值={threshold}",
+                file=sys.stderr, flush=True,
+            )
+            return True, _budget_failure(cid, used)
+        return changed, _budget_failure(cid, used)
+    except Exception as exc:
+        print(f"WARN: pre-request summarization failed for {cid}: {exc}", file=sys.stderr, flush=True)
+        return changed, _budget_failure(cid, used)
+    finally:
+        with _SUMMARY_STATE_LOCK:
+            SUMMARY_IN_PROGRESS.pop(cid, None)
+
+
 def _merge_one_excerpt_file(p: Path, messages: List[Dict[str, Any]], cid: str = "") -> bool:
     try:
         raw = p.read_text(encoding="utf-8")
@@ -632,6 +806,8 @@ def _merge_one_excerpt_file(p: Path, messages: List[Dict[str, Any]], cid: str = 
         _remove_messages_by_round_ids(messages, round_ids)
         if len(messages) == n_before:
             return False
+        if cid:
+            _PURE_ANCHOR_CACHE.pop(cid, None)  # 会话被压缩改写 → 远期锚定失效
         _insert_summary_message(cid, messages, body)
         return True
     try:
@@ -649,29 +825,32 @@ def _merge_one_excerpt_file(p: Path, messages: List[Dict[str, Any]], cid: str = 
         return False
     e = min(e, len(messages))
     del messages[s:e]
+    if cid:
+        _PURE_ANCHOR_CACHE.pop(cid, None)  # 会话被压缩改写 → 远期锚定失效
     _insert_summary_message(cid, messages, body)
     return True
 
 def _merge_pending_excerpts_for_conversation(
     cid: str, messages: List[Dict[str, Any]], *, persist: bool = True
-) -> None:
+) -> bool:
     if not cid:
-        return
+        return False
     try:
-        _merge_pending_excerpts_for_conversation_impl(cid, messages, persist=persist)
+        return bool(_merge_pending_excerpts_for_conversation_impl(cid, messages, persist=persist))
     except Exception as exc:
         print(
             f"WARN: merge pending excerpts failed cid={cid}: {exc}",
             file=sys.stderr,
             flush=True,
         )
+        return False
 
 def _merge_pending_excerpts_for_conversation_impl(
     cid: str, messages: List[Dict[str, Any]], *, persist: bool = True
-) -> None:
+) -> bool:
     paths = _collect_excerpt_paths_to_merge(cid)
     if not paths:
-        return
+        return False
     changed = False
     for p in paths:
         rid_present = {
@@ -708,6 +887,7 @@ def _merge_pending_excerpts_for_conversation_impl(
         CONVERSATIONS[cid] = messages
         if persist:
             _save_conversation(cid, messages)
+    return changed
 
 def _message_id_set(msgs: List[Dict[str, Any]]) -> Set[str]:
     out: Set[str] = set()
@@ -884,26 +1064,40 @@ def _split_pure_and_full_dialogue(
     if k == 0:
         return [], [], []
 
-    fn = max(1, int(full_n))
+    fn = max(0, int(full_n))
     pn = max(0, int(pure_n))
 
     # ── 铁律：未压缩过 → 远期恒空，全部归近期 ──
-    if not has_compressed or pn <= 0:
+    if not has_compressed:
+        _PURE_ANCHOR_CACHE.pop(conversation_id, None)
+        return [], [], list(dialogue)
+
+    # ── 近期保留 0 条 → 一条完整对话都不留，全部折入远期（必须先判，否则被 pure=0 反转）──
+    if fn <= 0:
+        _PURE_ANCHOR_CACHE.pop(conversation_id, None)
+        return list(dialogue), [], []
+
+    # ── 无远期窗口（pure=0）但近期要保留完整链 → 全部留在近期 ──
+    if pn <= 0:
         _PURE_ANCHOR_CACHE.pop(conversation_id, None)
         return [], [], list(dialogue)
 
     # ── 已压缩过：远期锚定 ──
     if k <= fn + pn:
-        # 从缓存取锚定值；首次压缩时计算并缓存
+        keep = fn  # full=0 → 保持 0，不做抬升
         cached_pure = _PURE_ANCHOR_CACHE.get(conversation_id)
-        if cached_pure is not None:
+        if cached_pure is not None and 0 < cached_pure < k:
             pure_count = cached_pure
         else:
-            pure_count = max(0, k - fn)
-            if pure_count > 0 and conversation_id:
+            if cached_pure is not None:
+                _PURE_ANCHOR_CACHE.pop(conversation_id, None)  # 陈旧锚定 → 丢弃重算
+            pure_count = max(0, k - keep)
+            if 0 < pure_count < k and conversation_id:
                 _PURE_ANCHOR_CACHE[conversation_id] = pure_count
-        if pure_count == 0 or pure_count >= k:
+        if pure_count <= 0:
             return [], [], list(dialogue)
+        if pure_count >= k:
+            return list(dialogue), [], []  # full=0：不留完整链，全部折入远期
         pure_end = user_idxs[pure_count]
     else:
         # 远期锚定为前 pn 轮，近期自然增长

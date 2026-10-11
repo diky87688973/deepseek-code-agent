@@ -170,15 +170,19 @@ def dialogue_summary_excerpt_half_open_for_messages(
         return None
     user_idxs = [i for i, m in enumerate(messages) if m.get("role") == "user" and i >= fu]
     k = len(user_idxs)
-    fn = max(1, int(full_user_rounds))
+    fn = max(0, int(full_user_rounds))
     pn = max(0, int(pure_user_rounds))
     reserve = fn + pn
     if reserve <= 0:
-        return None
+        # 未配置任何保留窗口：至少保留当前活跃轮，其余全部可摘要
+        reserve = 1
     if k <= reserve:
-        if k <= fn:
+        # 保留最后 fn 轮完整链；full_user_rounds=0 时无完整链可留，
+        # 但仍必须保留当前活跃轮（否则没有任何可摘要内容）。
+        keep = fn if fn > 0 else 1
+        if k <= keep:
             return None
-        end_cap = user_idxs[k - fn]
+        end_cap = user_idxs[k - keep]
     else:
         end_cap = user_idxs[k - reserve]
     start0 = fu

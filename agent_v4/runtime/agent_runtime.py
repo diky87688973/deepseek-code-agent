@@ -206,6 +206,18 @@ class AgentRuntime:
                     conversation_id, messages, round_id=active_round_id, run_id=run_id
                 ))
                 return
+            # 每轮 LLM 请求前：超阈值则先同步压缩再发送（含多轮工具调用之间），避免超长导致整轮失败
+            _ctx_changed, _ctx_over = _ensure_context_within_budget(conversation_id, messages)
+            if _ctx_changed:
+                api_messages = _build_api_messages_for_model(messages, conversation_id)
+                yield _emit(_context_layout_event(conversation_id, messages))
+            if _ctx_over:
+                # 压缩后仍超硬上限：快速失败并告知，不再把超限请求打到上游等 API 报错后卡死
+                yield _emit({"type": "llm_response", "round": _round + 1, "params": {"error": _ctx_over}})
+                yield _emit({"type": "error", "where": "context_budget", "detail": _ctx_over})
+                CONVERSATIONS[conversation_id] = messages
+                _save_conversation(conversation_id, messages)
+                return
             yield _emit({"type": "llm_round", "round": _round + 1})
             reff = _get_reasoning_effort(conversation_id)
             messages_for_llm = self.scenario.with_ephemeral_tail(
@@ -862,6 +874,15 @@ class AgentRuntime:
             break
         else:
             # LLM 轮次用尽：无 tools 收尾一轮；ephemeral user 提示拟人收尾（不落盘）；次数见各 tool 返回 budget
+            _ctx_changed, _ctx_over = _ensure_context_within_budget(conversation_id, messages)
+            if _ctx_changed:
+                yield _emit(_context_layout_event(conversation_id, messages))
+            if _ctx_over:
+                yield _emit({"type": "llm_response", "round": MAX_TOOL_ROUNDS + 1, "params": {"error": _ctx_over}})
+                yield _emit({"type": "error", "where": "context_budget", "detail": _ctx_over})
+                CONVERSATIONS[conversation_id] = messages
+                _save_conversation(conversation_id, messages)
+                return
             api_messages = _build_api_messages_for_model(messages, conversation_id)
             wrap_messages = list(api_messages)
             rr_tail = _turn_rr_state.get("tail")

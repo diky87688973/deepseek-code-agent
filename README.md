@@ -139,7 +139,7 @@ pip install edge-tts
 
 ```text
 deepseek-code-agent/
-├── multimodal_proxy.py         # 多模态代理服务（Cursor 接入，独立进程）
+├── model_gateway.py            # 本地模型网关（Cursor 接入，独立进程）
 ├── deepseek_code_agent.py      # 直接启动入口
 ├── main_tray.py                # 系统托盘启动入口（Windows 任务栏图标）
 ├── agent_v4/                   # 宿主：HTTP、core 子模块、live_state
@@ -147,7 +147,8 @@ deepseek-code-agent/
 ├── 回归测试方案.md             # 发版/重构后回归（Layer 0～2）
 ├── config.ini                  # 配置文件
 ├── requirements.txt            # Python 依赖
-├── start.bat / start.sh        # 一键启动脚本
+├── start.bat / start.sh        # 一键启动主程序
+├── start_gateway.bat           # 一键启动本地模型网关
 ├── README.md                   # 本文件
 ├── 版本日志.md                 # 版本演进历史
 ├── 里程碑计划.md               # 版本演进与路线图
@@ -174,15 +175,16 @@ deepseek-code-agent/
 
 ---
 
-## 🔌 多模态代理服务（Cursor 接入）
+## 🔌 本地模型网关服务（Cursor 接入）
 
-`multimodal_proxy.py` 是一个独立的代理服务，作为 Cursor IDE 与 AI 模型之间的桥梁，提供 OpenAI 兼容 API。
+`model_gateway.py` 是一个只监听本机的独立服务，对外提供 OpenAI 兼容 API，后端转发 DeepSeek；
+图片以 `image_url` 原生透传，由 DeepSeek 视觉模型直接识别。
 
 ### 启动
 
 ```bash
 cd code-web-agent
-python multimodal_proxy.py
+python model_gateway.py
 ```
 
 默认监听 `http://127.0.0.1:18802`。如需 ngrok 内网穿透供 Cursor 云端访问：
@@ -194,11 +196,16 @@ ngrok http 18802
 ### 配置
 
 ```ini
-[multimodal_proxy]
+[model_gateway]
 api_key = 123                        # Cursor 配置的 API Key
 port = 18802                         # 监听端口
 bind = 127.0.0.1                     # 绑定地址
-debug_log = true                     # 是否打印 SSE 日志
+debug_log = false                    # 是否回显每个 SSE 分片（排查用，很啰嗦）
+context_dump = true                  # 是否把完整上下文写成 JSON 文件
+context_dir = temp/proxy_context     # 上下文目录（相对 runtime_data_root）
+prompt_inject = false                # 是否注入项目 agent 的系统提示词
+prompt_mode = prepend                # prepend=前置并保留客户端 system / replace=替换
+prompt_parts = code_hint,user_rules,tool_agent,catalog_hints   # 注入哪些段落
 
 [model_reasoning]
 # 推理模型（DeepSeek）
@@ -217,19 +224,19 @@ default_model = glm-5v-turbo
 
 1. Cursor Settings → Models → 开启自定义端点
 2. **Override OpenAI Base URL**: `http://127.0.0.1:18802/v1`（或 ngrok 公网地址）
-3. **API Key**: 与 `config.ini` 中 `[multimodal_proxy].api_key` 一致
+3. **API Key**: 与 `config.ini` 中 `[model_gateway].api_key` 一致
 4. **模型名**: 填写 `deepseek-v4-flash`（代理会忽略实际模型名，使用自身配置）
 
 ### 功能说明
 
 - **纯文本聊天**: 走 DeepSeek 流式推理，支持思考过程显示
-- **图片分析**: 上传截图或图片后，自动调用 GLM-5V 视觉模型分析
+- **图片分析**: `image_url` 原生透传给 DeepSeek 视觉模型，由模型直接识别
 - **工具调用**: 透传 Cursor 的工具定义（Read/Write/Shell 等），DeepSeek 可执行
 - **思考过程**: 流式返回 `reasoning_content` 字段，Cursor 识别后显示为思考面板
 
 ### 图片限制
 
-单次最多 4 张图片，超出返回错误。
+图片不再由代理二次处理：`image_url` 块（base64 data URI 或 http 地址）原样透传给 DeepSeek。
 
 ---
 
